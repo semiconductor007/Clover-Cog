@@ -1,0 +1,64 @@
+<RCC>
+    <qresource prefix="/character">
+        <file>Walk.png</file>
+        <file>Idle.png</file>
+    </qresource>
+    <qresource prefix="/objects">
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Fence's copiar.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/House.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Interior.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Maple Tree.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Plates.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Road copiar.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Spring Crops.png</file>
+        <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Sprite-0002.png</file>
+    </qresource>
+    <qresource prefix="/map">
+        <file>map.tmj</file>
+        <file>map.tmx</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Basic_Furniture.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Basic_Grass_Biom_things.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Basic_Plants.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Basic_tools_and_meterials.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Chest.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Egg_item.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Free_Chicken_House.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Paths.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Simple_Milk_and_grass_item.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Wood_Bridge.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Bitmask references 1.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Bitmask references 2.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Bitmask references gif.gif</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Doors.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Fences.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Grass.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Hills.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Tilled_Dirt.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Tilled_Dirt_v2.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Tilled_Dirt_Wide.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Tilled_Dirt_Wide_v2.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Water.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Wooden_House_Roof_Tilset.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Wooden_House_Walls_Tilset.png</file>
+        <file>map2.tmj</file>
+        <file>map3.tmj</file>
+        <file>map4.tmj</file>
+        <file>map5.tmj</file>
+    </qresource>
+    <qresource prefix="/tilesets">
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Tilesets/Grass.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Basic_Grass_Biom_things.png</file>
+        <file>Sprout Lands - Sprites - Basic pack/Sprout Lands - Sprites - Basic pack/Objects/Basic_Plants.png</file>
+        <file>sprout/Basic_Furniture.png</file>
+        <file>sprout/Basic_Grass_Biom_things.png</file>
+        <file>sprout/Basic_Plants.png</file>
+        <file>sprout/Basic_tools_and_meterials.png</file>
+        <file>sprout/Chest.png</file>
+        <file>sprout/Egg_item.png</file>
+        <file>sprout/Free_Chicken_House.png</file>
+        <file>sprout/Grass.png</file>
+        <file>sprout/Paths.png</file>
+        <file>sprout/Simple_Milk_and_grass_item.png</file>
+        <file>sprout/Wood_Bridge.png</file>
+    </qresource>
+</RCC>
