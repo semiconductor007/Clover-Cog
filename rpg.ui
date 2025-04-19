@@ -13,6 +13,19 @@
   <property name="windowTitle">
    <string>Widget</string>
   </property>
+  <widget class="QPushButton" name="pushButton">
+   <property name="geometry">
+    <rect>
+     <x>220</x>
+     <y>220</y>
+     <width>80</width>
+     <height>18</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>大声打电话说</string>
+   </property>
+  </widget>
  </widget>
  <resources/>
  <connections/>

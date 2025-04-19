@@ -8,6 +8,7 @@
 #include <QPixmap>
 #include <QFileInfo>
 
+
 struct Tileset {
     QPixmap texture;
     int firstGid;
@@ -25,6 +26,20 @@ public:
     int tileWidth() const { return m_tileWidth; }
     int tileHeight() const { return m_tileHeight; }
     const QVector<QVector<int>>& collisionLayer() const { return m_collisionLayer; }
+    void setViewportCenter(int x, int y); // 设置视口中心点
+    void setViewportSize(int width, int height);
+    int mapWidth() const { return m_mapWidth; }
+    int mapHeight() const { return m_mapHeight; }
+
+    int m_offsetX = 0; // 视口左上角在地图中的 X 偏移
+    int m_offsetY = 0; // 视口左上角在地图中的 Y 偏移
+    int offsetX() const { return m_offsetX; }
+    int offsetY() const { return m_offsetY; }
+    int viewportWidth() const { return width(); }
+    int viewportHeight() const { return height(); }
+
+
+
 
 
 protected:
@@ -39,9 +54,20 @@ private:
     int m_mapHeight = 0;               // 地图高度
     int m_firstGid = 1;                // 第一个图块的全局ID
     QVector<Tileset> m_tilesets;
+    int m_viewportWidth = 800; // 固定视口宽度
+    int m_viewportHeight = 600; // 固定视口高度
+
+
+
+
+
+
+
 
 
     QVector<QVector<int>> m_collisionLayer; // 新增碰撞层存储
 };
+
+
 
 #endif // MAPWIDGET_H

@@ -30,7 +30,8 @@ public:
 
 private:
      CollisionDetector* m_collisionDetector = nullptr;
-           QRect m_collisionArea; // 碰撞区域（相对于控件的位置）
+     QRect m_collisionArea; // 碰撞区域（相对于控件的位置）
+     QPoint m_absolutePos; // 角色在地图中的绝对坐标（像素）
 
 protected:
     // 新增：重写 showEvent 确保控件获取焦点

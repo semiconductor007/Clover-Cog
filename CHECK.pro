@@ -11,12 +11,18 @@ CONFIG += c++17
 SOURCES += \
     character.cpp \
     collisiondetector.cpp \
+    itembar.cpp \
     main.cpp \
+    mainwindow.cpp \
     mapwidget.cpp \
     rpg.cpp
 
 HEADERS += \
     collisiondetector.h \
+    item.h \
+    itembar.h \
+    itemmanager.h \
+    mainwindow.h \
     mapwidget.h \
     rpg.h
 

@@ -168,7 +168,7 @@ void ImageMovementWidget::updateAnimation() {
         return;
     }
 
-    const int step = 5;
+    const int step = 10;
 
     QWidget *mapWidget = qobject_cast<QWidget*>(parent());
     if (!mapWidget || mapWidget->width() <= 0) return;
@@ -197,47 +197,54 @@ void ImageMovementWidget::updateAnimation() {
         imageLabel->setPixmap(walkingDownFrames[currentDownFrameIndex]);
     }
 
-    const int validMapWidth = qMax(mapWidget->width(), this->width());
-    const int validMapHeight = qMax(mapWidget->height(), this->height());
-    const int maxX = validMapWidth - this->width();
-    const int maxY = validMapHeight - this->height();
 
 
-    // 独立处理各方向（支持斜向移动）
-    if (isMovingRight) newPos.rx() += step;
-    if (isMovingLeft) newPos.rx() -= step;
-    if (isMovingUp) newPos.ry() -= step;
-    if (isMovingDown) newPos.ry() += step;
+    QPoint newAbsolutePos = m_absolutePos; // 使用绝对坐标
 
-    // 精确边界约束
-    newPos.setX(qBound(0, newPos.x(), maxX));
-    newPos.setY(qBound(0, newPos.y(), maxY));
+    if (isMovingRight) newAbsolutePos.rx() += step;
+    if (isMovingLeft) newAbsolutePos.rx() -= step;
+    if (isMovingUp) newAbsolutePos.ry() -= step;
+    if (isMovingDown) newAbsolutePos.ry() += step;
 
-
-    // 计算全局碰撞矩形
-    QRect newCollisionRect = QRect(
-        newPos.x() + m_collisionArea.x(),
-        newPos.y() + m_collisionArea.y(),
+    // 碰撞检测（使用绝对坐标）
+    QRect newCollisionRect(
+        newAbsolutePos.x() + m_collisionArea.x(),
+        newAbsolutePos.y() + m_collisionArea.y(),
         m_collisionArea.width(),
         m_collisionArea.height()
         );
-
-    // 2. 使用 newCollisionRect 检测碰撞
-    if (m_collisionDetector && m_collisionDetector->isColliding(newCollisionRect)) {
-        qDebug() << "[碰撞] 位置：" << newCollisionRect;
-        return; // 阻止移动
+    if (m_collisionDetector->isColliding(newCollisionRect)) {
+        return;
     }
 
-    if (newPos != position) {
-        position = newPos;
-        this->move(position);
-        qDebug() << "[Position] Moved to:" << position;
+    m_absolutePos = newAbsolutePos;
+
+    // 获取父控件 MapWidget
+    MapWidget* map = qobject_cast<MapWidget*>(parent());
+    if (map) {
+        // 计算角色中心点
+        int centerX = m_absolutePos.x() + width() / 2;
+        int centerY = m_absolutePos.y() + height() / 2;
+
+        // 更新视口中心
+        map->setViewportCenter(centerX, centerY);
+
+        // 计算角色在视口中的相对位置并移动
+        QPoint relativePos(
+            m_absolutePos.x() - map->offsetX(),
+            m_absolutePos.y() - map->offsetY()
+            );
+        this->move(relativePos);
     }
+    // 通知地图控件更新视口
     // 空闲状态处理
     if (isIdle) {
         currentIdleFrameIndex = (currentIdleFrameIndex + 1) % idleFrames.size();
         imageLabel->setPixmap(idleFrames[currentIdleFrameIndex]);
     }
+
+
+
+
+
 }
-
-

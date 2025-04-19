@@ -28,13 +28,18 @@ void MapWidget::loadMap(const QString &tmjPath) {
     // 读取地图基本信息
     m_tileWidth = map["tilewidth"].toInt();     // 每个图块的宽度（像素）
     m_tileHeight = map["tileheight"].toInt();   // 每个图块的高度（像素）
-    qDebug()<<m_tileWidth<<"  "<<m_tileHeight<<"hhhhhhhhhh";
     m_mapWidth = map["width"].toInt();          // 地图宽度（图块数量）
     m_mapHeight = map["height"].toInt();        // 地图高度（图块数量）
+    m_offsetX = 0;
+    m_offsetY = 0;
+
+
+
 
     // 清空旧数据
     m_tilesets.clear();
     m_mapLayers.clear();
+
 
     // 加载所有图块集
     QJsonArray tilesets = map["tilesets"].toArray();
@@ -67,7 +72,8 @@ void MapWidget::loadMap(const QString &tmjPath) {
         QJsonObject layer = layerValue.toObject();
         QString layerName = layer["name"].toString();
         if (layer["type"].toString() == "tilelayer") {
-            // 获取图层尺寸（必须与地图尺寸一致）
+
+            // 非无限状态下获取图层尺寸（必须与地图尺寸一致）
             int layerWidth = layer["width"].toInt();
             int layerHeight = layer["height"].toInt();
 
@@ -93,13 +99,13 @@ void MapWidget::loadMap(const QString &tmjPath) {
                 m_collisionLayer = layerData;
                 qDebug() << "已加载碰撞层，数据大小:" << m_collisionLayer.size() << "x" << m_collisionLayer[0].size();
             }
-            qDebug() << "===== 碰撞层数据样本 =====";
+
             for (int y = 0; y < 5 && y < m_collisionLayer.size(); ++y) {
                 QString line;
                 for (int x = 0; x < 5 && x < m_collisionLayer[y].size(); ++x) {
                     line += QString::number(m_collisionLayer[y][x]) + " ";
                 }
-                qDebug() << line;
+
             }
 
                 m_mapLayers.append(layerData);
@@ -110,27 +116,37 @@ void MapWidget::loadMap(const QString &tmjPath) {
     }
 
     update();
-    setFixedSize(m_mapWidth * m_tileWidth, m_mapHeight * m_tileHeight);
     updateGeometry();
-    qDebug() << "===== 碰撞层数据样本 =====";
+
     for (int y = 0; y < 5 && y < m_collisionLayer.size(); ++y) {
         QString line;
         for (int x = 0; x < 5 && x < m_collisionLayer[y].size(); ++x) {
             line += QString::number(m_collisionLayer[y][x]) + " ";
         }
-        qDebug() << line;
+
     }
 }
 
 void MapWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
 
-    // 遍历所有图层（从底层到顶层）
-    for (const auto &layerData : m_mapLayers) {
-        for (int y = 0; y < m_mapHeight; y++) {
-            for (int x = 0; x < m_mapWidth; x++) {
+    // 计算视口覆盖的图块范围（基于偏移量）
+    int startTileX = m_offsetX / m_tileWidth;
+    int startTileY = m_offsetY / m_tileHeight;
+    int endTileX = qMin((m_offsetX + width()) / m_tileWidth + 1, m_mapWidth);
+    int endTileY = qMin((m_offsetY + height()) / m_tileHeight + 1, m_mapHeight);
+
+    // 遍历所有图层
+    for (const auto& layerData : m_mapLayers) {
+        for (int y = startTileY; y < endTileY; ++y) {
+            for (int x = startTileX; x < endTileX; ++x) {
                 int gid = layerData[y][x];
                 if (gid == 0) continue;
+
+                // 计算屏幕坐标（相对视口偏移）
+                int screenX = x * m_tileWidth - m_offsetX;
+                int screenY = y * m_tileHeight - m_offsetY;
+
 
                 for (int i = m_tilesets.size() - 1; i >= 0; --i) {
                     const Tileset &tileset = m_tilesets[i];
@@ -140,8 +156,8 @@ void MapWidget::paintEvent(QPaintEvent *event) {
                         int srcY = (localId / tileset.tilesPerRow) * tileset.tileHeight;
 
                         painter.drawPixmap(
-                            x * tileset.tileWidth,
-                            y * tileset.tileHeight,
+                            screenX,
+                            screenY,
                             tileset.tileWidth,
                             tileset.tileHeight,
                             tileset.texture,
@@ -155,6 +171,9 @@ void MapWidget::paintEvent(QPaintEvent *event) {
             }
         }
     }
+
+
+    QWidget::paintEvent(event); // 确保子控件被绘制
     // 调试：在正常图层上叠加绘制碰撞层
     if (!m_collisionLayer.isEmpty()) {
         painter.setBrush(QColor(255, 0, 0, 100)); // 半透明红色
@@ -164,8 +183,8 @@ void MapWidget::paintEvent(QPaintEvent *event) {
             for (int x = 0; x < m_collisionLayer[y].size(); ++x) {
                 if (m_collisionLayer[y][x] != 0) {
                     QRect tileRect(
-                        x * m_tileWidth,
-                        y * m_tileHeight,
+                        (x * m_tileWidth) - m_offsetX,  // 减去视口偏移
+                        (y * m_tileHeight) - m_offsetY,
                         m_tileWidth,
                         m_tileHeight
                         );
@@ -176,7 +195,34 @@ void MapWidget::paintEvent(QPaintEvent *event) {
     }
 
 
-      QWidget::paintEvent(event); // 确保子控件被绘制
     // mapwidget.cpp 中加载碰撞层后添加检查
 
 }
+
+void MapWidget::setViewportSize(int width, int height) {
+    m_viewportWidth = width;
+    m_viewportHeight = height;
+    update();
+}
+
+void MapWidget::setViewportCenter(int x, int y) {
+    // 计算地图总像素尺寸
+    int mapPixelWidth = m_mapWidth * m_tileWidth;
+    int mapPixelHeight = m_mapHeight * m_tileHeight;
+
+    // 计算最大允许偏移（确保不显示黑边）
+    int maxOffsetX = qMax(0, mapPixelWidth - width());
+    int maxOffsetY = qMax(0, mapPixelHeight - height());
+
+    // 计算新偏移（让角色位于视口中央）
+    int newOffsetX = x - width() / 2;
+    int newOffsetY = y - height() / 2;
+
+    // 约束偏移范围
+    m_offsetX = qBound(0, newOffsetX, maxOffsetX);
+    m_offsetY = qBound(0, newOffsetY, maxOffsetY);
+
+    update(); // 触发重绘
+}
+
+
