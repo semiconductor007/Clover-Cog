@@ -1,4 +1,5 @@
 #include "mapwidget.h"
+#include "tooltype.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -6,8 +7,11 @@
 #include <QPainter>
 #include <QDebug>
 #include <QFileInfo>
+#include <QMouseEvent>
 
-MapWidget::MapWidget(QWidget *parent) : QWidget(parent) {}
+MapWidget::MapWidget(QWidget *parent) : QWidget(parent) {
+setAttribute(Qt::WA_InputMethodEnabled, false);
+}
 
 void MapWidget::loadMap(const QString &tmjPath) {
 
@@ -225,4 +229,11 @@ void MapWidget::setViewportCenter(int x, int y) {
     update(); // 触发重绘
 }
 
+void MapWidget::mousePressEvent(QMouseEvent* event) {
+
+
+    // 触发工具动作（需传递到角色控件）
+    emit mapClicked(event->pos());  // 通过信号传递点击事件
+    QWidget::mousePressEvent(event);
+}
 

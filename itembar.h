@@ -17,7 +17,7 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 signals:
-    void itemSelected(int index, const QString &itemName);
+    void itemSelected(int index);
     void itemEquipped(int slot, bool equipped);
 
 private:

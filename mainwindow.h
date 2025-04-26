@@ -11,6 +11,7 @@ class MainWindow : public QMainWindow {
 public:
     MainWindow(QWidget *parent = nullptr);
 
+
 private:
     ItemBar *itemBar;
     MapWidget *mapWidget;

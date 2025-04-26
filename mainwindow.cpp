@@ -22,6 +22,8 @@ MainWindow::MainWindow(QWidget *parent)
         );
     character->setInitialPosition(initialPos);
 
+
+
     // 初始化物品栏（父控件为 mapWidget）
     itemBar = new ItemBar(mapWidget);
     itemBar->raise(); // 显示在最上层
@@ -36,17 +38,23 @@ MainWindow::MainWindow(QWidget *parent)
         itemBarHeight
         );
 
-    // ==================== 信号连接 ====================
-    // 物品栏选中物品时更新角色状态
-    connect(itemBar, &ItemBar::itemSelected, [=](int index, const QString &item){
-        qDebug() << "使用物品:" << index << item;
-        // 这里可以添加物品使用逻辑
+
+    connect(mapWidget, &MapWidget::mapClicked, [this](QPoint pos) {
+        // 通过character获取当前工具
+        const ToolProperty &tool = character->getCurrentTool();
+            qDebug() << "=== 鼠标点击事件 ===";
+        qDebug() << "点击位置:" << pos << "当前工具:" << tool.name;
+        character->handleToolAction();
     });
 
-    // 物品装备状态变化时更新角色属性
-    connect(itemBar, &ItemBar::itemEquipped, [=](int slot, bool equipped){
-        qDebug() << "装备状态变化 - 槽位:" << slot << "状态:" << equipped;
-    });
+    // 连接物品栏的索引变化信号到角色工具切换
+    connect(itemBar, &ItemBar::itemSelected,
+            character, &ImageMovementWidget::setCurrentTool);
+
+
+
+
+
 
      // 为窗口安装事件过滤器
     this->installEventFilter(this);
@@ -54,10 +62,31 @@ MainWindow::MainWindow(QWidget *parent)
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     if (event->type() == QEvent::Wheel) {
-        // 将滚轮事件转发给 ItemBar
-        QWheelEvent *wheelEvent = static_cast<QWheelEvent*>(event);
-        itemBar->wheelEvent(wheelEvent); // 手动调用 ItemBar 的滚轮处理
-        return true; // 阻止事件继续传播
+        itemBar->wheelEvent(static_cast<QWheelEvent*>(event));
+        return true; // 拦截滚轮事件
+    }
+
+    if (event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            qDebug() << "[MainWindow] 鼠标点击位置（窗口坐标）:" << mouseEvent->pos();
+
+            // 获取地图控件的滚动偏移
+            int mapOffsetX = mapWidget->offsetX();
+            int mapOffsetY = mapWidget->offsetY();
+
+            // 计算实际点击位置在地图中的全局坐标
+            QPoint mapGlobalPos = mapWidget->mapToGlobal(QPoint(0, 0));
+            QPoint actualMapPos = mouseEvent->pos() + QPoint(mapOffsetX, mapOffsetY);
+
+            // 转换为角色控件的局部坐标
+            QPoint characterLocalPos = character->mapFromGlobal(actualMapPos + mapGlobalPos);
+            if (character->rect().contains(characterLocalPos)) {
+                qDebug() << "点击在角色控件内";
+                character->handleToolAction();
+            }
+            return false; // 允许事件继续传递
+        }
     }
     return QMainWindow::eventFilter(watched, event);
 }
@@ -66,9 +95,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
-    // 设置抗锯齿（可选）
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+
 
     MainWindow mainWindow;
     mainWindow.show();

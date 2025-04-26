@@ -47,4 +47,8 @@
         <file>itembar/itembar5.png</file>
         <file>itembar/itembar2.png</file>
     </qresource>
+    <qresource prefix="/characte">
+        <file>sprout/Sprout Lands - Sprites - premium pack/Characters/Premium Charakter Spritesheet.png</file>
+        <file>Premium Charakter Spritesheet.png</file>
+    </qresource>
 </RCC>

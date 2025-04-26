@@ -42,8 +42,11 @@ public:
 
 
 
+
+
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent* event) override;
 
 private:
    QVector<QVector<QVector<int>>> m_mapLayers;   // 地图数据
@@ -56,16 +59,18 @@ private:
     QVector<Tileset> m_tilesets;
     int m_viewportWidth = 800; // 固定视口宽度
     int m_viewportHeight = 600; // 固定视口高度
-
-
-
-
-
-
-
-
-
     QVector<QVector<int>> m_collisionLayer; // 新增碰撞层存储
+
+signals:  // 新增信号声明
+    void mapClicked(QPoint pos);  // 声明点击信号
+
+
+
+
+
+
+
+
 };
 
 

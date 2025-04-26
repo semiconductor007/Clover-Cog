@@ -15,12 +15,13 @@ ItemBar::ItemBar(QWidget *parent) : QWidget(parent) {
 
 void ItemBar::wheelEvent(QWheelEvent *event) {
     int delta = event->angleDelta().y();
-    if (delta != 0) {
-        m_currentIndex = (m_currentIndex + (delta > 0 ? -1 : 1)) % 6;
-        m_currentIndex = (m_currentIndex + 6) % 6;
-        updateItemDisplay();
+    if (delta > 0) {
+        m_currentIndex = (m_currentIndex - 1 + 6) % 6; // 向上滚动减1
+    } else {
+        m_currentIndex = (m_currentIndex + 1) % 6; // 向下滚动加1
     }
-    event->accept(); // 仅接受事件，不调用基类
+    updateItemDisplay();
+    emit itemSelected(m_currentIndex); // 仅传递索引
 }
 
 void ItemBar::paintEvent(QPaintEvent *event) {
