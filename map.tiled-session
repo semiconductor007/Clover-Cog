@@ -1,0 +1,66 @@
+{
+    "activeFile": "tsx/Farming Plants.tsx",
+    "expandedProjectPaths": [
+    ],
+    "file.lastUsedOpenFilter": "全部文件 (*)",
+    "fileStates": {
+        ".tsx/Basic_Grass_Biom_things.tsx": {
+            "scaleInEditor": 1
+        },
+        ".tsx/Grass.tsx": {
+            "scaleInEditor": 1
+        },
+        ".tsx/Tilled_Dirt_Wide_v2.tsx": {
+            "scaleInEditor": 1
+        },
+        "map6.tmj": {
+            "scale": 5.5,
+            "selectedLayer": 2,
+            "viewCenter": {
+                "x": 392,
+                "y": 239.90909090909093
+            }
+        },
+        "tsx/Basic_Grass_Biom_things.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "tsx/Farming Plants.tsx": {
+            "scaleInDock": 4,
+            "scaleInEditor": 8
+        },
+        "tsx/Grass.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "tsx/Tilled_Dirt_Wide_v2.tsx": {
+            "scaleInDock": 2,
+            "scaleInEditor": 4
+        }
+    },
+    "last.imagePath": "D:/Qt/QTDocuments/Sprount/sprout",
+    "openFiles": [
+        "map6.tmj",
+        "tsx/Basic_Grass_Biom_things.tsx",
+        "tsx/Grass.tsx",
+        "tsx/Tilled_Dirt_Wide_v2.tsx",
+        "tsx/Farming Plants.tsx"
+    ],
+    "project": "map.tiled-project",
+    "property.type": "int",
+    "recentFiles": [
+        "map6.tmj",
+        "tsx/Basic_Grass_Biom_things.tsx",
+        "tsx/Grass.tsx",
+        "tsx/Tilled_Dirt_Wide_v2.tsx",
+        "tsx/Farming Plants.tsx",
+        ".tsx/Tilled_Dirt_Wide_v2.tsx",
+        ".tsx/Grass.tsx",
+        ".tsx/Basic_Grass_Biom_things.tsx"
+    ],
+    "tileset.lastUsedFormat": "tsx",
+    "tileset.tileSize": {
+        "height": 16,
+        "width": 16
+    }
+}

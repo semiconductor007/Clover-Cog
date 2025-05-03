@@ -1,3 +1,4 @@
+//itembar.cpp
 #include "itembar.h"
 #include <QWheelEvent>
 #include <QPainter>

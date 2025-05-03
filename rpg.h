@@ -1,3 +1,4 @@
+//rpg.h
 #include "collisiondetector.h"
 #include "tooltype.h"
 
@@ -24,6 +25,11 @@
 
 class ImageMovementWidget : public QWidget {
     Q_OBJECT
+private:
+     CollisionDetector* m_collisionDetector = nullptr;
+     QRect m_collisionArea; // 碰撞区域（相对于控件的位置）
+     QPoint m_absolutePos; // 角色在地图中的绝对坐标（像素）
+     QRect m_attackArea;  // 添加攻击区域成员变量
 public:
     ImageMovementWidget(QWidget *parent = nullptr);
     void setInitialPosition(const QPoint &pos); // 新增方法
@@ -33,22 +39,19 @@ public:
 
 
 
-private:
-     CollisionDetector* m_collisionDetector = nullptr;
-     QRect m_collisionArea; // 碰撞区域（相对于控件的位置）
-     QPoint m_absolutePos; // 角色在地图中的绝对坐标（像素）
-
 protected:
     // 新增：重写 showEvent 确保控件获取焦点
     void showEvent(QShowEvent *event) override {
         setFocus();
         QWidget::showEvent(event);
     }
+    void mousePressEvent(QMouseEvent* event) override;
 
 
 public slots:
     void setCurrentTool(int toolIndex); // 根据物品栏索引切换工具
-
+     void useHoe(QPoint mapPos);
+    void useWheat(QPoint clickPos);
 private://工具动画
     ToolProperty m_currentTool; // 当前装备的工具属性
     QVector<ToolProperty> m_tools; // 工具属性列表

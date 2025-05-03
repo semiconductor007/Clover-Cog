@@ -1,3 +1,4 @@
+//rpg.cpp
 #include "rpg.h"
 #include "mapwidget.h"
 #include<QMouseEvent>
@@ -34,7 +35,7 @@ ImageMovementWidget::ImageMovementWidget(QWidget *parent) : QWidget(parent) {
         {ToolType::Axe,         "斧子",    30, ":/characte/Premium Charakter Spritesheet.png"},
         {ToolType::Hoe,         "锄头",    15, ":/characte/Premium Charakter Spritesheet.png"},
         {ToolType::WateringCan, "水壶",    5,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Seed1,       "向日葵种子",0, ":/anim/planting.png"},
+        {ToolType::Wheat,       "小麦种子",0, ":/anim/planting.png"},
         {ToolType::Seed2,       "土豆种子", 0, ":/anim/planting.png"}
     };
     m_currentTool = m_tools[0]; // 初始化为空手
@@ -56,8 +57,8 @@ ImageMovementWidget::ImageMovementWidget(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_AcceptTouchEvents, false);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
-
-
+    // 在构造函数中修改攻击区域
+    m_attackArea = QRect(0, 0, 48, 48);  // 扩大为完整角色尺寸
 }
 
 //切换工具
@@ -250,6 +251,55 @@ void ImageMovementWidget::keyReleaseEvent(QKeyEvent *event) {
     event->accept();
 }
 
+void ImageMovementWidget::mousePressEvent(QMouseEvent* event) {
+    if (m_currentTool.type == ToolType::Axe) {
+        MapWidget* map = qobject_cast<MapWidget*>(parent());
+        if (map) {
+            // 添加详细调试信息
+            qDebug() << "=== 斧头攻击事件 ===";
+            qDebug() << "角色绝对坐标：" << m_absolutePos;
+            qDebug() << "地图偏移量：" << map->offsetX() << "," << map->offsetY();
+            
+            // 根据角色朝向计算攻击位置
+            // 修改后的角色中心点计算（48为角色尺寸）
+            QPoint charTilePos(
+                (m_absolutePos.x() + 24 - map->offsetX()) / map->tileWidth(),
+                (m_absolutePos.y() + 24 - map->offsetY()) / map->tileHeight()
+            );
+            
+            QPoint attackPos = charTilePos;
+            switch(m_lastDirection) {
+                case Direction::Up:    
+                    attackPos.ry()--; 
+                    qDebug() << "攻击方向：上方";
+                    break;
+                case Direction::Down:  
+                    attackPos.ry()++; 
+                    qDebug() << "攻击方向：下方";
+                    break;
+                case Direction::Left:  
+                    attackPos.rx()--; 
+                    qDebug() << "攻击方向：左侧";
+                    break;
+                case Direction::Right: 
+                    attackPos.rx()++; 
+                    qDebug() << "攻击方向：右侧";
+                    break;
+            }
+            
+            qDebug() << "计算后的攻击图块位置：" << attackPos;
+            
+            if (map->hasTreeAt(attackPos)) {
+                bool success = map->modifyTreeHealth(attackPos, m_currentTool.damage);
+                qDebug() << "攻击结果：" << (success ? "成功" : "失败");
+            } else {
+                qDebug() << "目标位置没有可交互的树木";
+            }
+        }
+    }
+    QWidget::mousePressEvent(event);
+}
+
 void ImageMovementWidget::updateAnimation() {
     if (m_isActing) return;
     if (!m_collisionDetector) {
@@ -390,5 +440,57 @@ void ImageMovementWidget::handleToolAction() {
         m_actionTimer->start(100); // 每100ms更新一帧
     } else {
         m_isActing = false;
+    }
+}
+
+// rpg.cpp 中实现
+void ImageMovementWidget::useHoe(QPoint clickPos) {
+
+    MapWidget* map = qobject_cast<MapWidget*>(parent());
+    if (!map || m_currentTool.type != ToolType::Hoe) return;
+
+    // 修正：先转换为地图控件坐标系再计算全局坐标
+    QPoint mapLocalPos = map->mapFromParent(clickPos);
+    int globalX = mapLocalPos.x() + map->offsetX();
+    int globalY = mapLocalPos.y() + map->offsetY();
+
+    int tileX = globalX / map->tileWidth();
+    int tileY = globalY / map->tileHeight();
+
+    tileX = qBound(0, tileX, map->mapWidth()-1);
+    tileY = qBound(0, tileY, map->mapHeight()-1);
+
+    qDebug() << "实际耕作坐标:" << tileX << tileY
+             << "可耕作状态:" << map->isTileCultivatable(tileX, tileY, 13);
+
+    if (map->isTileCultivatable(tileX, tileY, 13)) {
+        map->cultivateTile(tileX, tileY);
+    }
+}
+
+void ImageMovementWidget::useWheat(QPoint clickPos) {
+
+    MapWidget* map = qobject_cast<MapWidget*>(parent());
+    if (!map || m_currentTool.type != ToolType::Wheat) return;
+
+    // 转换坐标为地图控件局部坐标
+    QPoint mapLocalPos = map->mapFromParent(clickPos);
+
+    // 计算全局地图坐标（考虑滚动偏移）
+    int globalX = mapLocalPos.x() + map->offsetX();
+    int globalY = mapLocalPos.y() + map->offsetY();
+
+    // 转换为图块坐标
+    int tileX = globalX / map->tileWidth();
+    int tileY = globalY / map->tileHeight();
+
+    // 添加调试输出
+    qDebug() << "[种植尝试] 窗口坐标:" << clickPos
+             << "→ 地图坐标:" << QPoint(tileX, tileY)
+             << " 耕地状态:" << map->isPlantable(tileX, tileY, 148);
+
+    if (map->isPlantable(tileX, tileY, 148)) {
+        map->plantSeed(QPoint(tileX, tileY)); // 必须显式调用plantSeed
+        qDebug() << "成功种植！位置:" << QPoint(tileX, tileY);
     }
 }

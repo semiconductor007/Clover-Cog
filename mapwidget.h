@@ -1,5 +1,5 @@
 
-
+//mapwidget.h
 #ifndef MAPWIDGET_H
 #define MAPWIDGET_H
 
@@ -37,9 +37,20 @@ public:
     int offsetY() const { return m_offsetY; }
     int viewportWidth() const { return width(); }
     int viewportHeight() const { return height(); }
+    bool hasTreeAt(const QPoint& tilePos) const;
+    bool modifyTreeHealth(const QPoint& tilePos, int damage);
+    
+    // Add this declaration
+    int tileAt(int x, int y) const;
 
-
-
+    void cultivateTile(int x, int y);
+    bool isTileCultivatable(int x, int y, int grassGid) const;
+    void setTimeReference(std::function<QPair<int,int>()> timeGetter) {
+        m_getGameTime = timeGetter;
+    }
+    void cropTile(int x, int y);
+    bool isPlantable(int x, int y, int cultivateGid);
+    void plantSeed(const QPoint& tilePos);
 
 
 
@@ -48,18 +59,47 @@ protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent* event) override;
 
+
 private:
-   QVector<QVector<QVector<int>>> m_mapLayers;   // 地图数据
-    QPixmap m_tileset;                 // 图块集图片
-    int m_tileWidth = 0;               // 图块宽度（像素）
-    int m_tileHeight = 0;              // 图块高度
-    int m_mapWidth = 0;                // 地图宽度（单位：图块）
-    int m_mapHeight = 0;               // 地图高度
-    int m_firstGid = 1;                // 第一个图块的全局ID
+    // 私有成员变量必须在类定义内部声明
+    std::function<QPair<int,int>()> m_getGameTime;
+    QVector<QVector<QVector<int>>> m_mapLayers;   
+    QPixmap m_tileset;
+    int m_tileWidth = 0;
+    int m_tileHeight = 0;
+    int m_mapWidth = 0;
+    int m_mapHeight = 0;
+    int m_firstGid = 1;
     QVector<Tileset> m_tilesets;
     int m_viewportWidth = 800; // 固定视口宽度
     int m_viewportHeight = 600; // 固定视口高度
     QVector<QVector<int>> m_collisionLayer; // 新增碰撞层存储
+    struct TreeInfo {
+        QPoint tilePos;
+        int health;
+        bool interactable;
+        bool cultivable = false;    // 是否可耕作
+        QString cropType;           // 作物类型
+        int growthStage = 0;        // 生长阶段
+    };
+    QHash<QPoint, TreeInfo> m_trees; // 使用QHash存储树木数据
+    QMap<int, TreeInfo> m_tilesetProperties; // 存储图块属性
+
+    QVector<QVector<int>> m_cultivatableLayer; // 可耕作图层
+    QVector<QVector<int>> m_cultivatedLayer;   // 耕地图层
+
+    void updateCultivatedTile(int x, int y);
+
+    QVector<QVector<int>> m_cropLayer; // 新增作物图层
+    QHash<QPoint, QDateTime> m_plantingTime; // 种植时间记录
+    QHash<QPoint, int> m_growthStages; // 生长阶段记录
+
+    int calculateGrowthStage(const QPoint& pos);
+    void updateGrowthStages();
+    QTimer* m_growthTimer; // 生长更新定时器
+
+
+
 
 signals:  // 新增信号声明
     void mapClicked(QPoint pos);  // 声明点击信号

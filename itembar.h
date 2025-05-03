@@ -1,3 +1,4 @@
+//itembar.h
 #ifndef ITEMBAR_H
 #define ITEMBAR_H
 

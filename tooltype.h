@@ -10,7 +10,7 @@ enum class ToolType {
     Axe,        // 斧子
     Hoe,        // 锄头
     WateringCan,// 水壶
-    Seed1,      // 种子1
+    Wheat,      // 种子1
     Seed2       // 种子2
 };
 

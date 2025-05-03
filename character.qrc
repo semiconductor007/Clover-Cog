@@ -14,15 +14,7 @@
         <file>Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Sprite-0002.png</file>
     </qresource>
     <qresource prefix="/map">
-        <file>map.tmj</file>
-        <file>map.tmx</file>
-        <file>map2.tmj</file>
-        <file>map3.tmj</file>
-        <file>map4.tmj</file>
-        <file>map5.tmj</file>
         <file>map6.tmj</file>
-        <file>map7.tmj</file>
-        <file>map8.tmj</file>
     </qresource>
     <qresource prefix="/tilesets">
         <file>sprout/Basic_Furniture.png</file>
@@ -37,6 +29,17 @@
         <file>sprout/Simple_Milk_and_grass_item.png</file>
         <file>sprout/Wood_Bridge.png</file>
         <file>sprout/Sprout Lands - Sprites - premium pack/Tilesets/ground tiles/Old tiles/Grass.png</file>
+        <file>Basic_Grass_Biom_things.tsx</file>
+        <file>sprout/Tilled_Dirt_Wide_v2.png</file>
+        <file>tsx/Basic_Grass_Biom_things.tsx</file>
+        <file>tsx/Grass.tsx</file>
+        <file>tsx/Tilled_Dirt_Wide_v2.tsx</file>
+        <file>sprout/Farming Plants.png</file>
+        <file>tsx/Farming Plants.tsx</file>
+        <file>sprout/pixel-letters-7-8x14.png</file>
+        <file>sprout/pixelFont-7-8x14-sproutLands.ttf</file>
+        <file>sprout/Sprite sheet for Basic Pack.png</file>
+        <file>sprout/clockbackground.png</file>
     </qresource>
     <qresource prefix="/ui">
         <file>sprout/Sprout Lands - UI Pack - Basic pack/Sprite sheets/Sprite sheet for Basic Pack.png</file>
