@@ -4,9 +4,19 @@
 #include<QMouseEvent>
 
 void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
-    position = pos;
-    this->move(position);
-    qDebug() << "[Position] Initialized to:" << position;
+    m_absolutePos = pos;
+
+    // 强制更新视口偏移
+    if (MapWidget* map = qobject_cast<MapWidget*>(parent())) {
+        map->setViewportCenter(
+            m_absolutePos.x() + width() / 2,
+            m_absolutePos.y() + height() / 2
+            );
+        this->move(m_absolutePos - QPoint(map->offsetX(), map->offsetY()));
+    }
+
+    qDebug() << "[Position] Initialized to Absolute:" << m_absolutePos
+             << " Relative:" << this->pos();
 }
 
 
@@ -36,7 +46,7 @@ ImageMovementWidget::ImageMovementWidget(QWidget *parent) : QWidget(parent) {
         {ToolType::Hoe,         "锄头",    15, ":/characte/Premium Charakter Spritesheet.png"},
         {ToolType::WateringCan, "水壶",    5,  ":/characte/Premium Charakter Spritesheet.png"},
         {ToolType::Wheat,       "小麦种子",0, ":/anim/planting.png"},
-        {ToolType::Seed2,       "土豆种子", 0, ":/anim/planting.png"}
+        {ToolType::Potato,       "土豆种子", 0, ":/anim/planting.png"}
     };
     m_currentTool = m_tools[0]; // 初始化为空手
 
@@ -161,7 +171,7 @@ void ImageMovementWidget::initUI() {
     imageLabel->setAlignment(Qt::AlignCenter); // 居中显示
     this->setFixedSize(48, 48); // 固定控件尺寸为角色大小
     imageLabel->setFixedSize(48, 48); // 确保标签尺寸一致
-    m_collisionArea = QRect(16, 16, 16, 16); // 中心16x16
+    m_collisionArea = QRect(20, 24, 8, 8); // 中心16x16
     // 设置透明背景
     imageLabel->setAttribute(Qt::WA_TranslucentBackground);
     imageLabel->setAutoFillBackground(false);
@@ -487,10 +497,28 @@ void ImageMovementWidget::useWheat(QPoint clickPos) {
     // 添加调试输出
     qDebug() << "[种植尝试] 窗口坐标:" << clickPos
              << "→ 地图坐标:" << QPoint(tileX, tileY)
-             << " 耕地状态:" << map->isPlantable(tileX, tileY, 148);
+             << " 耕地状态:" << map->isPlantable(tileX, tileY, 135);
 
-    if (map->isPlantable(tileX, tileY, 148)) {
+    if (map->isPlantable(tileX, tileY, 135)) {
         map->plantSeed(QPoint(tileX, tileY)); // 必须显式调用plantSeed
         qDebug() << "成功种植！位置:" << QPoint(tileX, tileY);
+    }
+}
+
+void ImageMovementWidget::usePotato(QPoint clickPos) {
+    MapWidget* map = qobject_cast<MapWidget*>(parent());
+    if (!map || m_currentTool.type != ToolType::Potato) return;
+
+    QPoint mapLocalPos = map->mapFromParent(clickPos);
+    int globalX = mapLocalPos.x() + map->offsetX();
+    int globalY = mapLocalPos.y() + map->offsetY();
+
+    int tileX = globalX / map->tileWidth();
+    int tileY = globalY / map->tileHeight();
+
+    qDebug() << "[马铃薯种植] 位置:" << QPoint(tileX, tileY);
+
+    if (map->isPlantable(tileX, tileY, 135)) {
+        map->plantSeed(QPoint(tileX, tileY)); // 新增作物类型参数
     }
 }

@@ -25,6 +25,7 @@ bool CollisionDetector::isColliding(const QRect &characterRect) const {
     for (int y = tileTop; y <= tileBottom; ++y) {
         for (int x = tileLeft; x <= tileRight; ++x) {
             if (m_collisionLayer[y][x] != 0) {
+                qDebug() << "[碰撞发生]";
                 return true; // 碰撞！
             }
         }

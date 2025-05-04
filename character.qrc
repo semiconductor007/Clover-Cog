@@ -15,6 +15,8 @@
     </qresource>
     <qresource prefix="/map">
         <file>map6.tmj</file>
+        <file>map7.tmj</file>
+        <file>map8.tmj</file>
     </qresource>
     <qresource prefix="/tilesets">
         <file>sprout/Basic_Furniture.png</file>
@@ -40,6 +42,17 @@
         <file>sprout/pixelFont-7-8x14-sproutLands.ttf</file>
         <file>sprout/Sprite sheet for Basic Pack.png</file>
         <file>sprout/clockbackground.png</file>
+        <file>wav/On_the_Farm.mp3</file>
+        <file>sprout/cropnum.png</file>
+        <file>sprout/cropnum0.png</file>
+        <file>sprout/Fences.png</file>
+        <file>sprout/Grass_Hill_Tiles_Slopes v.2.png</file>
+        <file>sprout/Grass_tiles_v2.png</file>
+        <file>sprout/Mushrooms, Flowers, Stones.png</file>
+        <file>sprout/Trees, stumps and bushes.png</file>
+        <file>sprout/Water Objects.png</file>
+        <file>sprout/Water.png</file>
+        <file>sprout/Wooden_Bridge.png</file>
     </qresource>
     <qresource prefix="/ui">
         <file>sprout/Sprout Lands - UI Pack - Basic pack/Sprite sheets/Sprite sheet for Basic Pack.png</file>
@@ -53,5 +66,9 @@
     <qresource prefix="/characte">
         <file>sprout/Sprout Lands - Sprites - premium pack/Characters/Premium Charakter Spritesheet.png</file>
         <file>Premium Charakter Spritesheet.png</file>
+    </qresource>
+    <qresource prefix="/sounds">
+        <file>wav/On_the_Farm.mp3</file>
+        <file>wav/On_the_Farm.wav</file>
     </qresource>
 </RCC>

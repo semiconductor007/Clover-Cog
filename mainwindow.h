@@ -6,6 +6,11 @@
 #include "itembar.h"
 #include "mapwidget.h"
 #include "rpg.h"
+#include <QSoundEffect>
+#include <QMediaPlayer>
+#include <QAudioOutput>
+
+
 
 class ClockBgWidget : public QWidget {
 public:
@@ -15,6 +20,7 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 private:
     QPixmap clockBg;
+    QPixmap m_cropNumImage;
 
 };
 
@@ -40,8 +46,13 @@ private:
     ItemBar* itemBar;
 
     QWidget *overlay; // 添加覆盖层控件声明
+    QLabel *m_wheatCountLabel;
+    int m_wheatCount = 0;
+    void updateWheatCountDisplay();
+
     ClockBgWidget *clockBgWidget;
     QPixmap background;
+
     QLabel *timeLabel;    // 显示时间的标签
     QFont digitalFont;    // 自定义字体对象
     QLabel *dayLabel;
@@ -49,6 +60,9 @@ private:
     bool loadCustomFont(); // 加载字体
     void resizeEvent(QResizeEvent *event) override;
     void loadBackground();   // 加载背景图
+
+    QMediaPlayer *m_player;
+    QAudioOutput *m_audioOutput;
 
 };
 

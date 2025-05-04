@@ -50,8 +50,9 @@ protected:
 
 public slots:
     void setCurrentTool(int toolIndex); // 根据物品栏索引切换工具
-     void useHoe(QPoint mapPos);
+    void useHoe(QPoint mapPos);
     void useWheat(QPoint clickPos);
+    void usePotato(QPoint clickPos);
 private://工具动画
     ToolProperty m_currentTool; // 当前装备的工具属性
     QVector<ToolProperty> m_tools; // 工具属性列表

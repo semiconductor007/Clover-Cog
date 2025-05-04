@@ -1,8 +1,10 @@
 //mainwinow.cpp
 #include "mainwindow.h"
+#include "mapwidget.h"
 #include <QApplication>
 #include <QDebug>
 #include <QFontDatabase>
+
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -13,10 +15,38 @@ MainWindow::MainWindow(QWidget *parent)
     ,dayLabel(new QLabel(overlay))
 {
 
+
+    // ==================== 音乐设置 ====================
+
+    m_player = new QMediaPlayer(this);
+    m_audioOutput = new QAudioOutput(this);
+    m_audioOutput->setVolume(0.5);
+    m_player->setAudioOutput(m_audioOutput);
+
+
+    // 监听媒体状态变化
+    connect(m_player, &QMediaPlayer::mediaStatusChanged, [this](QMediaPlayer::MediaStatus status) {
+        qDebug() << "MediaStatus:" << status;
+        if (status == QMediaPlayer::LoadedMedia) {
+            qDebug() << "开始播放...";
+            m_player->play();
+        }
+    });
+
+    // 监听播放状态变化
+    connect(m_player, &QMediaPlayer::playbackStateChanged, [](QMediaPlayer::PlaybackState state) {
+        qDebug() << "PlaybackState:" << state;
+    });
+
+    // 设置资源
+    QString filePath = "qrc:/sounds/wav/On_the_Farm.wav";
+    m_player->setSource(QUrl(filePath));
+
+
     m_gameTimer.start(); // 初始化计时器
     // ==================== 窗口基础设置 ====================
 
-    setFixedSize(520, 320);
+    resize(520, 320);
 
     // 地图控件尺寸与主窗口一致
     mapWidget->setFixedSize(520, 320);
@@ -32,16 +62,20 @@ MainWindow::MainWindow(QWidget *parent)
     overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
     overlay->setFixedSize(520, 320);
     overlay->raise(); // 关键修改：将覆盖层置底
+    m_wheatCountLabel = new QLabel(overlay);
+    m_wheatCountLabel->setAlignment(Qt::AlignCenter);
+    m_wheatCountLabel->setStyleSheet("color: white; font-weight: bold;");
+    m_wheatCountLabel->setFont(digitalFont); // 复用之前的像素字体
+    updateWheatCountDisplay(); // 初始化显示
 
 
     // ==================== 角色控件初始化 ====================
     character = new ImageMovementWidget(mapWidget);
-    // 初始位置设置为地图中心（根据地图尺寸动态计算）
-    QPoint initialPos(
-        mapWidget->tileWidth() * mapWidget->mapWidth() / 2,
-        mapWidget->tileHeight() * mapWidget->mapHeight() / 2
-        );
+    QPoint initialPos(250, 170);
     character->setInitialPosition(initialPos);
+    // 初始位置设置为地图中心（根据地图尺寸动态计算）
+    // QPoint initialPos(500, 200);
+    // character->setInitialPosition(initialPos);
 
 
 
@@ -73,12 +107,23 @@ MainWindow::MainWindow(QWidget *parent)
             character, &ImageMovementWidget::setCurrentTool);
 
     connect(mapWidget, &MapWidget::mapClicked, character, [this](QPoint pos){
-        if (character->getCurrentTool().type == ToolType::Hoe) {
+        auto tool = character->getCurrentTool();
+        if (tool.type == ToolType::Hoe) {
             character->useHoe(pos);
-        } else if (character->getCurrentTool().type == ToolType::Wheat) {
+        } else if (tool.type == ToolType::Wheat) {
             character->useWheat(pos);
+        } else if (tool.type == ToolType::Potato) {
+            character->usePotato(pos);
         }
     });
+
+    connect(mapWidget, &MapWidget::cropHarvested,
+            [this](MapWidget::CropType type) { // 使用作用域限定符
+                if(type == MapWidget::CropType::Wheat) {
+                    m_wheatCount++;
+                    updateWheatCountDisplay();
+                }
+            });
 
 
 
@@ -150,6 +195,28 @@ void ClockBgWidget::paintEvent(QPaintEvent *event)  {
         painter.drawPixmap(xPos, yPos, clockBg.scaled(targetSize, Qt::KeepAspectRatio));
         painter.drawPixmap(xPos, yPos+38, clockBg.scaled(targetSize, Qt::KeepAspectRatio));
     }
+    m_cropNumImage.load(":/tilesets/sprout/cropnum0.png");
+    if(m_cropNumImage.isNull()) {
+        qWarning() << "Failed to load cropnum.png";
+    }
+    if (!m_cropNumImage.isNull()) {
+        const int leftMargin = 0; // 左侧边距
+        const int topMargin = 240;  // 顶部边距
+        const int imgWidth = 38;   // 显示宽度
+        const int imgHeight = 68;  // 显示高度
+
+        QRect targetRect(
+            leftMargin,
+            topMargin,
+            imgWidth,
+            imgHeight
+            );
+
+        painter.drawPixmap(
+            targetRect,
+            m_cropNumImage.scaled(imgWidth, imgHeight, Qt::KeepAspectRatio)
+            );
+    }
 }
 
 
@@ -197,6 +264,26 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
             30                         // 高度
             );
     }
+
+    // 新作物计数布局
+    const int iconWidth = -2;
+    const int iconHeight = 236;
+    const int verticalSpacing = 5;
+    // 计算左上角定位
+    QPoint iconPos(20, 15); // 左上角留出20x15边距
+    QPoint labelPos(
+        iconPos.x() + (iconWidth - m_wheatCountLabel->width())/2, // 水平居中
+        iconPos.y() + iconHeight + verticalSpacing
+        );
+
+    m_wheatCountLabel->move(labelPos);
+
+
+}
+
+void MainWindow::updateWheatCountDisplay() {
+    m_wheatCountLabel->setText(QString::number(m_wheatCount));
+    m_wheatCountLabel->adjustSize(); // 自动调整尺寸
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {

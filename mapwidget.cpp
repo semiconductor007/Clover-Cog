@@ -184,10 +184,13 @@ void MapWidget::loadMap(const QString &tmjPath) {
             if (lowerName.contains("collision")) {
                 m_collisionLayer = layerData;
             } else if (lowerName == "cultivatable") {
-                m_cultivatableLayer = layerData; // 不再加入 m_mapLayers
-                m_cultivatedLayer = QVector<QVector<int>>(m_mapHeight, QVector<int>(m_mapWidth, 0));
+                m_cultivatableLayer = layerData;
+                m_mapLayers.append(layerData);
+                // m_cultivatedLayer = QVector<QVector<int>>(m_mapHeight, QVector<int>(m_mapWidth, 0));
             }else if (lowerName =="cultivated"){
+                m_cultivatedLayer=layerData;
                 m_cultivatedLayer.resize(m_mapHeight);
+                m_mapLayers.append(layerData);
             }
             else if (lowerName == "crop") {  // 新增作物层处理
                 m_cropLayer = layerData;
@@ -340,15 +343,15 @@ void MapWidget::paintEvent(QPaintEvent *event) {
 
     if (!m_cultivatedLayer.isEmpty()) {
         for (const Tileset& ts : m_tilesets) {
-            if (148 >= ts.firstGid && 148 < ts.firstGid + ts.tilesPerRow * (ts.texture.height()/ts.tileHeight)) {
-                int localId = 148 - ts.firstGid;
+            if (135 >= ts.firstGid && 135 < ts.firstGid + ts.tilesPerRow * (ts.texture.height()/ts.tileHeight)) {
+                int localId = 135 - ts.firstGid;
                 int srcX = (localId % ts.tilesPerRow) * ts.tileWidth;
                 int srcY = (localId / ts.tilesPerRow) * ts.tileHeight;
 
                 // 绘制所有已耕作图块
                 for (int y = startTileY; y < endTileY; ++y) {
                     for (int x = startTileX; x < endTileX; ++x) {
-                        if (m_cultivatedLayer[y][x] == 148) {
+                        if (m_cultivatedLayer[y][x] == 135) {
                             int screenX = x * ts.tileWidth - m_offsetX;
                             int screenY = y * ts.tileHeight - m_offsetY;
                             painter.drawPixmap(screenX, screenY, ts.tileWidth, ts.tileHeight,
@@ -364,11 +367,11 @@ void MapWidget::paintEvent(QPaintEvent *event) {
     if (!m_cropLayer.isEmpty()) {
         for (const Tileset& ts : m_tilesets) {
             // 修改判断条件，检查图块集是否包含作物GID范围
-            if (ts.firstGid <= 256 && (ts.firstGid + ts.tilesPerRow*(ts.texture.height()/ts.tileHeight)) >= 253) {
+            if (ts.firstGid <= 243 && (ts.firstGid + ts.tilesPerRow*(ts.texture.height()/ts.tileHeight)) >= 253) {
                 for (int y = startTileY; y < endTileY; ++y) {
                     for (int x = startTileX; x < endTileX; ++x) {
                         int currentGid = m_cropLayer[y][x];
-                        if (currentGid < 253 || currentGid > 256) continue;
+                        if (currentGid < 240 || currentGid > 243) continue;
 
                         // 直接使用存储的 GID
                         int localId = currentGid - ts.firstGid;
@@ -427,6 +430,21 @@ void MapWidget::setViewportCenter(int x, int y) {
 
 void MapWidget::mousePressEvent(QMouseEvent* event) {
 
+    if(event->button() == Qt::LeftButton) {
+        // 转换点击坐标到图块位置
+        QPointF pos = event->position();
+        int tileX = (pos.x() + m_offsetX) / m_tileWidth;
+        int tileY = (pos.y() + m_offsetY) / m_tileHeight;
+
+        if(m_cropLayer[tileY][tileX] == 243) { // 小麦成熟阶段应为243
+            m_cropLayer[tileY][tileX] = 0;
+            QPoint key(tileX, tileY);
+            m_plantingTime.remove(key);                // 清除种植时间
+            m_growthStages.remove(key);
+            emit cropHarvested(MapWidget::CropType::Wheat);
+            update();
+        }
+    }
 
     // 触发工具动作（需传递到角色控件）
     emit mapClicked(event->pos());  // 通过信号传递点击事件
@@ -449,15 +467,15 @@ void MapWidget::updateCultivatedTile(int x, int y) {
     x = qBound(0, x, m_mapWidth - 1);
     y = qBound(0, y, m_mapHeight - 1);
 
-    m_cultivatedLayer[y][x] = 148;
-    qDebug() << "设置耕地图块GID:148 at (" << x << "," << y << ")";
+    m_cultivatedLayer[y][x] = 135;
+    qDebug() << "设置耕地图块GID:135 at (" << x << "," << y << ")";
 }
 
 void MapWidget::cultivateTile(int x, int y) {
     qDebug() << "耕作图块坐标：" << x << y;
 
-    m_cultivatedLayer[y][x] = 148;
-    qDebug() << "初始化耕地图块GID:148";
+    m_cultivatedLayer[y][x] = 135;
+    qDebug() << "初始化耕地图块GID:135";
     update();
 }
 
@@ -476,7 +494,7 @@ void MapWidget::cropTile(int x, int y) {
     if (x < 0 || x >= m_mapWidth || y < 0 || y >= m_mapHeight)
         return;
 
-    m_cropLayer[y][x] = 253;
+    m_cropLayer[y][x] = 240;
     update();
 }
 
@@ -484,7 +502,9 @@ bool MapWidget::isPlantable(int x, int y, int plantGid)
 {
     if (x < 0 || x >= m_mapWidth || y < 0 || y >= m_mapHeight) return false;
 
-    return (m_cultivatedLayer[y][x] == plantGid) &&
+    // return (m_cultivatedLayer[y][x] == plantGid) &&
+    //        (m_cropLayer[y][x] == 0);
+    return m_plantableGids.contains(m_cultivatedLayer[y][x]) &&
            (m_cropLayer[y][x] == 0);
 }
 
@@ -496,9 +516,10 @@ void MapWidget::plantSeed(const QPoint& tilePos) {
         return;
     }
 
-    if (m_cultivatedLayer[tilePos.y()][tilePos.x()] == 148) {
+    if (/*m_cultivatedLayer[tilePos.y()][tilePos.x()] == 135*/
+        m_plantableGids.contains(m_cultivatedLayer[tilePos.y()][tilePos.x()])) {
         m_plantingTime[tilePos] = QDateTime::currentDateTime();
-        m_cropLayer[tilePos.y()][tilePos.x()] = 253;
+        m_cropLayer[tilePos.y()][tilePos.x()] = 240;
         update();
 
         qDebug() << "种植记录 - 位置:" << tilePos
@@ -537,13 +558,17 @@ void MapWidget::updateGrowthStages() {
 
         int oldGid = m_cropLayer[pos.y()][pos.x()];
         int stage = calculateGrowthStage(pos);
-        int newGid = 253 + qBound(0, stage, 3);
+        int newGid = 240 + qBound(0, stage, 3);
 
         if (newGid != oldGid) {
             m_cropLayer[pos.y()][pos.x()] = newGid;
             qDebug() << "更新作物 GID：" << oldGid << "→" << newGid
                      << "，阶段：" << stage;
             update();
+        }
+        if(m_cropLayer[pos.y()][pos.x()] == 0) {
+            it.remove();
+            continue;
         }
     }
 }

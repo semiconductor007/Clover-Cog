@@ -11,7 +11,7 @@ enum class ToolType {
     Hoe,        // 锄头
     WateringCan,// 水壶
     Wheat,      // 种子1
-    Seed2       // 种子2
+    Potato       // 种子2
 };
 
 struct ToolAnimation {

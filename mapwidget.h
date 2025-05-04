@@ -51,6 +51,13 @@ public:
     void cropTile(int x, int y);
     bool isPlantable(int x, int y, int cultivateGid);
     void plantSeed(const QPoint& tilePos);
+    enum class CropType {
+        None,
+        Wheat,
+        Potato
+    };
+
+
 
 
 
@@ -97,12 +104,14 @@ private:
     int calculateGrowthStage(const QPoint& pos);
     void updateGrowthStages();
     QTimer* m_growthTimer; // 生长更新定时器
+     const QSet<int> m_plantableGids = {123, 124, 125, 134,135 , 136, 145, 146, 147};
 
 
 
 
 signals:  // 新增信号声明
     void mapClicked(QPoint pos);  // 声明点击信号
+     void cropHarvested(MapWidget::CropType type);
 
 
 
