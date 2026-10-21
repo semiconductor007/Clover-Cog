@@ -3,6 +3,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QElapsedTimer>
 #include "itembar.h"
 #include "mapwidget.h"
 #include "rpg.h"

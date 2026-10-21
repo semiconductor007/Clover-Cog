@@ -129,7 +129,7 @@ MainWindow 组装地图、角色和物品栏，通过 Qt 信号与槽连接交�
 
 已静态核对构建配置、入口、按键、资源清单和默认地图结构，character.qrc 引用的本地文件均存在。
 
-本次在本机 Qt 6.10.3 下尝试运行 qmake，因当前 Kit 缺少 Multimedia 模块而停止，尚未完成编译及游戏运行验证。Qt 6.8.2 是仓库记录的开发环境，不代表本次已在该版本验证通过。
+本机补装 Qt Multimedia，并显式包含 QElapsedTimer 头文件后，已在 Qt 6.10.3 / MinGW 64-bit 下完成 Release 编译并生成 CHECK.exe；尚未完成游戏运行及交互验证。构建仍有未使用参数及中文路径下 moc_predefs.h 解析警告。Qt 6.8.2 是仓库记录的原开发环境。
 
 ## 许可证与素材
 
