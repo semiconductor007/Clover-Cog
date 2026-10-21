@@ -1,0 +1,22 @@
+# Qt Creator user settings
+*.pro.user
+*.pro.user.*
+
+# Tiled editor session state
+*.tiled-session
+
+# Build outputs
+build/
+build_*/
+debug/
+release/
+.qtc_clangd/
+Makefile
+Makefile.*
+*.o
+*.obj
+*.exe
+
+# Platform/editor noise
+.DS_Store
+Thumbs.db

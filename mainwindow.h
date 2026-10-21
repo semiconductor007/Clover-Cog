@@ -38,6 +38,10 @@ public:
 private slots:
     void updateTime();
 
+protected:
+    void mousePressEvent(QMouseEvent *event) override;  // 声明鼠标按下事件
+    void mouseReleaseEvent(QMouseEvent *event) override; // 声明鼠标释放事件
+
 private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     QElapsedTimer m_gameTimer; // 移到MainWindow类中
@@ -63,6 +67,8 @@ private:
 
     QMediaPlayer *m_player;
     QAudioOutput *m_audioOutput;
+    QCursor customCursor;
+    QCursor clickCursor;
 
 };
 

@@ -78,10 +78,10 @@ void ImageMovementWidget::setCurrentTool(int toolIndex) {
         qDebug() << "切换工具到:" << m_currentTool.name;
 
         // 更新角色动画
-        QPixmap animPix(m_currentTool.animFile);
-        if(!animPix.isNull()) {
-            imageLabel->setPixmap(animPix.scaled(32,32));
-        }
+        // QPixmap animPix(m_currentTool.animFile);
+        // if(!animPix.isNull()) {
+        //     imageLabel->setPixmap(animPix.scaled(32,32));
+        // }
     }
 }
 

@@ -13,7 +13,13 @@ MainWindow::MainWindow(QWidget *parent)
     , clockBgWidget(new ClockBgWidget(this))
     ,timeLabel(new QLabel(overlay))
     ,dayLabel(new QLabel(overlay))
+    , customCursor(QPixmap(":/ui/sprout/Catpaw Mouse icon.png"), 8, 8)  // 初始化成员变量
+    , clickCursor(QPixmap(":/ui/sprout/Catpaw holding Mouse icon.png"), 8, 8)
 {
+
+    // ==================== 鼠标设置 ====================
+    // 设置自定义鼠标样式
+    this->setCursor(customCursor);
 
 
     // ==================== 音乐设置 ====================
@@ -23,12 +29,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_audioOutput->setVolume(0.5);
     m_player->setAudioOutput(m_audioOutput);
 
-
     // 监听媒体状态变化
     connect(m_player, &QMediaPlayer::mediaStatusChanged, [this](QMediaPlayer::MediaStatus status) {
         qDebug() << "MediaStatus:" << status;
         if (status == QMediaPlayer::LoadedMedia) {
             qDebug() << "开始播放...";
+            m_player->play();
+        }
+        else if (status == QMediaPlayer::EndOfMedia) {
+            // 当音乐播放结束时，重新播放
             m_player->play();
         }
     });
@@ -315,6 +324,24 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
     }
     return QMainWindow::eventFilter(watched, event);
+}
+
+// 重写鼠标按下事件（在头文件中声明）
+void MainWindow::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton) {
+        // 点击时切换为点击样式图标
+        this->setCursor(clickCursor);
+    }
+    QMainWindow::mousePressEvent(event);
+}
+
+// 重写鼠标释放事件（在头文件中声明）
+void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton) {
+        // 释放时恢复初始样式图标
+        this->setCursor(customCursor);
+    }
+    QMainWindow::mouseReleaseEvent(event);
 }
 
 // ==================== 程序入口 ====================

@@ -62,6 +62,8 @@
         <file>itembar/itembar4.png</file>
         <file>itembar/itembar5.png</file>
         <file>itembar/itembar2.png</file>
+        <file>sprout/Catpaw Mouse icon.png</file>
+        <file>sprout/Catpaw holding Mouse icon.png</file>
     </qresource>
     <qresource prefix="/characte">
         <file>sprout/Sprout Lands - Sprites - premium pack/Characters/Premium Charakter Spritesheet.png</file>
