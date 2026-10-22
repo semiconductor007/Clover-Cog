@@ -2,7 +2,7 @@
 
 [中文说明](README.md)
 
-A personal incremental farming game project built on a C++17 / Qt Widgets farm template. The planned progression starts with planting, harvesting into a limited backpack, and walking to a market to sell crops. Players then upgrade seeds, tools, backpack capacity and land, eventually automating harvesting, transport and sales.
+An incremental farming game project developed by a five-person team built on a C++17 / Qt Widgets farm template. The planned progression starts with planting, harvesting into a limited backpack, and walking to a market to sell crops. Players then upgrade seeds, tools, backpack capacity and land, eventually automating harvesting, transport and sales.
 
 > The current code is still the template prototype. Currency, limited inventory, market trading, upgrades, automation and persistence are planned features, not implemented gameplay.
 
@@ -13,11 +13,11 @@ A personal incremental farming game project built on a C++17 / Qt Widgets farm t
 - Basic tilling, planting, timed growth and wheat harvest counting.
 - Six-slot tool selection, pixel UI, a custom cursor and background music logic.
 
-Both seed selections currently use the same crop pipeline. Watering has an animation but no growth effect; tree interaction and map boundary handling need further work.
+WorldState records Wheat and Potato separately, but they share growth parameters and graphics; the HUD counts only wheat. Watering is visual only. Tree removal updates tile and collision data; input and exact boundary cases still need validation.
 
 ## Build
 
-Use Qt 6 with Core, Gui, Widgets and **Multimedia**, plus a matching desktop compiler. Release compilation has succeeded with Qt 6.10.3 / MinGW 64-bit; full gameplay verification is still pending. The original repository records a Qt 6.8.2 MinGW Kit.
+Use Qt 6 with Core, Gui, Widgets and **Multimedia**, plus a matching desktop compiler. Release compilation has succeeded with Qt 6.10.3 / MinGW 64-bit; full gameplay verification is still pending. The repository also records a post-refactor Qt 6.8.2 build, core tests and offscreen startup check. These are historical records; this planning round did not rerun builds, tests or GUI checks. See the [test strategy](docs/TEST_STRATEGY.md) for actual test coverage and pending validation.
 
 Open `CHECK.pro` in Qt Creator and configure a local Desktop Kit, or run the following in a matching Qt/MinGW environment:
 
@@ -37,7 +37,9 @@ Current controls: **W/A/S/D** to move, the **mouse wheel** to select an item, an
 
 ## Development documents
 
-The detailed documents are currently in Chinese:
+The detailed documents are currently in Chinese. Start team work with [AGENTS.md](AGENTS.md) and the [engineering architecture](docs/ARCHITECTURE.md), which links module ownership, interfaces, migration and the implementation plan. These are plans; no business implementation or source relocation was performed in this documentation round.
+
+Existing design documents:
 
 - [Development guide](docs/DEVELOPMENT.md): architecture, state, commands, persistence, tasks and acceptance criteria.
 - [Project plan](docs/PROJECT_PLAN.md): scope, upgrade paths and milestones.

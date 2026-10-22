@@ -1,6 +1,6 @@
 # Clover-Cog
 
-基于 **C++17 和 Qt Widgets** 的个人种菜增量游戏项目，使用现有 Sprout 农场模板逐步开发，沿用其像素地图、角色动画、木色面板和米色按钮。
+基于 **C++17 和 Qt Widgets** 的五人协作种菜增量游戏项目，使用现有 Sprout 农场模板逐步开发，沿用其像素地图、角色动画、木色面板和米色按钮。
 
 目标体验是：前期亲自种菜、收菜，背着有限数量的作物走到收购站出售；用金币升级种子、工具、背包和农田，后期逐步实现自动种植、收割、运输与售卖。
 
@@ -16,12 +16,15 @@
 | [项目规划](docs/PROJECT_PLAN.md) | 核心循环、九条强化路线、14 个强化条目及开发里程碑 |
 | [玩法设计](docs/GAMEPLAY_DESIGN.md) | 作物差异、有限背包、亲自售卖、设施与运输规则、试玩指标 |
 | [UI 与素材盘点](docs/ASSET_AUDIT.md) | 可复用图集、尚未接入的资源、中文字体候选与补绘需求 |
+| [工程架构与团队入口](docs/ARCHITECTURE.md) | 当前代码分析、五人分工、文件迁移、接口契约、任务与协作规范 |
+
+五人开发前先读 [AGENTS.md](AGENTS.md)、[模块职责](docs/TEAM_MODULES.md) 和 [执行计划](docs/IMPLEMENTATION_PLAN.md)。工程方案目前仅落地为文档，尚未执行目录迁移或新增业务系统。
 
 文档中的价格、容量、时长和作物名单是试验参数，需在开发与试玩中调整；确定需求与当前实现状态分别说明。
 
 ## 当前原型功能
 
-- **角色与动画**：WASD 移动，支持组合方向键斜向移动，包含站立、行走、挥斧、锄地和浇水动画。
+- **角色与动画**：WASD 移动，包含站立、行走、挥斧、锄地和浇水动画。
 - **地图与镜头**：读取 Tiled `.tmj` 地图和 `.tsx` 图块集，使用 QPainter 分层绘制，镜头随角色移动。
 - **碰撞检测**：根据碰撞图层检测角色脚部矩形与障碍图块的交叠。
 - **耕作与种植**：在指定草地上开垦，在空闲耕地上播种。
@@ -119,6 +122,8 @@ mingw32-make -j4
 3. 切换小麦种子，点击空闲耕地播种。
 4. 等待约 30 秒，点击成熟作物，观察小麦计数变化。
 
+当前按键处理会清除其他方向标志，组合方向键行为仍待验证；不保证斜向移动。
+
 界面时间与作物成长共用 `GameClock`：默认每现实秒推进一个游戏分钟，作物每 10 个游戏分钟推进一个阶段。
 
 ## 目录与架构
@@ -131,7 +136,7 @@ Clover-Cog/
 ├── mapdata.cpp/.h            # Tiled 地图解析、校验及图层分类
 ├── worldstate.cpp/.h         # 树木、耕地、作物和动态碰撞状态
 ├── maprenderer.cpp/.h        # 静态及动态地图图层绘制
-├── mapwidget.cpp/.h          # 视口、坐标转换和地图事件转发
+├── mapwidget.cpp/.h          # 视口/输入、持有世界状态及生长/收获调用
 ├── playercontroller.cpp/.h   # 工具选择及工具行为
 ├── rpg.cpp/.h                # 角色输入、移动和动画
 ├── collisiondetector.cpp/.h  # 实时图块碰撞检测
@@ -153,7 +158,7 @@ Clover-Cog/
 └── LICENSE                   # 木兰宽松许可证，第 2 版
 ```
 
-MainWindow 负责组装组件和 HUD。MapLoader 读取并校验地图，WorldState 管理可变世界状态，MapRenderer 按 Tiled 图层顺序绘制最新状态，MapWidget 只负责视口、坐标和事件转发。PlayerController 处理工具规则；ImageMovementWidget 移动前通过 CollisionDetector 读取实时碰撞层。组件通过构造参数和 Qt 信号连接，不依赖父控件类型查找游戏服务。
+MainWindow 负责组装组件和 HUD。MapLoader 读取并校验地图，WorldState 管理可变世界状态，MapRenderer 按 Tiled 图层顺序绘制最新状态，MapWidget 仍持有 WorldState、驱动生长并在点击时执行收获，同时负责视口和坐标转换。PlayerController 经 MapWidget 处理工具规则；ImageMovementWidget 移动前通过 CollisionDetector 读取实时碰撞层。组件通过构造参数和 Qt 信号连接，不依赖父控件类型查找游戏服务。
 
 ## 地图与资源约定
 
@@ -188,7 +193,7 @@ MainWindow 负责组装组件和 HUD。MapLoader 读取并校验地图，WorldSt
 
 已静态核对构建配置、入口、按键、资源清单和默认地图结构，character.qrc 引用的本地文件均存在。
 
-重构后已在 Qt 6.8.2 / MinGW 64-bit 下完成 Release 干净编译、核心测试和离屏启动检查。核心测试覆盖时间换算、碰撞边界、地图校验与图层分类，以及树木、耕种、播种、成长、收获、画面和碰撞同步。
+仓库此前记录：重构后已在 Qt 6.8.2 / MinGW 64-bit 下完成 Release 干净编译、核心测试和离屏启动检查。现有 5 个测试函数涉及时间换算、部分碰撞边界、合法地图初始化与图层分类、树木和耕种状态；树木测试核对图块数据与碰撞同步，不等同于画面验收。本轮工程规划未重新执行构建、测试或 GUI，待补项见 [测试策略](docs/TEST_STRATEGY.md)。
 
 ```powershell
 mkdir build_tests
