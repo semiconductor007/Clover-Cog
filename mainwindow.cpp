@@ -1,13 +1,20 @@
 //mainwinow.cpp
 #include "mainwindow.h"
+#include "gameconstants.h"
 #include "mapwidget.h"
 #include <QApplication>
 #include <QDebug>
 #include <QFontDatabase>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QTimer>
+#include <QUrl>
+#include <QWheelEvent>
 
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , m_gameClock(GameConstants::RealMillisecondsPerGameMinute)
     , mapWidget(new MapWidget(this))
     , overlay(new QWidget(this))
     , clockBgWidget(new ClockBgWidget(this))
@@ -52,14 +59,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_player->setSource(QUrl(filePath));
 
 
-    m_gameTimer.start(); // 初始化计时器
+    m_gameClock.start();
     // ==================== 窗口基础设置 ====================
 
     resize(520, 320);
 
     // 地图控件尺寸与主窗口一致
     mapWidget->setFixedSize(520, 320);
-    mapWidget->loadMap(":/map/map6.tmj");
+    if (!mapWidget->loadMap(":/map/map6.tmj")) {
+        qCritical() << "Unable to initialize the game map";
+    }
     mapWidget->lower();
 
     // ==================== 时钟背景层设置 ====================
@@ -79,7 +88,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 
     // ==================== 角色控件初始化 ====================
-    character = new ImageMovementWidget(mapWidget);
+    character = new ImageMovementWidget(mapWidget, mapWidget);
     QPoint initialPos(250, 170);
     character->setInitialPosition(initialPos);
     // 初始位置设置为地图中心（根据地图尺寸动态计算）
@@ -103,32 +112,16 @@ MainWindow::MainWindow(QWidget *parent)
         );
 
 
-    connect(mapWidget, &MapWidget::mapClicked, [this](QPoint pos) {
-        // 通过character获取当前工具
-        const ToolProperty &tool = character->getCurrentTool();
-        qDebug() << "=== 鼠标点击事件 ===";
-        qDebug() << "点击位置:" << pos << "当前工具:" << tool.name;
-        character->handleToolAction();
-    });
-
     // 连接物品栏的索引变化信号到角色工具切换
     connect(itemBar, &ItemBar::itemSelected,
             character, &ImageMovementWidget::setCurrentTool);
 
-    connect(mapWidget, &MapWidget::mapClicked, character, [this](QPoint pos){
-        auto tool = character->getCurrentTool();
-        if (tool.type == ToolType::Hoe) {
-            character->useHoe(pos);
-        } else if (tool.type == ToolType::Wheat) {
-            character->useWheat(pos);
-        } else if (tool.type == ToolType::Potato) {
-            character->usePotato(pos);
-        }
-    });
+    connect(mapWidget, &MapWidget::mapClicked,
+            character, &ImageMovementWidget::useCurrentToolAt);
 
     connect(mapWidget, &MapWidget::cropHarvested,
-            [this](MapWidget::CropType type) { // 使用作用域限定符
-                if(type == MapWidget::CropType::Wheat) {
+            [this](CropType type) {
+                if(type == CropType::Wheat) {
                     m_wheatCount++;
                     updateWheatCountDisplay();
                 }
@@ -179,7 +172,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 将时间系统传递给mapWidget（需要先在MapWidget类中添加接收方法）
     mapWidget->setTimeReference([this]() {
-        return qMakePair(currentGameDay(), currentGameHour());
+        return m_gameClock.elapsedGameMinutes();
     });
 }
 
@@ -195,6 +188,7 @@ bool MainWindow::loadCustomFont() {
 }
 
 void ClockBgWidget::paintEvent(QPaintEvent *event)  {
+    Q_UNUSED(event);
     QPainter painter(this);
     if (!clockBg.isNull()) {
         const int margin = 10;

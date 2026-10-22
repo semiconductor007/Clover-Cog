@@ -6,11 +6,12 @@
 
 class CollisionDetector {
 public:
-    CollisionDetector(const QVector<QVector<int>>& collisionLayer, int tileWidth, int tileHeight);
+    CollisionDetector(const QVector<QVector<int>> *collisionLayer,
+                      int tileWidth, int tileHeight);
     bool isColliding(const QRect &characterRect) const;
 
 private:
-    QVector<QVector<int>> m_collisionLayer;
+    const QVector<QVector<int>> *m_collisionLayer;
     int m_tileWidth;
     int m_tileHeight;
 };

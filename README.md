@@ -119,19 +119,25 @@ mingw32-make -j4
 3. 切换小麦种子，点击空闲耕地播种。
 4. 等待约 30 秒，点击成熟作物，观察小麦计数变化。
 
-作物生长使用现实经过时间，每秒检查一次，与界面时钟独立。界面每现实秒推进一个显示分钟，每现实分钟推进一个显示小时；DAY 则按现实 24 小时计算，尚未统一为同一游戏日历。
+界面时间与作物成长共用 `GameClock`：默认每现实秒推进一个游戏分钟，作物每 10 个游戏分钟推进一个阶段。
 
 ## 目录与架构
 
 ```text
 Clover-Cog/
 ├── CHECK.pro                 # qmake 配置
-├── mainwindow.cpp/.h         # main()、主窗口、时钟、音频及信号连接
-├── rpg.cpp/.h                # 角色输入、移动、动画和工具操作
-├── mapwidget.cpp/.h          # 地图、视口、耕地、作物生长和收获
-├── collisiondetector.cpp/.h  # 图块碰撞检测
+├── mainwindow.cpp/.h         # main()、主窗口、HUD、音频及信号连接
+├── gameclock.cpp/.h          # 统一游戏时间
+├── mapdata.cpp/.h            # Tiled 地图解析、校验及图层分类
+├── worldstate.cpp/.h         # 树木、耕地、作物和动态碰撞状态
+├── maprenderer.cpp/.h        # 静态及动态地图图层绘制
+├── mapwidget.cpp/.h          # 视口、坐标转换和地图事件转发
+├── playercontroller.cpp/.h   # 工具选择及工具行为
+├── rpg.cpp/.h                # 角色输入、移动和动画
+├── collisiondetector.cpp/.h  # 实时图块碰撞检测
 ├── itembar.cpp/.h            # 六槽物品栏和滚轮切换
 ├── tooltype.h                # 工具枚举、属性及动画数据结构
+├── tests/                    # QtTest 核心逻辑测试
 ├── character.qrc             # Qt 资源清单
 ├── map6.tmj                  # 默认地图
 ├── map7.tmj / map8.tmj       # 其他地图，当前入口未加载
@@ -147,7 +153,7 @@ Clover-Cog/
 └── LICENSE                   # 木兰宽松许可证，第 2 版
 ```
 
-MainWindow 组装地图、角色和物品栏，通过 Qt 信号与槽连接交互：物品栏切换更新角色工具，地图点击触发工具动作或播种，收获信号更新小麦数量。MapWidget 管理地图及作物状态；ImageMovementWidget 移动前调用 CollisionDetector 检查目标位置，再更新地图视口。
+MainWindow 负责组装组件和 HUD。MapLoader 读取并校验地图，WorldState 管理可变世界状态，MapRenderer 按 Tiled 图层顺序绘制最新状态，MapWidget 只负责视口、坐标和事件转发。PlayerController 处理工具规则；ImageMovementWidget 移动前通过 CollisionDetector 读取实时碰撞层。组件通过构造参数和 Qt 信号连接，不依赖父控件类型查找游戏服务。
 
 ## 地图与资源约定
 
@@ -159,12 +165,11 @@ MainWindow 组装地图、角色和物品栏，通过 Qt 信号与槽连接交�
 
 ## 当前限制
 
-- **土豆尚未独立实现**：两种种子均调用同一个 plantSeed()，使用相同生长图块，成熟收获统一按小麦处理。
+- **土豆表现尚未独立**：小麦和土豆已保存不同作物类型，但仍共用一套生长图块，HUD 目前只统计小麦。
 - **浇水只有动画**：尚无土壤湿度状态，作物生长不依赖浇水。
-- **砍树逻辑未闭环**：首次加载时树木实例初始化早于图块属性加载，可能无法建立可交互树木；扣血后也未同步清除绘制图层和碰撞数据。
 - **经济与持久化缺失**：未实现金币、到站交易、有限背包、强化、存档和读档。计划采用永久种子解锁，播种不按次消耗金币。
-- **边界与布局待完善**：部分点击和图层访问缺少完整边界保护；地图及覆盖层尺寸固定，窗口缩放适配有限。
-- **地图加载失败容错不足**：后续绘制依赖有效图块尺寸和图层数据，修改地图后应检查资源与结构。
+- **布局待完善**：地图及覆盖层尺寸固定，窗口缩放适配有限。
+- **地图配置仍有硬编码**：耕地和作物 GID 已集中管理，但替换图块集时仍需同步检查配置。
 
 ## 开发顺序
 
@@ -183,7 +188,15 @@ MainWindow 组装地图、角色和物品栏，通过 Qt 信号与槽连接交�
 
 已静态核对构建配置、入口、按键、资源清单和默认地图结构，character.qrc 引用的本地文件均存在。
 
-本机补装 Qt Multimedia，并显式包含 QElapsedTimer 头文件后，已在 Qt 6.10.3 / MinGW 64-bit 下完成 Release 编译并生成 CHECK.exe；尚未完成游戏运行及交互验证。构建仍有未使用参数及中文路径下 moc_predefs.h 解析警告。Qt 6.8.2 是仓库记录的原开发环境。
+重构后已在 Qt 6.8.2 / MinGW 64-bit 下完成 Release 干净编译、核心测试和离屏启动检查。核心测试覆盖时间换算、碰撞边界、地图校验与图层分类，以及树木、耕种、播种、成长、收获、画面和碰撞同步。
+
+```powershell
+mkdir build_tests
+cd build_tests
+qmake ../tests/tests.pro CONFIG+=release
+mingw32-make -j2
+./release/core_tests.exe -txt
+```
 
 ## 许可证与素材
 

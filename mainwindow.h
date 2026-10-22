@@ -3,13 +3,16 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QElapsedTimer>
+#include <QAudioOutput>
+#include <QCursor>
+#include <QFont>
+#include <QLabel>
+#include <QMediaPlayer>
+#include <QPixmap>
+#include "gameclock.h"
 #include "itembar.h"
 #include "mapwidget.h"
 #include "rpg.h"
-#include <QSoundEffect>
-#include <QMediaPlayer>
-#include <QAudioOutput>
 
 
 
@@ -31,9 +34,9 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     MainWindow(QWidget *parent = nullptr);
-    int currentGameHour() const { return m_gameTimer.elapsed() / 60000 % 24; }
-    int currentGameDay() const { return m_gameTimer.elapsed() / 86400000; }
-    int currentGameMinute() const {  return (m_gameTimer.elapsed() / 1000) % 60; };
+    int currentGameHour() const { return m_gameClock.hour(); }
+    int currentGameDay() const { return m_gameClock.day(); }
+    int currentGameMinute() const { return m_gameClock.minute(); }
 
 
 private slots:
@@ -45,7 +48,7 @@ protected:
 
 private:
     bool eventFilter(QObject *watched, QEvent *event) override;
-    QElapsedTimer m_gameTimer; // 移到MainWindow类中
+    GameClock m_gameClock;
     MapWidget* mapWidget;  // 添加mapWidget成员声明
     ImageMovementWidget* character;
     ItemBar* itemBar;

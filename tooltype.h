@@ -4,6 +4,7 @@
 
 #include <QString>
 #include <QPixmap>
+#include <QVector>
 
 enum class ToolType {
     EmptyHand,  // 空手

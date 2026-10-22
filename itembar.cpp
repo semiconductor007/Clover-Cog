@@ -26,6 +26,7 @@ void ItemBar::wheelEvent(QWheelEvent *event) {
 }
 
 void ItemBar::paintEvent(QPaintEvent *event) {
+    Q_UNUSED(event);
     QPainter painter(this);
     // 绘制背景（可选）
     QPixmap background(":/ui/itembar/itembar2.png");

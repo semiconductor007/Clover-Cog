@@ -1,18 +1,20 @@
 //rpg.cpp
 #include "rpg.h"
 #include "mapwidget.h"
-#include<QMouseEvent>
+#include <QDebug>
+#include <QMouseEvent>
+#include <QTransform>
 
 void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
     m_absolutePos = pos;
 
     // 强制更新视口偏移
-    if (MapWidget* map = qobject_cast<MapWidget*>(parent())) {
-        map->setViewportCenter(
+    if (m_mapWidget) {
+        m_mapWidget->setViewportCenter(
             m_absolutePos.x() + width() / 2,
             m_absolutePos.y() + height() / 2
             );
-        this->move(m_absolutePos - QPoint(map->offsetX(), map->offsetY()));
+        this->move(m_absolutePos - QPoint(m_mapWidget->offsetX(), m_mapWidget->offsetY()));
     }
 
     qDebug() << "[Position] Initialized to Absolute:" << m_absolutePos
@@ -20,7 +22,9 @@ void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
 }
 
 
-ImageMovementWidget::ImageMovementWidget(QWidget *parent) : QWidget(parent) {
+ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
+    : QWidget(parent), m_mapWidget(mapWidget) {
+    m_controller = new PlayerController(mapWidget, this);
       setFocusPolicy(Qt::StrongFocus);
     initUI();
     position = QPoint(0, 0);
@@ -39,50 +43,26 @@ ImageMovementWidget::ImageMovementWidget(QWidget *parent) : QWidget(parent) {
     connect(animationTimer, &QTimer::timeout, this, &ImageMovementWidget::updateAnimation);
     animationTimer->start(100); // 每100毫秒更新动画和位置
 
-    // 初始化工具属性列表（索引0~5对应物品栏图片）
-    m_tools = {
-        {ToolType::EmptyHand,   "空手",    0,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Axe,         "斧子",    30, ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Hoe,         "锄头",    15, ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::WateringCan, "水壶",    5,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Wheat,       "小麦种子",0, ":/anim/planting.png"},
-        {ToolType::Potato,       "土豆种子", 0, ":/anim/planting.png"}
-    };
-    m_currentTool = m_tools[0]; // 初始化为空手
-
-
-
     // 初始化碰撞检测
-    MapWidget* mapWidget = qobject_cast<MapWidget*>(parent);
-    if (mapWidget) {
+    if (m_mapWidget) {
         qDebug() << "传递的图块尺寸:"
-                 << mapWidget->tileWidth() << "x" << mapWidget->tileHeight(); // 调试输出
-        m_collisionDetector = new CollisionDetector(
-            mapWidget->collisionLayer(),
-            mapWidget->tileWidth(),  // 必须 > 0
-            mapWidget->tileHeight()
+                 << m_mapWidget->tileWidth() << "x" << m_mapWidget->tileHeight();
+        m_collisionDetector = std::make_unique<CollisionDetector>(
+            &m_mapWidget->collisionLayer(),
+            m_mapWidget->tileWidth(),
+            m_mapWidget->tileHeight()
             );
     }
 
     setAttribute(Qt::WA_AcceptTouchEvents, false);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
-    // 在构造函数中修改攻击区域
-    m_attackArea = QRect(0, 0, 48, 48);  // 扩大为完整角色尺寸
 }
 
 //切换工具
 void ImageMovementWidget::setCurrentTool(int toolIndex) {
-    if(toolIndex >= 0 && toolIndex < m_tools.size()) {
-        m_currentTool = m_tools[toolIndex];
-        qDebug() << "切换工具到:" << m_currentTool.name;
-
-        // 更新角色动画
-        // QPixmap animPix(m_currentTool.animFile);
-        // if(!animPix.isNull()) {
-        //     imageLabel->setPixmap(animPix.scaled(32,32));
-        // }
-    }
+    m_controller->setCurrentTool(toolIndex);
+    qDebug() << "切换工具到:" << m_controller->currentTool().name;
 }
 
 void ImageMovementWidget::initUI() {
@@ -191,7 +171,7 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         isMovingLeft = false;
         isMovingUp = false;
         isMovingDown = false;
-         m_lastDirection = Direction::Right;
+         m_lastDirection = PlayerDirection::Right;
 
         break;
     case Qt::Key_A:
@@ -199,7 +179,7 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         isMovingRight = false;
         isMovingUp = false;
         isMovingDown = false;
-        m_lastDirection = Direction::Left;
+        m_lastDirection = PlayerDirection::Left;
 
         break;
     case Qt::Key_W:
@@ -207,7 +187,7 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         isMovingRight = false;
         isMovingLeft = false;
         isMovingDown = false;
-        m_lastDirection = Direction::Up;
+        m_lastDirection = PlayerDirection::Up;
 
         break;
     case Qt::Key_S:
@@ -215,7 +195,7 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         isMovingRight = false;
         isMovingLeft = false;
         isMovingUp = false;
-         m_lastDirection = Direction::Down;
+         m_lastDirection = PlayerDirection::Down;
 
         break;
     default:
@@ -262,51 +242,8 @@ void ImageMovementWidget::keyReleaseEvent(QKeyEvent *event) {
 }
 
 void ImageMovementWidget::mousePressEvent(QMouseEvent* event) {
-    if (m_currentTool.type == ToolType::Axe) {
-        MapWidget* map = qobject_cast<MapWidget*>(parent());
-        if (map) {
-            // 添加详细调试信息
-            qDebug() << "=== 斧头攻击事件 ===";
-            qDebug() << "角色绝对坐标：" << m_absolutePos;
-            qDebug() << "地图偏移量：" << map->offsetX() << "," << map->offsetY();
-            
-            // 根据角色朝向计算攻击位置
-            // 修改后的角色中心点计算（48为角色尺寸）
-            QPoint charTilePos(
-                (m_absolutePos.x() + 24 - map->offsetX()) / map->tileWidth(),
-                (m_absolutePos.y() + 24 - map->offsetY()) / map->tileHeight()
-            );
-            
-            QPoint attackPos = charTilePos;
-            switch(m_lastDirection) {
-                case Direction::Up:    
-                    attackPos.ry()--; 
-                    qDebug() << "攻击方向：上方";
-                    break;
-                case Direction::Down:  
-                    attackPos.ry()++; 
-                    qDebug() << "攻击方向：下方";
-                    break;
-                case Direction::Left:  
-                    attackPos.rx()--; 
-                    qDebug() << "攻击方向：左侧";
-                    break;
-                case Direction::Right: 
-                    attackPos.rx()++; 
-                    qDebug() << "攻击方向：右侧";
-                    break;
-            }
-            
-            qDebug() << "计算后的攻击图块位置：" << attackPos;
-            
-            if (map->hasTreeAt(attackPos)) {
-                bool success = map->modifyTreeHealth(attackPos, m_currentTool.damage);
-                qDebug() << "攻击结果：" << (success ? "成功" : "失败");
-            } else {
-                qDebug() << "目标位置没有可交互的树木";
-            }
-        }
-    }
+    m_controller->useAxeAt(m_absolutePos + QPoint(width() / 2, height() / 2),
+                           m_lastDirection);
     QWidget::mousePressEvent(event);
 }
 
@@ -319,8 +256,7 @@ void ImageMovementWidget::updateAnimation() {
 
     const int step = 10;
 
-    QWidget *mapWidget = qobject_cast<QWidget*>(parent());
-    if (!mapWidget || mapWidget->width() <= 0) return;
+    if (!m_mapWidget || m_mapWidget->width() <= 0) return;
 
     QPoint newPos = position; // 正确继承当前坐标
 
@@ -369,27 +305,26 @@ void ImageMovementWidget::updateAnimation() {
     m_absolutePos = newAbsolutePos;
 
     // 获取父控件 MapWidget
-    MapWidget* map = qobject_cast<MapWidget*>(parent());
-    if (map) {
+    if (m_mapWidget) {
         // 计算角色中心点
         int centerX = m_absolutePos.x() + width() / 2;
         int centerY = m_absolutePos.y() + height() / 2;
 
         // 更新视口中心
-        map->setViewportCenter(centerX, centerY);
+        m_mapWidget->setViewportCenter(centerX, centerY);
 
         // 计算角色在视口中的相对位置并移动
         QPoint relativePos(
-            m_absolutePos.x() - map->offsetX(),
-            m_absolutePos.y() - map->offsetY()
+            m_absolutePos.x() - m_mapWidget->offsetX(),
+            m_absolutePos.y() - m_mapWidget->offsetY()
             );
         this->move(relativePos);
     }
 
-    if (map) {
+    if (m_mapWidget) {
         QPoint relativePos(
-            m_absolutePos.x() - map->offsetX(),
-            m_absolutePos.y() - map->offsetY()
+            m_absolutePos.x() - m_mapWidget->offsetX(),
+            m_absolutePos.y() - m_mapWidget->offsetY()
             );
         this->move(relativePos);
         this->setGeometry(relativePos.x(), relativePos.y(), 48, 48); // 强制更新几何位置
@@ -397,16 +332,16 @@ void ImageMovementWidget::updateAnimation() {
     // 空闲状态处理
     if (isIdle) {
         switch (m_lastDirection) {
-        case Direction::Right:
+        case PlayerDirection::Right:
             imageLabel->setPixmap(idleRightFrames[currentIdleFrameIndex]);
             break;
-        case Direction::Left:
+        case PlayerDirection::Left:
             imageLabel->setPixmap(idleLeftFrames[currentIdleFrameIndex]);
             break;
-        case Direction::Up:
+        case PlayerDirection::Up:
             imageLabel->setPixmap(idleUpFrames[currentIdleFrameIndex]);
             break;
-        case Direction::Down:
+        case PlayerDirection::Down:
             imageLabel->setPixmap(idleFrames[currentIdleFrameIndex]); // 使用原朝下动画
             break;
         }
@@ -433,16 +368,17 @@ void ImageMovementWidget::updateActionAnimation() {
 
 
 void ImageMovementWidget::handleToolAction() {
-    if (!m_toolAnimations.contains(m_currentTool.type)) return;
+    const ToolType toolType = m_controller->currentTool().type;
+    if (!m_toolAnimations.contains(toolType)) return;
 
     m_isActing = true;
-    const ToolAnimation& anim = m_toolAnimations[m_currentTool.type];
+    const ToolAnimation& anim = m_toolAnimations[toolType];
 
     switch(m_lastDirection) {
-    case Direction::Right: m_currentActionFrames = anim.rightFrames; break;
-    case Direction::Left:  m_currentActionFrames = anim.leftFrames;  break;
-    case Direction::Up:    m_currentActionFrames = anim.upFrames;    break;
-    case Direction::Down:  m_currentActionFrames = anim.downFrames;  break;
+    case PlayerDirection::Right: m_currentActionFrames = anim.rightFrames; break;
+    case PlayerDirection::Left:  m_currentActionFrames = anim.leftFrames;  break;
+    case PlayerDirection::Up:    m_currentActionFrames = anim.upFrames;    break;
+    case PlayerDirection::Down:  m_currentActionFrames = anim.downFrames;  break;
     }
 
     if (!m_currentActionFrames.isEmpty()) {
@@ -454,71 +390,7 @@ void ImageMovementWidget::handleToolAction() {
 }
 
 // rpg.cpp 中实现
-void ImageMovementWidget::useHoe(QPoint clickPos) {
-
-    MapWidget* map = qobject_cast<MapWidget*>(parent());
-    if (!map || m_currentTool.type != ToolType::Hoe) return;
-
-    // 修正：先转换为地图控件坐标系再计算全局坐标
-    QPoint mapLocalPos = map->mapFromParent(clickPos);
-    int globalX = mapLocalPos.x() + map->offsetX();
-    int globalY = mapLocalPos.y() + map->offsetY();
-
-    int tileX = globalX / map->tileWidth();
-    int tileY = globalY / map->tileHeight();
-
-    tileX = qBound(0, tileX, map->mapWidth()-1);
-    tileY = qBound(0, tileY, map->mapHeight()-1);
-
-    qDebug() << "实际耕作坐标:" << tileX << tileY
-             << "可耕作状态:" << map->isTileCultivatable(tileX, tileY, 13);
-
-    if (map->isTileCultivatable(tileX, tileY, 13)) {
-        map->cultivateTile(tileX, tileY);
-    }
-}
-
-void ImageMovementWidget::useWheat(QPoint clickPos) {
-
-    MapWidget* map = qobject_cast<MapWidget*>(parent());
-    if (!map || m_currentTool.type != ToolType::Wheat) return;
-
-    // 转换坐标为地图控件局部坐标
-    QPoint mapLocalPos = map->mapFromParent(clickPos);
-
-    // 计算全局地图坐标（考虑滚动偏移）
-    int globalX = mapLocalPos.x() + map->offsetX();
-    int globalY = mapLocalPos.y() + map->offsetY();
-
-    // 转换为图块坐标
-    int tileX = globalX / map->tileWidth();
-    int tileY = globalY / map->tileHeight();
-
-    // 添加调试输出
-    qDebug() << "[种植尝试] 窗口坐标:" << clickPos
-             << "→ 地图坐标:" << QPoint(tileX, tileY)
-             << " 耕地状态:" << map->isPlantable(tileX, tileY, 135);
-
-    if (map->isPlantable(tileX, tileY, 135)) {
-        map->plantSeed(QPoint(tileX, tileY)); // 必须显式调用plantSeed
-        qDebug() << "成功种植！位置:" << QPoint(tileX, tileY);
-    }
-}
-
-void ImageMovementWidget::usePotato(QPoint clickPos) {
-    MapWidget* map = qobject_cast<MapWidget*>(parent());
-    if (!map || m_currentTool.type != ToolType::Potato) return;
-
-    QPoint mapLocalPos = map->mapFromParent(clickPos);
-    int globalX = mapLocalPos.x() + map->offsetX();
-    int globalY = mapLocalPos.y() + map->offsetY();
-
-    int tileX = globalX / map->tileWidth();
-    int tileY = globalY / map->tileHeight();
-
-    qDebug() << "[马铃薯种植] 位置:" << QPoint(tileX, tileY);
-
-    if (map->isPlantable(tileX, tileY, 135)) {
-        map->plantSeed(QPoint(tileX, tileY)); // 新增作物类型参数
-    }
+void ImageMovementWidget::useCurrentToolAt(QPoint mapPos) {
+    handleToolAction();
+    m_controller->useToolAt(mapPos);
 }

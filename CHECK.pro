@@ -10,18 +10,29 @@ CONFIG += c++17 resources_big
 
 SOURCES += \
     collisiondetector.cpp \
+    gameclock.cpp \
     itembar.cpp \
+    mapdata.cpp \
     mainwindow.cpp \
+    maprenderer.cpp \
     mapwidget.cpp \
-    rpg.cpp
+    playercontroller.cpp \
+    rpg.cpp \
+    worldstate.cpp
 
 HEADERS += \
     collisiondetector.h \
+    gameclock.h \
+    gameconstants.h \
     itembar.h \
+    mapdata.h \
     mainwindow.h \
+    maprenderer.h \
     mapwidget.h \
+    playercontroller.h \
     rpg.h \
-    tooltype.h
+    tooltype.h \
+    worldstate.h
 
 FORMS +=
 
