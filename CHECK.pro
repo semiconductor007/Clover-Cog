@@ -10,7 +10,10 @@ CONFIG += c++17 resources_big
 
 SOURCES += \
     collisiondetector.cpp \
+    cropdefinition.cpp \
+    economyservice.cpp \
     gameclock.cpp \
+    inventory.cpp \
     itembar.cpp \
     mapdata.cpp \
     mainwindow.cpp \
@@ -18,19 +21,26 @@ SOURCES += \
     mapwidget.cpp \
     playercontroller.cpp \
     rpg.cpp \
+    savemanager.cpp \
+    seedshopdialog.cpp \
     worldstate.cpp
 
 HEADERS += \
     collisiondetector.h \
+    cropdefinition.h \
+    economyservice.h \
     gameclock.h \
     gameconstants.h \
     itembar.h \
+    inventory.h \
     mapdata.h \
     mainwindow.h \
     maprenderer.h \
     mapwidget.h \
     playercontroller.h \
     rpg.h \
+    savemanager.h \
+    seedshopdialog.h \
     tooltype.h \
     worldstate.h
 

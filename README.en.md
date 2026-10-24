@@ -4,16 +4,18 @@
 
 An incremental farming game project developed by a five-person team built on a C++17 / Qt Widgets farm template. The planned progression starts with planting, harvesting into a limited backpack, and walking to a market to sell crops. Players then upgrade seeds, tools, backpack capacity and land, eventually automating harvesting, transport and sales.
 
-> The current code is still the template prototype. Currency, limited inventory, market trading, upgrades, automation and persistence are planned features, not implemented gameplay.
+> The current prototype includes two crops, consumable seeds, a seed shop, limited inventory, market sales, currency, daily watering, bed-side sleeping and local persistence. Upgrades and automation remain planned features.
 
 ## Current prototype
 
 - WASD movement, character animations and tile collision detection.
 - Tiled JSON map loading, layered drawing and a following camera.
-- Basic tilling, planting, timed growth and wheat harvest counting.
+- Tilling, planting, daily watering, day-based crop growth and harvesting.
+- A 12-slot inventory, a fixed market area and currency settlement.
+- Initial seed stock, a seed shop, atomic JSON saves and backup recovery.
 - Six-slot tool selection, pixel UI, a custom cursor and background music logic.
 
-WorldState records Wheat and Potato separately, but they share growth parameters and graphics; the HUD counts only wheat. Watering is visual only. Tree removal updates tile and collision data; input and exact boundary cases still need validation.
+Wheat needs three watered days and potato needs five. Stand inside the purple bed marker and press `E` to sleep until 06:00 on the next day. Unwatered crops pause for that day, watered soil dries overnight, and empty tilled soil has a 20% daily chance to return to grass.
 
 ## Build
 
@@ -33,7 +35,7 @@ mingw32-make -j4
 
 The application entry point is in `mainwindow.cpp`. Keep the resource directories intact; `character.qrc` embeds the assets. Select your own Kit and build directory instead of reusing the original `.pro.user` settings.
 
-Current controls: **W/A/S/D** to move, the **mouse wheel** to select an item, and **left click** for map interactions. Market interaction and backpack controls described in the design documents are not yet available.
+Current controls: **W/A/S/D** to move, the **mouse wheel** to select an item, **left click** to use the selected tool or harvest, and **E** inside the marked market, seed-shop or bed area to interact.
 
 ## Development documents
 

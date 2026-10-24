@@ -9,11 +9,28 @@ void GameClock::start() {
     m_timer.start();
 }
 
-qint64 GameClock::elapsedGameMinutes() const {
+void GameClock::setElapsedGameMinutes(qint64 gameMinutes) {
+    m_gameMinuteOffset = qMax<qint64>(0, gameMinutes);
+    m_timer.restart();
+}
+
+qint64 GameClock::rawElapsedGameMinutes() const {
     if (!m_timer.isValid()) {
         return 0;
     }
     return m_timer.elapsed() / m_millisecondsPerGameMinute;
+}
+
+qint64 GameClock::elapsedGameMinutes() const {
+    return m_gameMinuteOffset + rawElapsedGameMinutes();
+}
+
+void GameClock::sleepToNextMorning(int wakeHour) {
+    const int boundedWakeHour = qBound(0, wakeHour, 23);
+    const qint64 current = elapsedGameMinutes();
+    const qint64 nextMorning = (current / (24 * 60) + 1) * 24 * 60
+                               + boundedWakeHour * 60;
+    m_gameMinuteOffset += nextMorning - current;
 }
 
 int GameClock::minute() const {

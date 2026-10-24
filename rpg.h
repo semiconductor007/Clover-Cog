@@ -34,6 +34,8 @@ public:
     explicit ImageMovementWidget(MapWidget *mapWidget, QWidget *parent = nullptr);
     void setInitialPosition(const QPoint &pos); // 新增方法
     void handleToolAction();
+    QPoint currentTilePosition() const;
+    QPoint absolutePosition() const { return m_absolutePos; }
     // 新增：获取当前工具属性
     const ToolProperty &getCurrentTool() const { return m_controller->currentTool(); }
 
@@ -51,6 +53,8 @@ protected:
 public slots:
     void setCurrentTool(int toolIndex); // 根据物品栏索引切换工具
     void useCurrentToolAt(QPoint mapPos);
+signals:
+    void interactionRequested(QPoint playerTile);
 private://工具动画
     QMap<ToolType, ToolAnimation> m_toolAnimations;
     bool m_isActing = false; // 是否正在执行动作

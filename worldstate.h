@@ -3,16 +3,41 @@
 
 #include "gameconstants.h"
 #include "mapdata.h"
+#include "cropdefinition.h"
 
 #include <QHash>
 #include <QPoint>
 #include <QSet>
 #include <QVector>
+#include <functional>
 
-enum class CropType {
-    None,
-    Wheat,
-    Potato
+struct HarvestResult {
+    CropType type = CropType::None;
+    int quantity = 0;
+
+    bool isValid() const { return type != CropType::None && quantity > 0; }
+};
+
+struct DayAdvanceResult {
+    int cropsAdvanced = 0;
+    int cropsStalled = 0;
+    int soilRecovered = 0;
+
+    bool changed() const { return cropsAdvanced > 0 || soilRecovered > 0; }
+};
+
+struct SavedCropState {
+    QPoint tilePos;
+    CropType type = CropType::None;
+    int plantedDay = 0;
+    int growthDays = 0;
+};
+
+struct WorldStateSnapshot {
+    QVector<QVector<int>> cultivatedLayer;
+    QVector<SavedCropState> crops;
+    QSet<QPoint> wateredTiles;
+    int lastCompletedDay = -1;
 };
 
 class WorldState {
@@ -31,15 +56,27 @@ public:
     bool isTileCultivatable(const QPoint &tilePos) const;
     bool cultivate(const QPoint &tilePos);
     bool isPlantable(const QPoint &tilePos) const;
-    bool plantSeed(const QPoint &tilePos, CropType cropType, qint64 gameMinute);
-    CropType harvest(const QPoint &tilePos);
-    bool advanceGrowth(qint64 gameMinute);
+    bool plantSeed(const QPoint &tilePos, CropType cropType, int gameDay);
+    bool waterTile(const QPoint &tilePos);
+    bool isWatered(const QPoint &tilePos) const;
+    HarvestResult previewHarvest(const QPoint &tilePos) const;
+    HarvestResult harvest(const QPoint &tilePos);
+    DayAdvanceResult advanceDay(int completedDay,
+                                std::function<int()> randomPercent = {});
     int cropGidAt(const QPoint &tilePos) const;
     int treeGidAt(const QPoint &tilePos) const;
+    WorldStateSnapshot snapshot() const;
+    bool restore(const WorldStateSnapshot &snapshot);
 
 private:
     struct TreeState {
         int health = 0;
+    };
+
+    struct CropState {
+        CropType type = CropType::None;
+        int plantedDay = 0;
+        int growthDays = 0;
     };
 
     int m_mapWidth = 0;
@@ -50,11 +87,9 @@ private:
     QVector<QVector<int>> m_treeLayer;
     QVector<QVector<int>> m_collisionLayer;
     QHash<QPoint, TreeState> m_trees;
-    QHash<QPoint, qint64> m_plantingTimes;
-    QHash<QPoint, CropType> m_plantedCropTypes;
-    const QSet<int> m_plantableGids = {
-        123, 124, 125, 134, GameConstants::CultivatedTileGid, 136, 145, 146, 147
-    };
+    QHash<QPoint, CropState> m_crops;
+    QSet<QPoint> m_wateredTiles;
+    int m_lastCompletedDay = -1;
 };
 
 #endif // WORLDSTATE_H

@@ -21,6 +21,16 @@ void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
              << " Relative:" << this->pos();
 }
 
+QPoint ImageMovementWidget::currentTilePosition() const {
+    if (!m_mapWidget || m_mapWidget->tileWidth() <= 0 ||
+        m_mapWidget->tileHeight() <= 0) {
+        return QPoint(-1, -1);
+    }
+    const QPoint center = m_absolutePos + QPoint(width() / 2, height() / 2);
+    return QPoint(center.x() / m_mapWidget->tileWidth(),
+                  center.y() / m_mapWidget->tileHeight());
+}
+
 
 ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
     : QWidget(parent), m_mapWidget(mapWidget) {
@@ -161,6 +171,12 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
     // 忽略自动重复的按键事件
     if (event->isAutoRepeat()) {
         event->ignore();
+        return;
+    }
+
+    if (event->key() == Qt::Key_E) {
+        emit interactionRequested(currentTilePosition());
+        event->accept();
         return;
     }
 

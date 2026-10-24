@@ -50,6 +50,9 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
             m_mapWidget->plantSeed(tilePos, CropType::Potato);
         }
         break;
+    case ToolType::WateringCan:
+        m_mapWidget->waterTile(tilePos);
+        break;
     default:
         break;
     }

@@ -9,10 +9,13 @@
 #include <QLabel>
 #include <QMediaPlayer>
 #include <QPixmap>
+#include <QRect>
+#include "economyservice.h"
 #include "gameclock.h"
 #include "itembar.h"
 #include "mapwidget.h"
 #include "rpg.h"
+#include "savemanager.h"
 
 
 
@@ -24,7 +27,6 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 private:
     QPixmap clockBg;
-    QPixmap m_cropNumImage;
 
 };
 
@@ -41,22 +43,38 @@ public:
 
 private slots:
     void updateTime();
+    void sleepUntilMorning();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;  // 声明鼠标按下事件
     void mouseReleaseEvent(QMouseEvent *event) override; // 声明鼠标释放事件
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     GameClock m_gameClock;
+    int m_lastProcessedDay = 0;
+    bool m_saveEnabled = true;
+    EconomyService m_economy;
+    const QRect m_marketArea{19, 11, 2, 2};
+    const QRect m_shopArea{22, 11, 2, 2};
+    const QRect m_bedArea{16, 11, 2, 2};
     MapWidget* mapWidget;  // 添加mapWidget成员声明
     ImageMovementWidget* character;
     ItemBar* itemBar;
 
     QWidget *overlay; // 添加覆盖层控件声明
-    QLabel *m_wheatCountLabel;
-    int m_wheatCount = 0;
-    void updateWheatCountDisplay();
+    QLabel *m_coinsLabel = nullptr;
+    QLabel *m_inventoryLabel = nullptr;
+    QLabel *m_cropsLabel = nullptr;
+    QLabel *m_seedsLabel = nullptr;
+    QLabel *m_statusLabel = nullptr;
+    void updateHud();
+    void showStatus(const QString &message);
+    void openSeedShop();
+    bool saveGame(bool showError = true);
+    bool loadGame();
+    DayAdvanceResult processDayTransitions();
 
     ClockBgWidget *clockBgWidget;
     QPixmap background;

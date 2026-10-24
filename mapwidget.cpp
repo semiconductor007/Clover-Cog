@@ -3,13 +3,12 @@
 #include <QDebug>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QTimer>
 
 MapWidget::MapWidget(QWidget *parent)
-    : QWidget(parent), m_growthTimer(new QTimer(this)) {
+    : QWidget(parent),
+      m_marketIcon(QStringLiteral(":/tilesets/sprout/Chest.png")),
+      m_bedIcon(QStringLiteral(":/tilesets/sprout/Basic_Furniture.png")) {
     setAttribute(Qt::WA_InputMethodEnabled, false);
-    connect(m_growthTimer, &QTimer::timeout, this, &MapWidget::updateGrowthStages);
-    m_growthTimer->start(1000);
 }
 
 bool MapWidget::loadMap(const QString &tmjPath) {
@@ -54,6 +53,38 @@ void MapWidget::paintEvent(QPaintEvent *event) {
     m_renderer.paint(painter, rect(), QPoint(m_offsetX, m_offsetY),
                      m_mapWidth, m_mapHeight, m_tileWidth, m_tileHeight,
                      m_tilesets, m_renderLayers, m_worldState);
+
+    const auto drawInteractionArea =
+        [this, &painter](const QRect &tileArea, const QColor &tint,
+                         const QString &text, const QPixmap &icon,
+                         const QRect &iconSource) {
+        if (tileArea.isEmpty() || m_tileWidth <= 0 || m_tileHeight <= 0) {
+            return;
+        }
+        const QRect screenRect(tileArea.x() * m_tileWidth - m_offsetX,
+                               tileArea.y() * m_tileHeight - m_offsetY,
+                               tileArea.width() * m_tileWidth,
+                               tileArea.height() * m_tileHeight);
+        painter.fillRect(screenRect, tint);
+        painter.setPen(QColor(92, 55, 32));
+        painter.drawRect(screenRect.adjusted(0, 0, -1, -1));
+        if (!icon.isNull()) {
+            painter.drawPixmap(screenRect, icon, iconSource);
+        }
+        painter.setPen(Qt::white);
+        painter.drawText(screenRect.adjusted(0, 0, 0, -2),
+                         Qt::AlignHCenter | Qt::AlignBottom,
+                         text);
+    };
+    drawInteractionArea(m_marketArea, QColor(255, 222, 126, 70),
+                        QStringLiteral("SELL [E]"), m_marketIcon,
+                        QRect(0, 0, 48, 48));
+    drawInteractionArea(m_shopArea, QColor(114, 190, 255, 80),
+                        QStringLiteral("SEEDS [E]"), m_marketIcon,
+                        QRect(0, 0, 48, 48));
+    drawInteractionArea(m_bedArea, QColor(180, 130, 220, 80),
+                        QStringLiteral("SLEEP [E]"), m_bedIcon,
+                        QRect(0, 16, 32, 32));
 }
 
 void MapWidget::setViewportCenter(int x, int y) {
@@ -75,9 +106,14 @@ void MapWidget::mousePressEvent(QMouseEvent *event) {
             return;
         }
 
-        const CropType cropType = m_worldState.harvest(tilePos);
-        if (cropType != CropType::None) {
-            emit cropHarvested(cropType);
+        const HarvestResult preview = m_worldState.previewHarvest(tilePos);
+        if (preview.isValid() && m_harvestHandler &&
+            !m_harvestHandler(preview.type, preview.quantity)) {
+            emit harvestBlocked(preview.type, preview.quantity);
+        } else if (preview.isValid()) {
+            const HarvestResult harvested = m_worldState.harvest(tilePos);
+            emit cropHarvested(harvested.type, harvested.quantity);
+            emit worldChanged();
             update();
         }
     }
@@ -116,29 +152,58 @@ bool MapWidget::cultivateTile(const QPoint &tilePos) {
         return false;
     }
     update();
+    emit worldChanged();
     return true;
 }
 
 bool MapWidget::isTileCultivatable(const QPoint &tilePos) const {
-    return m_worldState.isTileCultivatable(tilePos);
+    return !m_marketArea.contains(tilePos) && !m_shopArea.contains(tilePos) &&
+           !m_bedArea.contains(tilePos) &&
+           m_worldState.isTileCultivatable(tilePos);
 }
 
 bool MapWidget::isPlantable(const QPoint &tilePos) const {
-    return m_worldState.isPlantable(tilePos);
+    return !m_marketArea.contains(tilePos) && !m_shopArea.contains(tilePos) &&
+           !m_bedArea.contains(tilePos) &&
+           m_worldState.isPlantable(tilePos);
 }
 
 bool MapWidget::plantSeed(const QPoint &tilePos, CropType cropType) {
     const qint64 gameMinute = m_getGameMinutes ? m_getGameMinutes() : 0;
-    if (!m_worldState.plantSeed(tilePos, cropType, gameMinute)) {
+    const int gameDay = static_cast<int>(gameMinute / (24 * 60));
+    if (!isPlantable(tilePos)) {
+        return false;
+    }
+    const auto plantAction = [this, tilePos, cropType, gameDay]() {
+        return m_worldState.plantSeed(tilePos, cropType, gameDay);
+    };
+    if (m_plantHandler && !m_plantHandler(cropType, plantAction)) {
+        emit plantingBlocked(cropType);
+        return false;
+    }
+    if (!m_plantHandler && !plantAction()) {
         return false;
     }
     update();
+    emit worldChanged();
     return true;
 }
 
-void MapWidget::updateGrowthStages() {
-    const qint64 now = m_getGameMinutes ? m_getGameMinutes() : 0;
-    if (m_worldState.advanceGrowth(now)) {
-        update();
+bool MapWidget::waterTile(const QPoint &tilePos) {
+    if (m_marketArea.contains(tilePos) || m_shopArea.contains(tilePos) ||
+        m_bedArea.contains(tilePos) ||
+        !m_worldState.waterTile(tilePos)) {
+        return false;
     }
+    update();
+    emit worldChanged();
+    return true;
+}
+
+DayAdvanceResult MapWidget::advanceDay(int completedDay,
+                                       std::function<int()> randomPercent) {
+    const DayAdvanceResult result =
+        m_worldState.advanceDay(completedDay, std::move(randomPercent));
+    update();
+    return result;
 }

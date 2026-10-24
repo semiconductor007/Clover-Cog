@@ -24,10 +24,31 @@ void MapRenderer::paint(QPainter &painter, const QRect &viewport,
     for (const MapRenderLayer &renderLayer : renderLayers) {
         drawLayer(painter, resolveLayer(renderLayer, worldState), visibleTiles,
                   offset, tileWidth, tileHeight, tilesets);
+        if (renderLayer.role == MapLayerRole::Cultivated) {
+            drawWateredSoil(painter, visibleTiles, offset, tileWidth,
+                            tileHeight, worldState);
+        }
     }
 
     drawLayer(painter, worldState.cropLayer(), visibleTiles, offset,
               tileWidth, tileHeight, tilesets);
+}
+
+void MapRenderer::drawWateredSoil(QPainter &painter, const QRect &visibleTiles,
+                                  const QPoint &offset, int tileWidth,
+                                  int tileHeight, const WorldState &worldState) {
+    const QColor wetTint(64, 92, 112, 105);
+    for (int y = visibleTiles.top(); y <= visibleTiles.bottom(); ++y) {
+        for (int x = visibleTiles.left(); x <= visibleTiles.right(); ++x) {
+            const QPoint tilePos(x, y);
+            if (!worldState.isWatered(tilePos)) {
+                continue;
+            }
+            painter.fillRect(x * tileWidth - offset.x(),
+                             y * tileHeight - offset.y(),
+                             tileWidth, tileHeight, wetTint);
+        }
+    }
 }
 
 const QVector<QVector<int>> &MapRenderer::resolveLayer(
