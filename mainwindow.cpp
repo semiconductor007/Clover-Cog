@@ -8,20 +8,27 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QFrame>
+#include <QGraphicsProxyWidget>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QScrollBar>
 #include <QTimer>
 #include <QUrl>
 #include <QWheelEvent>
+#include <QtMath>
 
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_gameClock(GameConstants::RealMillisecondsPerGameMinute)
     , m_economy(GameConstants::InitialInventoryCapacity)
-    , mapWidget(new MapWidget(this))
-    , overlay(new QWidget(this))
-    , clockBgWidget(new ClockBgWidget(this))
+    , m_gameCanvas(new QWidget)
+    , m_gameScene(new QGraphicsScene(this))
+    , m_gameView(new QGraphicsView(m_gameScene, this))
+    , mapWidget(new MapWidget(m_gameCanvas))
+    , overlay(new QWidget(m_gameCanvas))
+    , clockBgWidget(new ClockBgWidget(m_gameCanvas))
     ,timeLabel(new QLabel(overlay))
     ,dayLabel(new QLabel(overlay))
     , customCursor(QPixmap(":/ui/sprout/Catpaw Mouse icon.png"), 8, 8)  // 初始化成员变量
@@ -66,10 +73,29 @@ MainWindow::MainWindow(QWidget *parent)
     m_gameClock.start();
     // ==================== 窗口基础设置 ====================
 
-    resize(520, 320);
+    constexpr int logicalWidth = 520;
+    constexpr int logicalHeight = 320;
+    resize(logicalWidth, logicalHeight);
+
+    m_gameCanvas->setFixedSize(logicalWidth, logicalHeight);
+    QPalette canvasPalette = m_gameCanvas->palette();
+    canvasPalette.setColor(QPalette::Window, Qt::black);
+    m_gameCanvas->setPalette(canvasPalette);
+    m_gameCanvas->setAutoFillBackground(true);
+    m_gameScene->setSceneRect(0, 0, logicalWidth, logicalHeight);
+
+    m_gameView->setFrameShape(QFrame::NoFrame);
+    m_gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_gameView->setAlignment(Qt::AlignCenter);
+    m_gameView->setBackgroundBrush(QColor(24, 24, 24));
+    m_gameView->setRenderHint(QPainter::SmoothPixmapTransform, false);
+    m_gameView->setTransformationAnchor(QGraphicsView::NoAnchor);
+    m_gameView->setResizeAnchor(QGraphicsView::NoAnchor);
+    setCentralWidget(m_gameView);
 
     // 地图控件尺寸与主窗口一致
-    mapWidget->setFixedSize(520, 320);
+    mapWidget->setGeometry(0, 0, logicalWidth, logicalHeight);
     if (!mapWidget->loadMap(":/map/map6.tmj")) {
         qCritical() << "Unable to initialize the game map";
     }
@@ -80,12 +106,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ==================== 时钟背景层设置 ====================
     clockBgWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
-    clockBgWidget->setFixedSize(520, 320);
+    clockBgWidget->setAttribute(Qt::WA_NoSystemBackground);
+    clockBgWidget->setGeometry(0, 0, logicalWidth, logicalHeight);
     clockBgWidget->raise(); // 关键修改：将覆盖层置底
 
     // ==================== 覆盖层设置 ====================
     overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-    overlay->setFixedSize(520, 320);
+    overlay->setAttribute(Qt::WA_NoSystemBackground);
+    overlay->setGeometry(0, 0, logicalWidth, logicalHeight);
     overlay->raise(); // 关键修改：将覆盖层置底
 
     loadCustomFont();
@@ -265,6 +293,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(autosaveTimer, &QTimer::timeout,
             this, [this]() { saveGame(false); });
     autosaveTimer->start(60000);
+
+    // Embed the completed canvas only after every child widget has been
+    // constructed. Children created after an already-visible parent remain
+    // hidden by default, which would make the player and HUD disappear.
+    QGraphicsProxyWidget *gameProxy = m_gameScene->addWidget(m_gameCanvas);
+    gameProxy->setCacheMode(QGraphicsItem::NoCache);
+    updateGameScale();
 }
 
 
@@ -345,6 +380,7 @@ void MainWindow::sleepUntilMorning() {
 
 void MainWindow::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);
+    updateGameScale();
     // 调整背景图大小
     background = background.scaled(this->size(), Qt::KeepAspectRatioByExpanding);
     // 调整时间标签位置
@@ -372,6 +408,28 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     if (m_cropsLabel) m_cropsLabel->setGeometry(8, 60, 180, 24);
     if (m_seedsLabel) m_seedsLabel->setGeometry(8, 86, 180, 24);
     if (m_statusLabel) m_statusLabel->setGeometry(90, mapWidget->height() - 92, 340, 24);
+}
+
+void MainWindow::updateGameScale() {
+    if (!m_gameView || !m_gameCanvas) {
+        return;
+    }
+
+    const QSize viewportSize = m_gameView->viewport()->size();
+    if (viewportSize.isEmpty()) {
+        return;
+    }
+
+    const qreal availableScale = qMin(
+        static_cast<qreal>(viewportSize.width()) / m_gameCanvas->width(),
+        static_cast<qreal>(viewportSize.height()) / m_gameCanvas->height());
+    const qreal pixelScale = availableScale >= 1.0
+        ? qMax<qreal>(1.0, qFloor(availableScale))
+        : availableScale;
+
+    m_gameView->resetTransform();
+    m_gameView->scale(pixelScale, pixelScale);
+    m_gameView->centerOn(m_gameScene->sceneRect().center());
 }
 
 void MainWindow::updateHud() {

@@ -6,6 +6,8 @@
 #include <QAudioOutput>
 #include <QCursor>
 #include <QFont>
+#include <QGraphicsScene>
+#include <QGraphicsView>
 #include <QLabel>
 #include <QMediaPlayer>
 #include <QPixmap>
@@ -59,6 +61,9 @@ private:
     const QRect m_marketArea{19, 11, 2, 2};
     const QRect m_shopArea{22, 11, 2, 2};
     const QRect m_bedArea{16, 11, 2, 2};
+    QWidget *m_gameCanvas;
+    QGraphicsScene *m_gameScene;
+    QGraphicsView *m_gameView;
     MapWidget* mapWidget;  // 添加mapWidget成员声明
     ImageMovementWidget* character;
     ItemBar* itemBar;
@@ -83,6 +88,7 @@ private:
     QFont digitalFont;    // 自定义字体对象
     QLabel *dayLabel;
 
+    void updateGameScale();
     bool loadCustomFont(); // 加载字体
     void resizeEvent(QResizeEvent *event) override;
     void loadBackground();   // 加载背景图
