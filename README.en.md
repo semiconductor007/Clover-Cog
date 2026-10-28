@@ -1,6 +1,6 @@
 # Clover-Cog
 
-A pixel-art traditional farming game built with **C++17, Qt 6 Widgets and qmake**. The player tills soil, plants seeds, waters crops, sleeps to advance the day, harvests the result and walks to a fixed buying point to sell it.
+A pixel-art traditional farming game built with **C++17, Qt 6 Widgets and qmake**. Time continues during the day; after 20:00 the player can sleep to advance one day, harvest the result and walk to a fixed buying point to sell it.
 
 ## Current status
 
@@ -16,7 +16,7 @@ The current focus is S2 polish: Chinese HUD, onboarding prompts, crop growth fee
 ## Core loop
 
 ```text
-Buy seeds → Till and plant → Water each day → Sleep
+Buy seeds → Till and plant → Work during the day → Sleep after 20:00
     ↑                                      ↓
     └──────── Harvest → Walk to the market and sell ────────┘
 ```

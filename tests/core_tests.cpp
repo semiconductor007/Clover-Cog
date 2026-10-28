@@ -18,6 +18,7 @@ class CoreTests : public QObject {
 
 private slots:
     void gameClockConvertsElapsedTime();
+    void gameClockOnlySleepsAtNight();
     void collisionDetectorHandlesBounds();
     void mapLoaderValidatesAndInitializesLayers();
     void mapLoaderPreservesDynamicLayerOrder();
@@ -38,13 +39,35 @@ void CoreTests::gameClockConvertsElapsedTime() {
 
     GameClock clock(1000000);
     clock.start();
-    clock.sleepToNextMorning(6);
+    clock.setElapsedGameMinutes(20 * 60);
+    QVERIFY(clock.canSleep(20));
+    QVERIFY(clock.sleepToNextMorning(6, 20));
     QCOMPARE(clock.day(), 1);
     QCOMPARE(clock.hour(), 6);
     clock.setElapsedGameMinutes(2 * 24 * 60 + 13 * 60 + 25);
     QCOMPARE(clock.day(), 2);
     QCOMPARE(clock.hour(), 13);
     QCOMPARE(clock.minute(), 25);
+}
+
+void CoreTests::gameClockOnlySleepsAtNight() {
+    GameClock clock(1000000);
+    clock.setElapsedGameMinutes(6 * 60);
+    clock.start();
+    QVERIFY(!clock.canSleep(20));
+    QVERIFY(!clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.day(), 0);
+    QCOMPARE(clock.hour(), 6);
+
+    clock.setElapsedGameMinutes(19 * 60 + 59);
+    QVERIFY(!clock.canSleep(20));
+    clock.setElapsedGameMinutes(20 * 60);
+    QVERIFY(clock.canSleep(20));
+    QVERIFY(clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.day(), 1);
+    QCOMPARE(clock.hour(), 6);
+    QVERIFY(!clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.day(), 1);
 }
 
 void CoreTests::collisionDetectorHandlesBounds() {

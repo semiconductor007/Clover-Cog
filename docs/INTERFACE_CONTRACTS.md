@@ -5,7 +5,9 @@
 ## GameClock
 
 - `elapsedGameMinutes()`、`day()`、`hour()`、`minute()` 提供统一时间查询。
-- `sleepToNextMorning()` 将时间推进到次日早晨。
+- `canSleep()` 只有在夜间窗口返回 true。
+- `sleepToNextMorning()` 在白天拒绝操作；夜间成功时将时间推进到次日早晨。
+- 时间在白天和夜间持续流逝，达到当天夜间末尾后停留，直到有效睡眠。
 - 主窗口统一调用日结算；同一日期不能重复处理。
 
 ## WorldState / MapWidget

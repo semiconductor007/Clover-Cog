@@ -14,6 +14,7 @@ inline constexpr int InitialWheatSeeds = 6;
 inline constexpr int InitialPotatoSeeds = 3;
 inline constexpr int EmptySoilRecoveryPercent = 20;
 inline constexpr int WakeUpHour = 6;
+inline constexpr int SleepStartHour = 20;
 
 } // namespace GameConstants
 

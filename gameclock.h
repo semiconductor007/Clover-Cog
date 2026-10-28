@@ -9,7 +9,8 @@ public:
 
     void start();
     void setElapsedGameMinutes(qint64 gameMinutes);
-    void sleepToNextMorning(int wakeHour = 6);
+    bool canSleep(int sleepStartHour = 20) const;
+    bool sleepToNextMorning(int wakeHour = 6, int sleepStartHour = 20);
     qint64 elapsedGameMinutes() const;
     int minute() const;
     int hour() const;

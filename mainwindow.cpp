@@ -70,6 +70,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_player->setSource(QUrl(filePath));
 
 
+    m_gameClock.setElapsedGameMinutes(GameConstants::WakeUpHour * 60);
     m_gameClock.start();
     // ==================== 窗口基础设置 ====================
 
@@ -339,7 +340,6 @@ void MainWindow::loadBackground() {
 }
 
 void MainWindow::updateTime() {
-    processDayTransitions();
     QString gameTime = QString("%1:%2")
     .arg(currentGameHour(), 2, 10, QLatin1Char('0'))
         .arg(currentGameMinute(), 2, 10, QLatin1Char('0'));
@@ -368,7 +368,15 @@ DayAdvanceResult MainWindow::processDayTransitions() {
 }
 
 void MainWindow::sleepUntilMorning() {
-    m_gameClock.sleepToNextMorning(GameConstants::WakeUpHour);
+    if (!m_gameClock.canSleep(GameConstants::SleepStartHour)) {
+        showStatus(QStringLiteral("CANNOT SLEEP BEFORE 20:00"));
+        return;
+    }
+    if (!m_gameClock.sleepToNextMorning(GameConstants::WakeUpHour,
+                                        GameConstants::SleepStartHour)) {
+        showStatus(QStringLiteral("CANNOT SLEEP BEFORE 20:00"));
+        return;
+    }
     const DayAdvanceResult result = processDayTransitions();
     updateTime();
     showStatus(QStringLiteral("GOOD MORNING  GROW +%1  PAUSED %2  SOIL -%3")

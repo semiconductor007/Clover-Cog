@@ -22,15 +22,30 @@ qint64 GameClock::rawElapsedGameMinutes() const {
 }
 
 qint64 GameClock::elapsedGameMinutes() const {
-    return m_gameMinuteOffset + rawElapsedGameMinutes();
+    const qint64 absoluteMinutes = m_gameMinuteOffset + rawElapsedGameMinutes();
+    // A player may let the evening clock run out, but the calendar day does
+    // not roll over until the player explicitly sleeps.
+    const qint64 logicalDayEnd =
+        (m_gameMinuteOffset / (24 * 60) + 1) * (24 * 60) - 1;
+    return qMin(absoluteMinutes, logicalDayEnd);
 }
 
-void GameClock::sleepToNextMorning(int wakeHour) {
+bool GameClock::canSleep(int sleepStartHour) const {
+    const int boundedSleepStart = qBound(0, sleepStartHour, 23);
+    return hour() >= boundedSleepStart;
+}
+
+bool GameClock::sleepToNextMorning(int wakeHour, int sleepStartHour) {
+    if (!canSleep(sleepStartHour)) {
+        return false;
+    }
     const int boundedWakeHour = qBound(0, wakeHour, 23);
     const qint64 current = elapsedGameMinutes();
     const qint64 nextMorning = (current / (24 * 60) + 1) * 24 * 60
                                + boundedWakeHour * 60;
-    m_gameMinuteOffset += nextMorning - current;
+    m_gameMinuteOffset = nextMorning;
+    m_timer.restart();
+    return true;
 }
 
 int GameClock::minute() const {
