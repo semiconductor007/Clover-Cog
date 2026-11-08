@@ -102,8 +102,6 @@ private:
     QRect m_marketArea;
     QRect m_shopArea;
     QRect m_bedArea;
-    QPixmap m_marketIcon;
-    QPixmap m_bedIcon;
 };
 
 #endif // MAPWIDGET_H

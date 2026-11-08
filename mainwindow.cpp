@@ -141,7 +141,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ==================== 角色控件初始化 ====================
     character = new ImageMovementWidget(mapWidget, mapWidget);
-    QPoint initialPos(250, 170);
+    QPoint initialPos(400, 192);
     character->setInitialPosition(initialPos);
     // 初始位置设置为地图中心（根据地图尺寸动态计算）
     // QPoint initialPos(500, 200);

@@ -58,9 +58,9 @@ private:
     int m_lastProcessedDay = 0;
     bool m_saveEnabled = true;
     EconomyService m_economy;
-    const QRect m_marketArea{19, 11, 2, 2};
-    const QRect m_shopArea{22, 11, 2, 2};
-    const QRect m_bedArea{16, 11, 2, 2};
+    const QRect m_marketArea{28, 18, 2, 2};
+    const QRect m_shopArea{33, 18, 2, 2};
+    const QRect m_bedArea{25, 8, 2, 2};
     QWidget *m_gameCanvas;
     QGraphicsScene *m_gameScene;
     QGraphicsView *m_gameView;

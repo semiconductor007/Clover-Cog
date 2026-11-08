@@ -5,9 +5,7 @@
 #include <QPainter>
 
 MapWidget::MapWidget(QWidget *parent)
-    : QWidget(parent),
-      m_marketIcon(QStringLiteral(":/tilesets/sprout/Chest.png")),
-      m_bedIcon(QStringLiteral(":/tilesets/sprout/Basic_Furniture.png")) {
+    : QWidget(parent) {
     setAttribute(Qt::WA_InputMethodEnabled, false);
 }
 
@@ -56,8 +54,7 @@ void MapWidget::paintEvent(QPaintEvent *event) {
 
     const auto drawInteractionArea =
         [this, &painter](const QRect &tileArea, const QColor &tint,
-                         const QString &text, const QPixmap &icon,
-                         const QRect &iconSource) {
+                         const QString &text) {
         if (tileArea.isEmpty() || m_tileWidth <= 0 || m_tileHeight <= 0) {
             return;
         }
@@ -65,26 +62,28 @@ void MapWidget::paintEvent(QPaintEvent *event) {
                                tileArea.y() * m_tileHeight - m_offsetY,
                                tileArea.width() * m_tileWidth,
                                tileArea.height() * m_tileHeight);
+        painter.save();
         painter.fillRect(screenRect, tint);
         painter.setPen(QColor(92, 55, 32));
         painter.drawRect(screenRect.adjusted(0, 0, -1, -1));
-        if (!icon.isNull()) {
-            painter.drawPixmap(screenRect, icon, iconSource);
-        }
+
+        // The map supplies the real furniture; markers only identify where to stand.
+        QFont labelFont = painter.font();
+        labelFont.setPixelSize(8);
+        painter.setFont(labelFont);
+        const QRect labelRect(screenRect.center().x() - 36,
+                              screenRect.top() - 12, 72, 12);
+        painter.fillRect(labelRect, QColor(76, 48, 30, 220));
         painter.setPen(Qt::white);
-        painter.drawText(screenRect.adjusted(0, 0, 0, -2),
-                         Qt::AlignHCenter | Qt::AlignBottom,
-                         text);
+        painter.drawText(labelRect, Qt::AlignCenter, text);
+        painter.restore();
     };
-    drawInteractionArea(m_marketArea, QColor(255, 222, 126, 70),
-                        QStringLiteral("SELL [E]"), m_marketIcon,
-                        QRect(0, 0, 48, 48));
-    drawInteractionArea(m_shopArea, QColor(114, 190, 255, 80),
-                        QStringLiteral("SEEDS [E]"), m_marketIcon,
-                        QRect(0, 0, 48, 48));
-    drawInteractionArea(m_bedArea, QColor(180, 130, 220, 80),
-                        QStringLiteral("SLEEP [E]"), m_bedIcon,
-                        QRect(0, 16, 32, 32));
+    drawInteractionArea(m_marketArea, QColor(255, 222, 126, 45),
+                        QStringLiteral("SELL [E]"));
+    drawInteractionArea(m_shopArea, QColor(114, 190, 255, 45),
+                        QStringLiteral("SEEDS [E]"));
+    drawInteractionArea(m_bedArea, QColor(180, 130, 220, 45),
+                        QStringLiteral("SLEEP [E]"));
 }
 
 void MapWidget::setViewportCenter(int x, int y) {
