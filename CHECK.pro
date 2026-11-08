@@ -53,3 +53,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 RESOURCES += \
     character.qrc
+
+# B: season conversion is shared by crop planting rules and time consumers.
+SOURCES += seasoncalendar.cpp
+HEADERS += seasoncalendar.h

@@ -18,12 +18,7 @@ QString cropId(CropType type) {
 }
 
 CropType cropType(const QString &id) {
-    for (CropType type : CropCatalog::cropTypes()) {
-        if (CropCatalog::definition(type).id == id) {
-            return type;
-        }
-    }
-    return CropType::None;
+    return CropCatalog::fromId(id);
 }
 
 QJsonObject pointToJson(const QPoint &point) {
@@ -139,6 +134,8 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
         object.insert(QStringLiteral("type"), cropId(crop.type));
         object.insert(QStringLiteral("plantedDay"), crop.plantedDay);
         object.insert(QStringLiteral("growthDays"), crop.growthDays);
+        object.insert(QStringLiteral("fertilizerApplied"), crop.fertilizerApplied);
+        object.insert(QStringLiteral("fertilizerBonusPending"), crop.fertilizerBonusPending);
         crops.append(object);
     }
     QJsonArray wateredTiles;
@@ -273,11 +270,16 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
         crop.type = cropType(object.value(QStringLiteral("type")).toString());
         crop.plantedDay = object.value(QStringLiteral("plantedDay")).toInt(-1);
         crop.growthDays = object.value(QStringLiteral("growthDays")).toInt(-1);
+        const QJsonValue applied = object.value(QStringLiteral("fertilizerApplied"));
+        const QJsonValue pending = object.value(QStringLiteral("fertilizerBonusPending"));
         if (crop.type == CropType::None || crop.plantedDay < 0 ||
-            crop.growthDays < 0) {
+            crop.growthDays < 0 || !applied.isBool() || !pending.isBool() ||
+            (pending.toBool() && !applied.toBool())) {
             setError(errorMessage, QStringLiteral("Invalid crop values"));
             return false;
         }
+        crop.fertilizerApplied = applied.toBool();
+        crop.fertilizerBonusPending = pending.toBool();
         parsed.world.crops.append(crop);
     }
     for (const QJsonValue &pointValue :

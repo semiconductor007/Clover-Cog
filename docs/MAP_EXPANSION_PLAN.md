@@ -100,3 +100,7 @@ Windows 队友使用原 Qt Kit，在独立构建目录重新 qmake、Release 编
 ![扩图前地图](images/map6-current-layout.png)
 
 ![最初认可的布局草案](images/map-expansion-layout.png)
+
+## B 后续资源追加（2026-11-08）
+
+B 在 A 已验收的地图上仅追加 firstgid 789 的 Spring_Crops 图集，没有改变地图图层与交互坐标；资源总数现为 19 套图集、76 项 QRC。此前 A 的 18/73 为当时提交记录。四品种阶段、图标与验证见 [B 接入清单](CROP_CATALOG.md)。

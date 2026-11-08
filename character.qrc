@@ -66,6 +66,9 @@
         <file>tsx/Chest.tsx</file>
         <file>sprout/Water_Well.png</file>
         <file>tsx/Water_Well.tsx</file>
+        <file>tsx/Spring_Crops.tsx</file>
+        <file alias="sprout/Spring_Crops.png">Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Spring Crops.png</file>
+        <file alias="sprout/Crop_Items.png">sprout/Sprout Lands - Sprites - premium pack/Objects/Items/farming-Plants-items.png</file>
     </qresource>
     <qresource prefix="/ui">
         <file>sprout/Sprout Lands - UI Pack - Basic pack/Sprite sheets/Sprite sheet for Basic Pack.png</file>

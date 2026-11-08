@@ -13,7 +13,8 @@ Clover-Cog/
 ├── gameclock.*               # 游戏时间和睡眠推进
 ├── gameconstants.h           # 默认时间与玩法参数
 ├── worldstate.*              # 土地、浇水、作物和树木状态
-├── cropdefinition.*          # 作物配置
+├── cropdefinition.*          # 四品种配置、适季与阶段/物品图标
+├── seasoncalendar.*          # 累计日期到年份/四季/季内日的纯换算
 ├── inventory.*               # 农产品背包
 ├── economyservice.*          # 金币、出售和种子购买
 ├── savemanager.*             # JSON 存档和备份

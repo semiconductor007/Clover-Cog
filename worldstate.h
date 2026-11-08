@@ -18,10 +18,18 @@ struct HarvestResult {
     bool isValid() const { return type != CropType::None && quantity > 0; }
 };
 
+enum class FertilizeFailure { None, InvalidTile, NoCrop, AlreadyApplied, AlreadyMature };
+
+struct FertilizeResult {
+    bool success = false;
+    FertilizeFailure failure = FertilizeFailure::None;
+};
+
 struct DayAdvanceResult {
     int cropsAdvanced = 0;
     int cropsStalled = 0;
     int soilRecovered = 0;
+    int fertilizerBonusesUsed = 0;
 
     bool changed() const { return cropsAdvanced > 0 || soilRecovered > 0; }
 };
@@ -31,6 +39,8 @@ struct SavedCropState {
     CropType type = CropType::None;
     int plantedDay = 0;
     int growthDays = 0;
+    bool fertilizerApplied = false;
+    bool fertilizerBonusPending = false;
 };
 
 struct WorldStateSnapshot {
@@ -59,6 +69,9 @@ public:
     bool plantSeed(const QPoint &tilePos, CropType cropType, int gameDay);
     bool waterTile(const QPoint &tilePos);
     bool isWatered(const QPoint &tilePos) const;
+    FertilizeResult fertilize(const QPoint &tilePos);
+    bool isFertilized(const QPoint &tilePos) const;
+    bool hasPendingFertilizerBonus(const QPoint &tilePos) const;
     HarvestResult previewHarvest(const QPoint &tilePos) const;
     HarvestResult harvest(const QPoint &tilePos);
     DayAdvanceResult advanceDay(int completedDay,
@@ -77,6 +90,8 @@ private:
         CropType type = CropType::None;
         int plantedDay = 0;
         int growthDays = 0;
+        bool fertilizerApplied = false;
+        bool fertilizerBonusPending = false;
     };
 
     int m_mapWidth = 0;

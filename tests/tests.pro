@@ -26,3 +26,7 @@ HEADERS += \
     ../mapdata.h \
     ../savemanager.h \
     ../worldstate.h
+
+# B: season conversion is shared by crop planting rules and time consumers.
+SOURCES += ../seasoncalendar.cpp
+HEADERS += ../seasoncalendar.h

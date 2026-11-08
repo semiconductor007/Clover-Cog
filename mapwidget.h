@@ -78,6 +78,7 @@ signals:
     void cropHarvested(CropType type, int quantity);
     void harvestBlocked(CropType type, int requiredCapacity);
     void plantingBlocked(CropType type);
+    void plantingOutOfSeason(CropType type);
     void mapLoadFailed(const QString &message);
     void worldChanged();
 

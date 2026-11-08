@@ -173,6 +173,10 @@ bool MapWidget::plantSeed(const QPoint &tilePos, CropType cropType) {
     if (!isPlantable(tilePos)) {
         return false;
     }
+    if (!CropCatalog::canPlantOnDay(cropType, gameDay)) {
+        emit plantingOutOfSeason(cropType);
+        return false;
+    }
     const auto plantAction = [this, tilePos, cropType, gameDay]() {
         return m_worldState.plantSeed(tilePos, cropType, gameDay);
     };

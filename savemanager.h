@@ -17,7 +17,7 @@ struct GameSaveData {
 
 class SaveManager {
 public:
-    static constexpr int SchemaVersion = 1;
+    static constexpr int SchemaVersion = 2;
 
     static QString defaultSavePath();
     static bool save(const QString &path, const GameSaveData &data,

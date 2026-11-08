@@ -198,6 +198,11 @@ MainWindow::MainWindow(QWidget *parent)
                 showStatus(QStringLiteral("BAG FULL - NEED %1 SLOTS")
                                .arg(requiredCapacity));
             });
+    connect(mapWidget, &MapWidget::plantingOutOfSeason,
+            this, [this](CropType type) {
+        showStatus(QStringLiteral("%1: OUT OF SEASON")
+                       .arg(CropCatalog::definition(type).displayName.toUpper()));
+    });
     connect(mapWidget, &MapWidget::plantingBlocked,
             [this](CropType type) {
                 showStatus(QStringLiteral("NO %1 SEEDS - VISIT SEED SHOP")

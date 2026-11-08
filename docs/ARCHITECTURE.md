@@ -1,6 +1,6 @@
 # 工程架构与当前基线
 
-版本：v1.0（2026-10-28）。需求入口是 [DEVELOPMENT.md](DEVELOPMENT.md)，玩法规则入口是 [GAMEPLAY_DESIGN.md](GAMEPLAY_DESIGN.md)。代码和 `CHECK.pro` 是实现事实来源。
+版本：v1.2 B 规则交接（2026-11-08，当前任务分支，未合入 main）。需求入口是 [DEVELOPMENT.md](DEVELOPMENT.md)，玩法规则入口是 [GAMEPLAY_DESIGN.md](GAMEPLAY_DESIGN.md)。代码和 `CHECK.pro` 是实现事实来源。
 
 ## 1. 技术栈
 
@@ -8,23 +8,24 @@
 - `WorldState` 保存土地、树木、作物和浇水状态。
 - `GameClock` 是日期、时间和睡眠跨天的唯一来源。
 - `MapRenderer` 只负责根据状态绘制，不在绘制期间修改业务数据。
-- `CropCatalog` 保存作物的生长天数、产量、售价和种子价格。
+- `CropCatalog` 保存四种作物的阶段/图标、适季、生长和价格；`SeasonCalendar` 只从统一时间换算日期，不另计时。
 - `Inventory`、`EconomyService` 和 `SaveManager` 分别负责资产规则与持久化。
 
 ## 2. 当前代码状态
 
-第一阶段代码已合入 `main`（`ff21ee8`）：
+第一阶段代码已合入 `main`（`ff21ee8`）；以下含本地 A/B 分支新实现，详细边界见 [CROP_CATALOG](CROP_CATALOG.md)：
 
 | 能力 | 状态 |
 | --- | --- |
 | 地图、角色、碰撞、工具栏 | 已实现 |
-| 锄地、播种、浇水、作物成长和收获 | 已实现，小麦/土豆两种配置 |
+| 锄地、播种、浇水、作物成长和收获 | 四种作物规则与资源已实现；工具栏/商店仍只接原两种 |
 | 睡眠和日结算 | 已实现 |
 | 有限背包、金币、到站出售、种子商店 | 已实现 |
-| JSON 存档和备份恢复 | 已实现 |
+| JSON 存档和备份恢复 | v2 已支持四种作物及施肥状态；肥料库存待 D |
 | 自动生产、运输、离线收益 | 当前版本不实现 |
-| 中文反馈、独立作物贴图、基础肥料购买与效果 | 本轮待开发 |
-| 四季及适季播种 | 本轮待开发，B 负责规则，E 接环境呈现 |
+| 独立作物贴图、基础肥料 | B 阶段/图标和地块效果完成，购买/库存/UI 待 C/D |
+| 中文反馈 | 目录已提供中文名称，综合 HUD 待 E |
+| 四季及适季播种 | B 日期/播种规则已实现；E 连续时钟/环境呈现待做 |
 | 可操作背包面板 | 本轮待开发，D 负责；现有容量/库存继续复用 |
 | 自然时间/昼夜/最近早晨睡眠 | 本轮待开发，E 完整主责，C 提供挂接点 |
 
@@ -37,6 +38,7 @@ flowchart TD
     UI --> Economy[EconomyService]
     Economy --> Inventory[Inventory]
     World --> Crop[CropCatalog]
+    Crop --> Season[SeasonCalendar 纯换算]
     Save[SaveManager] --> World
     Save --> Economy
 ```
