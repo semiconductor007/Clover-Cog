@@ -8,4 +8,3 @@ VPATH += $$PWD/..
 INCLUDEPATH += $$PWD/..
 SOURCES -= main.cpp
 SOURCES += gameplay_panel_tests.cpp
-RESOURCES = $$PWD/../character.qrc

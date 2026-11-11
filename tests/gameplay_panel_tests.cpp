@@ -227,7 +227,7 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     auto *map = gameMap(game);
     QVERIFY(map);
     auto *player = map->findChild<ImageMovementWidget *>();
-    auto *bar = map->findChild<ItemBar *>();
+    auto *bar = map->parentWidget()->findChild<ItemBar *>();
     QVERIFY(player && bar);
     QCOMPARE(player->currentTilePosition(), QPoint(33, 18));
     QTRY_VERIFY(QApplication::focusWidget());
