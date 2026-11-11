@@ -12,6 +12,7 @@
 #include <QStandardPaths>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QWheelEvent>
 #include <QTemporaryDir>
 #include <memory>
 
@@ -78,6 +79,7 @@ private slots:
     void damagedCurrentFilesRemainUntouched();
     void buySelectAndUseFertilizer();
     void sellAtMarket();
+    void newFarmFinancesItsNextCrop();
 
 private:
     std::unique_ptr<QTemporaryDir> m_directory;
@@ -317,6 +319,173 @@ void GameplayPanelTests::sellAtMarket() {
     QCOMPARE(sold.economy.coins, fixture.economy.coins + 30);
     QCOMPARE(sold.economy.inventoryCounts.value(static_cast<int>(CropType::Wheat)), 0);
     QVERIFY(!sell->isEnabled());
+}
+
+void GameplayPanelTests::newFarmFinancesItsNextCrop() {
+    const QVector<QPoint> field{{22,17}, {23,17}, {24,17}, {22,18}, {23,18}, {24,18}};
+    std::unique_ptr<MainWindow> game;
+    MapWidget *map = nullptr;
+    ItemBar *bar = nullptr;
+    ImageMovementWidget *player = nullptr;
+
+    const auto openFarm = [&] {
+        game = std::make_unique<MainWindow>();
+        showGame(*game);
+        map = gameMap(*game);
+        if (!map) return false;
+        bar = map->window()->findChild<ItemBar *>();
+        player = map->findChild<ImageMovementWidget *>();
+        return bar && player;
+    };
+    // Fast-forward only the time of day in the temporary save. Each midnight
+    // and every crop/asset change still goes through the real game window.
+    const auto reopenAt = [&](int minuteOfDay) {
+        if (!game->close()) return false;
+        game.reset();
+        GameSaveData state;
+        if (!SaveManager::load(path(), &state)) return false;
+        state.gameMinutes = (state.gameMinutes / 1440) * 1440 + minuteOfDay;
+        return SaveManager::save(path(), state) && openFarm();
+    };
+    const auto wheelTo = [&](ToolType tool) {
+        for (int i = 0; i < 9 && bar->selectedTool() != tool; ++i) {
+            const QPoint pos = bar->rect().center();
+            QWheelEvent wheel(pos, bar->mapToGlobal(pos), {}, {0,-120},
+                              Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+            QApplication::sendEvent(bar, &wheel);
+        }
+        return bar->selectedTool() == tool && player->getCurrentTool().type == tool;
+    };
+    const auto clickField = [&](QPoint tile) {
+        auto *view = game->findChild<QGraphicsView *>();
+        QWidget *canvas = map->window();
+        if (!view || !canvas->graphicsProxyWidget()) return false;
+        const QPoint point(tile.x() * map->tileWidth() + map->tileWidth() / 2 - map->offsetX(),
+                           tile.y() * map->tileHeight() + map->tileHeight() / 2 - map->offsetY());
+        const QPoint screen = view->mapFromScene(canvas->graphicsProxyWidget()->mapToScene(map->mapTo(canvas, point)));
+        if (!view->viewport()->rect().contains(screen)) return false;
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, screen);
+        return true;
+    };
+    const auto walkTo = [&](Qt::Key key, int tile) {
+        const bool horizontal = key == Qt::Key_A || key == Qt::Key_D;
+        QTest::keyPress(player, key);
+        const bool arrived = QTest::qWaitFor([&] {
+            const QPoint pos = player->currentTilePosition();
+            return (horizontal ? pos.x() : pos.y()) == tile;
+        }, 4000);
+        QTest::keyRelease(player, key);
+        return arrived;
+    };
+    const auto pressGameKey = [](Qt::Key key) {
+        QWidget *focus = QApplication::focusWidget();
+        if (!focus) return false;
+        QTest::keyClick(focus, key);
+        return true;
+    };
+    const auto selectFromBag = [&](int category, const QString &listName, ToolType tool) {
+        if (!pressGameKey(Qt::Key_Tab) || !QTest::qWaitFor([&]{ return panel("inventoryDialog") != nullptr; }, 1500))
+            return false;
+        QDialog *bag = panel("inventoryDialog");
+        auto *categories = bag->findChild<QTabWidget *>("bagCategories");
+        auto *list = bag->findChild<QListWidget *>(listName);
+        if (!categories || !list) return false;
+        auto *tabs = categories->tabBar();
+        QTest::mouseClick(tabs, Qt::LeftButton, {}, tabs->tabRect(category).center());
+        for (int i = 0; i < list->count(); ++i) {
+            const auto *item = list->item(i);
+            if (item->isHidden() || item->data(Qt::UserRole).toInt() != static_cast<int>(tool)) continue;
+            QTest::mouseClick(list->viewport(), Qt::LeftButton, {}, list->visualItemRect(item).center());
+            return QTest::qWaitFor([&]{ return !panel("inventoryDialog") && bar->selectedTool() == tool; }, 1500);
+        }
+        return false;
+    };
+
+    QVERIFY(openFarm());
+    QVERIFY(wheelTo(ToolType::Hoe));
+    for (const auto &tile : field) {
+        QVERIFY(clickField(tile));
+        QCOMPARE(map->worldSnapshot().cultivatedLayer.at(tile.y()).at(tile.x()), GameConstants::CultivatedTileGid);
+    }
+    QVERIFY(wheelTo(ToolType::Wheat));
+    for (const auto &tile : field) QVERIFY(clickField(tile));
+    GameSaveData state;
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.seedCounts.value(static_cast<int>(CropType::Wheat)), 0);
+    QCOMPARE(state.world.crops.size(), 6);
+
+    for (int day = 0; day < 3; ++day) {
+        QVERIFY(wheelTo(ToolType::WateringCan));
+        for (const auto &tile : field) QVERIFY(clickField(tile));
+        QCOMPARE(map->worldSnapshot().wateredTiles.size(), 6);
+        QVERIFY(reopenAt(1439));
+        QTRY_COMPARE_WITH_TIMEOUT(map->worldSnapshot().lastCompletedDay, day, 4000);
+        for (const auto &crop : map->worldSnapshot().crops) QCOMPARE(crop.growthDays, day + 1);
+    }
+
+    QVERIFY(wheelTo(ToolType::EmptyHand));
+    for (const auto &tile : field) QVERIFY(clickField(tile));
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.inventoryCounts.value(static_cast<int>(CropType::Wheat)), 6);
+    QCOMPARE(state.world.crops.size(), 0);
+    QVERIFY(walkTo(Qt::Key_S, 18));
+    QVERIFY(walkTo(Qt::Key_D, 28));
+    QVERIFY(pressGameKey(Qt::Key_E));
+    QTRY_VERIFY(panel("marketDialog"));
+    auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
+    QVERIFY(sell && sell->isEnabled());
+    QTest::mouseClick(sell, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.coins, 30);
+    QVERIFY(pressGameKey(Qt::Key_Escape));
+    QTRY_VERIFY(!panel("marketDialog"));
+
+    QVERIFY(walkTo(Qt::Key_D, 33));
+    QVERIFY(pressGameKey(Qt::Key_E));
+    QTRY_VERIFY(panel("shopDialog"));
+    for (const char *id : {"buy_carrot_1", "buy_fertilizer_1"}) {
+        auto *buy = panel("shopDialog")->findChild<QPushButton *>(id);
+        QVERIFY(buy && buy->isEnabled());
+        QTest::mouseClick(buy, Qt::LeftButton);
+    }
+    QVERIFY(pressGameKey(Qt::Key_Escape));
+    QTRY_VERIFY(!panel("shopDialog"));
+    QVERIFY(selectFromBag(1, QStringLiteral("bagSeeds"), ToolType::Carrot));
+    QVERIFY(clickField(field.first()));
+    QVERIFY(selectFromBag(2, QStringLiteral("bagFertilizer"), ToolType::Fertilizer));
+    QVERIFY(clickField(field.at(1))); // Empty cultivated ground must cost nothing.
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.fertilizerCount, 1);
+    QVERIFY(clickField(field.first()));
+    QVERIFY(wheelTo(ToolType::WateringCan));
+    QVERIFY(clickField(field.first()));
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.coins, 27);
+    QCOMPARE(state.economy.fertilizerCount, 0);
+    QCOMPARE(state.world.crops.size(), 1);
+    QVERIFY(state.world.crops.first().fertilizerBonusPending);
+
+    QVERIFY(reopenAt(22 * 60));
+    QVERIFY(walkTo(Qt::Key_A, 26));
+    QVERIFY(walkTo(Qt::Key_W, 8));
+    QVERIFY(pressGameKey(Qt::Key_E));
+    QTRY_COMPARE_WITH_TIMEOUT(game->currentGameDay(), 4, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
+    QCOMPARE(game->currentGameHour(), 6);
+    QVERIFY(game->close());
+    game.reset();
+    QVERIFY(openFarm());
+    QCOMPARE(game->currentGameDay(), 4);
+    QCOMPARE(map->worldSnapshot().crops.size(), 1);
+    const auto crop = map->worldSnapshot().crops.first();
+    QCOMPARE(crop.type, CropType::Carrot);
+    QCOMPARE(crop.growthDays, 2);
+    QVERIFY(crop.fertilizerApplied);
+    QVERIFY(!crop.fertilizerBonusPending);
+    QVERIFY(game->close());
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.coins, 27);
+    QCOMPARE(state.economy.fertilizerCount, 0);
 }
 
 QTEST_MAIN(GameplayPanelTests)
