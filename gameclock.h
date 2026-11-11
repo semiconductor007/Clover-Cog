@@ -1,6 +1,8 @@
 #ifndef GAMECLOCK_H
 #define GAMECLOCK_H
 
+#include "gameconstants.h"
+
 #include <QElapsedTimer>
 
 class GameClock {
@@ -9,8 +11,10 @@ public:
 
     void start();
     void setElapsedGameMinutes(qint64 gameMinutes);
-    bool canSleep(int sleepStartHour = 20) const;
-    bool sleepToNextMorning(int wakeHour = 6, int sleepStartHour = 20);
+    bool canSleep(int sleepStartHour = GameConstants::SleepStartHour,
+                  int wakeHour = GameConstants::WakeUpHour) const;
+    bool sleepToNextMorning(int wakeHour = GameConstants::WakeUpHour,
+                            int sleepStartHour = GameConstants::SleepStartHour);
     qint64 elapsedGameMinutes() const;
     int minute() const;
     int hour() const;
