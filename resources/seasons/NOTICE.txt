@@ -1,0 +1,14 @@
+Clover-Cog seasonal environment data (2026-11-11)
+
+Original map artwork: Cup Nooble / Sprout Lands.
+Credit: Assets -From : Sprout Lands -By : Cup Nooble
+
+The palette mappings and tiny rectangle decorations were prepared for this game.
+Original PNG files are referenced without replacement. Their original licensing
+terms continue to apply; these additions do not relicense the underlying artwork.
+The Sprout Lands pack permits asset modification and use in games/software,
+including open-source projects with credit and licensing terms, and prohibits
+redistribution/resale of the asset pack itself and use for NFTs or AI training.
+See the original pack read_me.txt and docs/ASSET_LICENSES.md for the full terms.
+
+The Farm RPG seasonal sheets are not used by this environment manifest.

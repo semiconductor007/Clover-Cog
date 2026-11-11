@@ -31,3 +31,7 @@
 ## B 本次必要接入窗口（2026-11-08）
 
 用户授权继续 B 开发，本次除 B 域外，顺序接入 A 的 qmake/地图/QRC/TSX 追加资源，D 的 SaveManager 作物施肥字段，以及 C 的 MapWidget 适季信号和主窗口的一条失败提示连接。没有并行编辑者；未接管 C/D/E 整套功能。共享文件已完成 Mac 构建及规则测试，消费者审查、Windows 与完整界面联调待进行；具体字段与交接见 [CROP_CATALOG](CROP_CATALOG.md)。本窗口完成后释放共享文件编辑，后续按原主责继续。
+
+## A 季节资源接入窗口（2026-11-11）
+
+用户另行授权 A 支援：仅保留 resources/seasons、独立的 tools/season_preview，修改 character.qrc 并更新任务/资源文档。后续发布整理按用户要求暂缓，新增打包脚本/部署文档已移至仓库外备份。未修改 map6、C/E 地图显示与时钟、B 作物规则或 D 资产接口；运行接入仍交原主责。资源契约 v1 和验证见 [SEASON_ASSETS](SEASON_ASSETS.md)。

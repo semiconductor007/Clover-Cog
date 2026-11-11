@@ -21,6 +21,8 @@ Clover-Cog/
 ├── seedshopdialog.*          # 种子商店窗口
 ├── itembar.* / tooltype.h    # 工具栏和工具类型
 ├── tests/                    # Qt Test 核心规则测试
+├── resources/seasons/        # A 四季配色/装饰数据与署名
+├── tools/season_preview/     # 独立 Qt 资源校验和地图预览
 ├── docs/                     # 玩法、开发和素材文档
 └── sprout/、tsx/、wav/       # 地图、像素图和音频资源
 ```

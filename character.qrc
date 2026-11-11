@@ -89,4 +89,9 @@
         <file>wav/On_the_Farm.mp3</file>
         <file>wav/On_the_Farm.wav</file>
     </qresource>
+    <qresource prefix="/seasons">
+        <file alias="manifest.json">resources/seasons/manifest.json</file>
+        <file alias="decorations.json">resources/seasons/decorations.json</file>
+        <file alias="NOTICE.txt">resources/seasons/NOTICE.txt</file>
+    </qresource>
 </RCC>

@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "assetVersion": "2026-11-11",
+  "tileSize": 16,
+  "mapResource": ":/map/map6.tmj",
+  "mapSize": [
+    72,
+    40
+  ],
+  "sourceCredit": "Assets -From : Sprout Lands -By : Cup Nooble",
+  "textures": [
+    {
+      "tilesetSource": "tsx/Grass.tsx",
+      "imageResource": ":/tilesets/sprout/Grass.png",
+      "size": [
+        176,
+        112
+      ],
+      "sha256": "97eedc32f4c33005ab2abb26a034ce1b32428da321e3052082c87d320c0e1cbe"
+    },
+    {
+      "tilesetSource": "tsx/Basic_Grass_Biom_things.tsx",
+      "imageResource": ":/tilesets/sprout/Basic_Grass_Biom_things.png",
+      "size": [
+        144,
+        80
+      ],
+      "sha256": "22938e24b511139f5552795429250fbdbbaeb6f5e849cab91bc83ac0a1f12586"
+    },
+    {
+      "tilesetSource": "tsx/Tilled_Dirt_Wide_v2.tsx",
+      "imageResource": ":/tilesets/sprout/Tilled_Dirt_Wide_v2.png",
+      "size": [
+        176,
+        112
+      ],
+      "sha256": "b4e8ef68a1038c6f1fbe1b30d85f1065b563718bff1e697fd28bc94b7f0906e2"
+    },
+    {
+      "tilesetSource": "tsx/Mushrooms, Flowers, Stones.tsx",
+      "imageResource": ":/tilesets/sprout/Mushrooms, Flowers, Stones.png",
+      "size": [
+        192,
+        80
+      ],
+      "sha256": "a279f6bef9394e014410fb4726386e6990787e1af89c5ddc58e0c11a8dfa0885"
+    },
+    {
+      "tilesetSource": "tsx/Trees, stumps and bushes.tsx",
+      "imageResource": ":/tilesets/sprout/Trees, stumps and bushes.png",
+      "size": [
+        192,
+        112
+      ],
+      "sha256": "7f57fb62b94c38c5287b3413bf9bab8974a132a60a2c104797ba26befac21daa"
+    },
+    {
+      "tilesetSource": "tsx/Grass_tiles_v2.tsx",
+      "imageResource": ":/tilesets/sprout/Grass_tiles_v2.png",
+      "size": [
+        176,
+        112
+      ],
+      "sha256": "fac7b699187c6e1fef2afae4cbb76282171ed737081a0417891ea0ee6b62740b"
+    },
+    {
+      "tilesetSource": "tsx/Water_Well.tsx",
+      "imageResource": ":/tilesets/sprout/Water_Well.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "c3d96bac1c9d479f5d965a5039b8e6b6cf488d6c2e561d845c85e8fa8dd3e580"
+    }
+  ],
+  "seasons": [
+    {
+      "id": "spring",
+      "name": "春季",
+      "palette": {
+        "#c0d470": "#c0d470",
+        "#a4c263": "#a4c263",
+        "#78a158": "#78a158",
+        "#d2e077": "#d2e077",
+        "#e8eeaa": "#e8eeaa",
+        "#97bb8e": "#97bb8e",
+        "#6e967c": "#6e967c",
+        "#aed499": "#aed499",
+        "#67835c": "#67835c",
+        "#c2e09a": "#c2e09a",
+        "#8db15d": "#8db15d",
+        "#82a884": "#82a884",
+        "#eae178": "#eae178"
+      },
+      "decoration": "spring_flowers"
+    },
+    {
+      "id": "summer",
+      "name": "夏季",
+      "palette": {
+        "#c0d470": "#9fc874",
+        "#a4c263": "#90b76a",
+        "#78a158": "#618b60",
+        "#d2e077": "#b6d98d",
+        "#e8eeaa": "#d8e8b5",
+        "#97bb8e": "#7daa82",
+        "#6e967c": "#547d68",
+        "#aed499": "#91bf90",
+        "#67835c": "#547b56",
+        "#c2e09a": "#a7d296",
+        "#8db15d": "#72a55d",
+        "#82a884": "#699874",
+        "#eae178": "#e4dc8b"
+      },
+      "decoration": "summer_grass"
+    },
+    {
+      "id": "autumn",
+      "name": "秋季",
+      "palette": {
+        "#c0d470": "#d9ba78",
+        "#a4c263": "#c7a265",
+        "#78a158": "#9c805c",
+        "#d2e077": "#ead291",
+        "#e8eeaa": "#f2e2b0",
+        "#97bb8e": "#c19a72",
+        "#6e967c": "#98785f",
+        "#aed499": "#dbb27b",
+        "#67835c": "#947154",
+        "#c2e09a": "#eacc91",
+        "#8db15d": "#bc975d",
+        "#82a884": "#af8867",
+        "#eae178": "#edce8a"
+      },
+      "decoration": "autumn_leaves"
+    },
+    {
+      "id": "winter",
+      "name": "冬季",
+      "palette": {
+        "#c0d470": "#dce6df",
+        "#a4c263": "#c4d3d1",
+        "#78a158": "#91a9ab",
+        "#d2e077": "#f2f4ea",
+        "#e8eeaa": "#ffffff",
+        "#97bb8e": "#c6d6d7",
+        "#6e967c": "#8fa8b0",
+        "#aed499": "#e0e9e4",
+        "#67835c": "#859fa4",
+        "#c2e09a": "#f4f6ec",
+        "#8db15d": "#b2c9c5",
+        "#82a884": "#acc2c8",
+        "#eae178": "#f4f6ec"
+      },
+      "decoration": "winter_snow"
+    }
+  ],
+  "decorationsResource": ":/seasons/decorations.json",
+  "policy": {
+    "preserveAlpha": true,
+    "unmappedColors": "unchanged",
+    "cacheKey": [
+      "assetVersion",
+      "seasonId",
+      "tilesetSource"
+    ],
+    "decorationStage": "after_map_before_actors",
+    "skipDecorationsOnCultivatedTiles": true,
+    "collisionChanges": false,
+    "waterFreezes": false
+  }
+}
