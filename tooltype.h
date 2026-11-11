@@ -39,6 +39,22 @@ inline constexpr ToolType toolForSeed(CropType crop) {
     }
 }
 
+inline constexpr int ToolCount = static_cast<int>(ToolType::Fertilizer) + 1;
+
+inline QString toolName(ToolType tool) {
+    const CropType crop = seedCropForTool(tool);
+    if (crop != CropType::None)
+        return CropCatalog::definition(crop).localizedName + QStringLiteral("种子");
+    switch (tool) {
+    case ToolType::EmptyHand: return QStringLiteral("空手");
+    case ToolType::Axe: return QStringLiteral("斧子");
+    case ToolType::Hoe: return QStringLiteral("锄头");
+    case ToolType::WateringCan: return QStringLiteral("水壶");
+    case ToolType::Fertilizer: return QStringLiteral("基础肥料");
+    default: return {};
+    }
+}
+
 struct ToolAnimation {
     QVector<QPixmap> leftFrames;  // 向左动画帧
     QVector<QPixmap> rightFrames; // 向右动画帧

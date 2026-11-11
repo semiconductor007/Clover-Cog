@@ -1,5 +1,4 @@
 #include "collisiondetector.h"
-#include<QDebug>
 
 CollisionDetector::CollisionDetector(const QVector<QVector<int>> *collisionLayer,
                                      int tileWidth, int tileHeight)
@@ -14,9 +13,9 @@ bool CollisionDetector::isColliding(const QRect &characterRect) const {
 
     // 计算覆盖的图块范围
     int tileLeft = characterRect.left() / m_tileWidth;
-    int tileRight = (characterRect.right() - 1) / m_tileWidth;
+    int tileRight = characterRect.right() / m_tileWidth;
     int tileTop = characterRect.top() / m_tileHeight;
-    int tileBottom = (characterRect.bottom() - 1) / m_tileHeight;
+    int tileBottom = characterRect.bottom() / m_tileHeight;
 
     // 边界约束
     tileLeft = qMax(0, tileLeft);
@@ -28,7 +27,6 @@ bool CollisionDetector::isColliding(const QRect &characterRect) const {
     for (int y = tileTop; y <= tileBottom; ++y) {
         for (int x = tileLeft; x <= tileRight; ++x) {
             if (layer[y][x] != 0) {
-                qDebug() << "[碰撞发生]";
                 return true; // 碰撞！
             }
         }

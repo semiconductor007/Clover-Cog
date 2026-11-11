@@ -30,6 +30,14 @@ public:
     int viewportHeight() const { return height(); }
     const QVector<QVector<int>> &collisionLayer() const { return m_worldState.collisionLayer(); }
 
+    void setInputBlocked(bool blocked) { m_inputBlocked = blocked; }
+    bool isInputBlocked() const { return m_inputBlocked; }
+    const QVector<Tileset> &originalTilesets() const { return m_originalTilesets; }
+    void setSeasonAppearance(QVector<Tileset> displayTilesets,
+                             std::function<void(QPainter &, const QPoint &, const WorldState &)> paintScenery);
+    void setFertilizeHandler(std::function<bool(const std::function<bool()> &)> handler) {
+        m_fertilizeHandler = std::move(handler);
+    }
     void setViewportCenter(int x, int y);
     void setTimeReference(std::function<qint64()> timeGetter) {
         m_getGameMinutes = std::move(timeGetter);
@@ -67,6 +75,7 @@ public:
     bool isTileCultivatable(const QPoint &tilePos) const;
     bool isPlantable(const QPoint &tilePos) const;
     bool plantSeed(const QPoint &tilePos, CropType cropType);
+    bool fertilizeTile(const QPoint &tilePos);
     bool waterTile(const QPoint &tilePos);
     DayAdvanceResult advanceDay(int completedDay,
                                 std::function<int()> randomPercent = {});
@@ -75,6 +84,8 @@ public:
 
 signals:
     void mapClicked(QPoint pos);
+    void farmingFeedback(QString message);
+    void tileWatered();
     void cropHarvested(CropType type, int quantity);
     void harvestBlocked(CropType type, int requiredCapacity);
     void plantingBlocked(CropType type);
@@ -90,6 +101,9 @@ private:
     std::function<qint64()> m_getGameMinutes;
     std::function<bool(CropType, int)> m_harvestHandler;
     std::function<bool(CropType, const std::function<bool()> &)> m_plantHandler;
+    std::function<bool(const std::function<bool()> &)> m_fertilizeHandler;
+    std::function<void(QPainter &, const QPoint &, const WorldState &)> m_paintScenery;
+    bool m_inputBlocked = false;
     int m_offsetX = 0;
     int m_offsetY = 0;
     QVector<MapRenderLayer> m_renderLayers;
@@ -97,7 +111,8 @@ private:
     int m_tileHeight = 0;
     int m_mapWidth = 0;
     int m_mapHeight = 0;
-    QVector<Tileset> m_tilesets;
+    QVector<Tileset> m_originalTilesets;
+    QVector<Tileset> m_displayTilesets;
     WorldState m_worldState;
     MapRenderer m_renderer;
     QRect m_marketArea;

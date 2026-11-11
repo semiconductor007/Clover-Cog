@@ -5,20 +5,20 @@
 #include <QMouseEvent>
 #include <QTransform>
 
+QPoint ImageMovementWidget::boundedPosition(QPoint pos) const {
+    if (!m_mapWidget) return pos;
+    const int maxX = qMax(0, m_mapWidget->mapWidth() * m_mapWidget->tileWidth() - width());
+    const int maxY = qMax(0, m_mapWidget->mapHeight() * m_mapWidget->tileHeight() - height());
+    return QPoint(qBound(0, pos.x(), maxX), qBound(0, pos.y(), maxY));
+}
+
 void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
-    m_absolutePos = pos;
-
-    // 强制更新视口偏移
+    m_absolutePos = boundedPosition(pos);
     if (m_mapWidget) {
-        m_mapWidget->setViewportCenter(
-            m_absolutePos.x() + width() / 2,
-            m_absolutePos.y() + height() / 2
-            );
-        this->move(m_absolutePos - QPoint(m_mapWidget->offsetX(), m_mapWidget->offsetY()));
+        m_mapWidget->setViewportCenter(m_absolutePos.x() + width() / 2,
+                                       m_absolutePos.y() + height() / 2);
+        move(m_absolutePos - QPoint(m_mapWidget->offsetX(), m_mapWidget->offsetY()));
     }
-
-    qDebug() << "[Position] Initialized to Absolute:" << m_absolutePos
-             << " Relative:" << this->pos();
 }
 
 QPoint ImageMovementWidget::currentTilePosition() const {
@@ -35,9 +35,7 @@ QPoint ImageMovementWidget::currentTilePosition() const {
 ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
     : QWidget(parent), m_mapWidget(mapWidget) {
     m_controller = new PlayerController(mapWidget, this);
-      setFocusPolicy(Qt::StrongFocus);
     initUI();
-    position = QPoint(0, 0);
     currentRightFrameIndex=0;
     currentLeftFrameIndex=0;
     currentUpFrameIndex=0;
@@ -55,8 +53,8 @@ ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
 
     // 初始化碰撞检测
     if (m_mapWidget) {
-        qDebug() << "传递的图块尺寸:"
-                 << m_mapWidget->tileWidth() << "x" << m_mapWidget->tileHeight();
+        m_mapWidget->setFocusPolicy(Qt::ClickFocus);
+        m_mapWidget->setFocusProxy(this);
         m_collisionDetector = std::make_unique<CollisionDetector>(
             &m_mapWidget->collisionLayer(),
             m_mapWidget->tileWidth(),
@@ -64,6 +62,8 @@ ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
             );
     }
 
+    // MapWidget arbitrates harvesting and tool use for every left click.
+    setAttribute(Qt::WA_TransparentForMouseEvents);
     setAttribute(Qt::WA_AcceptTouchEvents, false);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
@@ -72,7 +72,6 @@ ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
 //切换工具
 void ImageMovementWidget::setCurrentTool(int toolIndex) {
     m_controller->setCurrentTool(toolIndex);
-    qDebug() << "切换工具到:" << m_controller->currentTool().name;
 }
 
 void ImageMovementWidget::initUI() {
@@ -167,10 +166,46 @@ void ImageMovementWidget::initUI() {
     imageLabel->setAutoFillBackground(false);
 }
 
+void ImageMovementWidget::clearMovement() {
+    isMovingUp = isMovingDown = isMovingLeft = isMovingRight = false;
+    isIdle = true;
+    currentIdleFrameIndex = 0;
+}
+
+void ImageMovementWidget::setInputBlocked(bool blocked) {
+    if (m_inputBlocked == blocked)
+        return;
+    m_inputBlocked = blocked;
+    clearMovement();
+    if (blocked) {
+        m_actionTimer->stop();
+        m_isActing = false;
+    } else {
+        setFocus(Qt::OtherFocusReason);
+    }
+}
+
+void ImageMovementWidget::focusOutEvent(QFocusEvent *event) {
+    clearMovement();
+    QWidget::focusOutEvent(event);
+}
+
+bool ImageMovementWidget::event(QEvent *event) {
+    if (event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Tab && key->modifiers() == Qt::NoModifier) {
+            key->accept();
+            if (!m_inputBlocked && !key->isAutoRepeat())
+                emit inventoryRequested();
+            return true;
+        }
+    }
+    return QWidget::event(event);
+}
+
 void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
-    // 忽略自动重复的按键事件
-    if (event->isAutoRepeat()) {
-        event->ignore();
+    if (m_inputBlocked || event->isAutoRepeat()) {
+        event->accept();
         return;
     }
 
@@ -180,7 +215,6 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         return;
     }
 
-    isIdle = false;
     switch (event->key()) {
     case Qt::Key_D:
         isMovingRight = true;
@@ -218,12 +252,13 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         QWidget::keyPressEvent(event);
         return;
     }
+    isIdle = false;
     event->accept();
 }
 
 void ImageMovementWidget::keyReleaseEvent(QKeyEvent *event) {
-    if (event->isAutoRepeat()) {
-        event->ignore();
+    if (m_inputBlocked || event->isAutoRepeat()) {
+        event->accept();
         return;
     }
 
@@ -257,95 +292,34 @@ void ImageMovementWidget::keyReleaseEvent(QKeyEvent *event) {
     event->accept();
 }
 
-void ImageMovementWidget::mousePressEvent(QMouseEvent* event) {
-    m_controller->useAxeAt(m_absolutePos + QPoint(width() / 2, height() / 2),
-                           m_lastDirection);
-    QWidget::mousePressEvent(event);
-}
-
 void ImageMovementWidget::updateAnimation() {
-    if (m_isActing) return;
-    if (!m_collisionDetector) {
-        qDebug() << "Collision detector not initialized!";
+    if (m_inputBlocked || m_isActing || !m_collisionDetector || !m_mapWidget)
         return;
-    }
 
-    const int step = 10;
-
-    if (!m_mapWidget || m_mapWidget->width() <= 0) return;
-
-    QPoint newPos = position; // 正确继承当前坐标
-
-    // 各方向移动处理（使用else if确保单一方向）
+    constexpr int step = 10;
+    QPoint next = m_absolutePos;
     if (isMovingRight) {
-        newPos.setX(position.x() + step);
+        next.rx() += step;
         currentRightFrameIndex = (currentRightFrameIndex + 1) % walkingRightFrames.size();
         imageLabel->setPixmap(walkingRightFrames[currentRightFrameIndex]);
-    }
-    if (isMovingLeft) {  // 改为独立if判断，允许斜向移动
-        newPos.setX(position.x() - step);
+    } else if (isMovingLeft) {
+        next.rx() -= step;
         currentLeftFrameIndex = (currentLeftFrameIndex + 1) % walkingLeftFrames.size();
         imageLabel->setPixmap(walkingLeftFrames[currentLeftFrameIndex]);
-    }
-    if (isMovingUp) {
-        newPos.setY(position.y() - step);
+    } else if (isMovingUp) {
+        next.ry() -= step;
         currentUpFrameIndex = (currentUpFrameIndex + 1) % walkingUpFrames.size();
         imageLabel->setPixmap(walkingUpFrames[currentUpFrameIndex]);
-    }
-    if (isMovingDown) {
-        newPos.setY(position.y() + step);
+    } else if (isMovingDown) {
+        next.ry() += step;
         currentDownFrameIndex = (currentDownFrameIndex + 1) % walkingDownFrames.size();
         imageLabel->setPixmap(walkingDownFrames[currentDownFrameIndex]);
     }
 
+    next = boundedPosition(next);
+    if (next != m_absolutePos && !m_collisionDetector->isColliding(m_collisionArea.translated(next)))
+        setInitialPosition(next);
 
-
-    QPoint newAbsolutePos = m_absolutePos; // 使用绝对坐标
-
-    if (isMovingRight) newAbsolutePos.rx() += step;
-    if (isMovingLeft) newAbsolutePos.rx() -= step;
-    if (isMovingUp) newAbsolutePos.ry() -= step;
-    if (isMovingDown) newAbsolutePos.ry() += step;
-
-    // 碰撞检测（使用绝对坐标）
-    QRect newCollisionRect(
-        newAbsolutePos.x() + m_collisionArea.x(),
-        newAbsolutePos.y() + m_collisionArea.y(),
-        m_collisionArea.width(),
-        m_collisionArea.height()
-        );
-    if (m_collisionDetector->isColliding(newCollisionRect)) {
-        return;
-    }
-
-    m_absolutePos = newAbsolutePos;
-
-    // 获取父控件 MapWidget
-    if (m_mapWidget) {
-        // 计算角色中心点
-        int centerX = m_absolutePos.x() + width() / 2;
-        int centerY = m_absolutePos.y() + height() / 2;
-
-        // 更新视口中心
-        m_mapWidget->setViewportCenter(centerX, centerY);
-
-        // 计算角色在视口中的相对位置并移动
-        QPoint relativePos(
-            m_absolutePos.x() - m_mapWidget->offsetX(),
-            m_absolutePos.y() - m_mapWidget->offsetY()
-            );
-        this->move(relativePos);
-    }
-
-    if (m_mapWidget) {
-        QPoint relativePos(
-            m_absolutePos.x() - m_mapWidget->offsetX(),
-            m_absolutePos.y() - m_mapWidget->offsetY()
-            );
-        this->move(relativePos);
-        this->setGeometry(relativePos.x(), relativePos.y(), 48, 48); // 强制更新几何位置
-    }
-    // 空闲状态处理
     if (isIdle) {
         switch (m_lastDirection) {
         case PlayerDirection::Right:
@@ -384,6 +358,7 @@ void ImageMovementWidget::updateActionAnimation() {
 
 
 void ImageMovementWidget::handleToolAction() {
+    if (m_inputBlocked) return;
     const ToolType toolType = m_controller->currentTool().type;
     if (!m_toolAnimations.contains(toolType)) return;
 
@@ -407,6 +382,13 @@ void ImageMovementWidget::handleToolAction() {
 
 // rpg.cpp 中实现
 void ImageMovementWidget::useCurrentToolAt(QPoint mapPos) {
+    if (m_inputBlocked || !m_mapWidget || m_mapWidget->isInputBlocked() ||
+        !m_mapWidget->isValidTile(m_mapWidget->mapPointToTile(mapPos)))
+        return;
     handleToolAction();
+    if (m_controller->currentTool().type == ToolType::Axe && geometry().contains(mapPos)) {
+        m_controller->useAxeAt(m_absolutePos + QPoint(width() / 2, height() / 2), m_lastDirection);
+        return;
+    }
     m_controller->useToolAt(mapPos);
 }
