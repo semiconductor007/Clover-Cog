@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
+#include <QtMath>
 
 namespace {
 constexpr int SlotSize = 32;
@@ -64,17 +65,21 @@ bool ItemBar::eventFilter(QObject *watched, QEvent *event) {
 
 void ItemBar::wheelEvent(QWheelEvent *event) {
     event->accept();
-    if (!acceptsPlayerInput() || event->phase() == Qt::ScrollBegin)
+    if (!acceptsPlayerInput()) {
         m_wheelRemainder = 0;
-    if (!acceptsPlayerInput())
         return;
+    }
+    if (event->phase() == Qt::ScrollBegin)
+        m_wheelRemainder = 0;
     // A conventional notch is 120 angle units. Some touchpads send only pixels.
     const int angle = event->angleDelta().y();
     m_wheelRemainder += angle ? angle : event->pixelDelta().y() * 4;
     const int steps = m_wheelRemainder / 120;
     m_wheelRemainder %= 120;
-    if (steps)
-        selectTool(static_cast<ToolType>((static_cast<int>(m_selected) - steps % ToolCount + ToolCount) % ToolCount));
+    if (steps) {
+        const int next = (static_cast<int>(m_selected) - steps % ToolCount + ToolCount) % ToolCount;
+        selectTool(static_cast<ToolType>(next));
+    }
     if (event->phase() == Qt::ScrollEnd)
         m_wheelRemainder = 0;
 }
@@ -83,8 +88,9 @@ void ItemBar::mousePressEvent(QMouseEvent *event) {
     event->accept();
     if (!acceptsPlayerInput() || event->button() != Qt::LeftButton)
         return;
+    const QPoint pos(qFloor(event->position().x()), qFloor(event->position().y()));
     for (int i = 0; i < ToolCount; ++i) {
-        if (QRectF(slotRect(i)).contains(event->position())) {
+        if (slotRect(i).contains(pos)) {
             selectTool(static_cast<ToolType>(i));
             return;
         }

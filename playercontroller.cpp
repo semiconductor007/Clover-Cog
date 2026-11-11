@@ -2,33 +2,33 @@
 
 #include "mapwidget.h"
 
-
-
-PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
-    : QObject(parent), m_mapWidget(mapWidget) {
-    for (int i = 0; i < ToolCount; ++i) {
-        const auto type = static_cast<ToolType>(i);
-        const bool equipment = i <= static_cast<int>(ToolType::WateringCan);
-        const int damage = type == ToolType::Axe ? 30 :
-                           type == ToolType::Hoe ? 15 :
-                           type == ToolType::WateringCan ? 5 : 0;
-        m_tools.append({type, toolName(type), damage,
-                        equipment ? QStringLiteral(":/characte/Premium Charakter Spritesheet.png")
-                                  : QString()});
+namespace {
+ToolProperty propertyForTool(ToolType type) {
+    ToolProperty tool{type, toolName(type), 0, {}};
+    switch (type) {
+    case ToolType::EmptyHand: break;
+    case ToolType::Axe: tool.damage = 30; break;
+    case ToolType::Hoe: tool.damage = 15; break;
+    case ToolType::WateringCan: tool.damage = 5; break;
+    default: return tool;
     }
-    m_currentTool = m_tools.first();
+    tool.animFile = QStringLiteral(":/characte/Premium Charakter Spritesheet.png");
+    return tool;
+}
 }
 
+PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
+    : QObject(parent), m_mapWidget(mapWidget), m_currentTool(propertyForTool(ToolType::EmptyHand)) {}
+
 void PlayerController::setCurrentTool(int toolIndex) {
-    if (toolIndex < 0 || toolIndex >= m_tools.size()) {
+    if (toolIndex < 0 || toolIndex >= ToolCount)
         return;
-    }
-    m_currentTool = m_tools.at(toolIndex);
+    m_currentTool = propertyForTool(static_cast<ToolType>(toolIndex));
     emit toolChanged(m_currentTool.type);
 }
 
 void PlayerController::useToolAt(const QPoint &mapPoint) {
-    if (!m_mapWidget) {
+    if (!m_mapWidget || m_mapWidget->isInputBlocked()) {
         return;
     }
     const QPoint tilePos = m_mapWidget->mapPointToTile(mapPoint);
@@ -57,7 +57,7 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
 }
 
 void PlayerController::useAxeAt(const QPoint &playerCenter, PlayerDirection direction) {
-    if (!m_mapWidget || m_currentTool.type != ToolType::Axe ||
+    if (!m_mapWidget || m_mapWidget->isInputBlocked() || m_currentTool.type != ToolType::Axe ||
         m_mapWidget->tileWidth() <= 0 || m_mapWidget->tileHeight() <= 0) {
         return;
     }
