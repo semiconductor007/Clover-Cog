@@ -154,7 +154,7 @@ void CoreTests::worldStateHandlesFarmingAndTrees() {
     MapData data;
     data.mapWidth = 2;
     data.mapHeight = 2;
-    data.cultivatableLayer = {{GameConstants::CultivatableGrassGid, 0}, {0, 0}};
+    data.cultivatableLayer = {{GameConstants::CultivatableGrassGid, GameConstants::CultivatableGrassGid}, {0, 0}};
     data.cultivatedLayer = {{0, 0}, {123, 0}};
     data.cropLayer = {{0, 0}, {0, 0}};
     data.treeLayer = {{0, 7}, {0, 0}};
@@ -191,6 +191,7 @@ void CoreTests::worldStateHandlesFarmingAndTrees() {
     const QPoint tree(1, 0);
     CollisionDetector detector(&state.collisionLayer(), 16, 16);
     QVERIFY(state.hasTreeAt(tree));
+    QVERIFY(!state.cultivate(tree));
     QVERIFY(detector.isColliding(QRect(16, 0, 8, 8)));
     QCOMPARE(state.treeGidAt(tree), 7);
     QVERIFY(state.damageTree(tree, 10));
@@ -509,31 +510,53 @@ void CoreTests::seasonalPlantingPreservesSeedsAndExistingCrops() {
 }
 
 void CoreTests::allCropTypesCompleteTheEconomicLoop() {
+    int totalSeedCost = 0;
+    int totalSales = 0;
     for (CropType type : CropCatalog::cropTypes()) {
-        const auto &crop=CropCatalog::definition(type);
-        int firstDay=0;while(!CropCatalog::canPlantOnDay(type,firstDay))++firstDay;
-        MapData data;data.mapWidth=1;data.mapHeight=1;data.cultivatedLayer={{135}};
-        WorldState world;world.initialize(data);
-        EconomyService economy;auto assets=economy.state();assets.coins=100;
+        const auto &crop = CropCatalog::definition(type);
+        int firstDay = 0;
+        while (!CropCatalog::canPlantOnDay(type, firstDay))
+            ++firstDay;
+        MapData map;
+        map.mapWidth = 1;
+        map.mapHeight = 1;
+        map.cultivatedLayer = {{GameConstants::CultivatedTileGid}};
+        WorldState world;
+        world.initialize(map);
+        EconomyService economy;
+        auto assets = economy.state();
+        assets.coins = 100;
         QVERIFY(economy.restore(assets));
-        const int before=economy.seedCount(type);
-        QVERIFY(economy.buySeeds(type,1).success);
-        QVERIFY(economy.plantWithSeed(type,[&](){return world.plantSeed({0,0},type,firstDay);}));
-        QCOMPARE(economy.seedCount(type),before);
-        for(int i=0;i<crop.growthDays;++i) {
-            QVERIFY(world.waterTile({0,0}));
-            QCOMPARE(world.advanceDay(firstDay+i,[](){return 99;}).cropsAdvanced,1);
+
+        const int previousSeeds = economy.seedCount(type);
+        const auto purchase = economy.buySeeds(type, 1);
+        QVERIFY(purchase.success);
+        totalSeedCost += purchase.coinsSpent;
+        QVERIFY(economy.plantWithSeed(type, [&]() {
+            return world.plantSeed({0, 0}, type, firstDay);
+        }));
+        QCOMPARE(economy.seedCount(type), previousSeeds);
+        for (int offset = 0; offset < crop.growthDays; ++offset) {
+            QVERIFY(world.waterTile({0, 0}));
+            QCOMPARE(world.advanceDay(firstDay + offset, []() { return 99; }).cropsAdvanced, 1);
         }
-        auto harvest=world.previewHarvest({0,0});
-        QCOMPARE(harvest.type,type);QCOMPARE(harvest.quantity,crop.harvestYield);
-        QVERIFY(economy.collectHarvest(harvest.type,harvest.quantity));
-        QVERIFY(world.harvest({0,0}).isValid());
-        const auto sale=economy.sellAll({2,2},QRect(2,2,1,1));
+
+        const auto harvest = world.previewHarvest({0, 0});
+        QCOMPARE(harvest.type, type);
+        QCOMPARE(harvest.quantity, crop.harvestYield);
+        QVERIFY(economy.collectHarvest(type, harvest.quantity));
+        QVERIFY(world.harvest({0, 0}).isValid());
+        const QRect market(2, 2, 1, 1);
+        const auto sale = economy.sellAll({2, 2}, market);
         QVERIFY(sale.success);
-        QCOMPARE(economy.coins(),100-crop.seedPrice+crop.harvestYield*crop.sellPrice);
-        QVERIFY(!world.harvest({0,0}).isValid());
-        QVERIFY(!economy.sellAll({2,2},QRect(2,2,1,1)).success);
+        totalSales += sale.coinsEarned;
+        QCOMPARE(economy.coins(), 100 - purchase.coinsSpent + sale.coinsEarned);
+        QVERIFY(!world.harvest({0, 0}).isValid());
+        QVERIFY(!economy.sellAll({2, 2}, market).success);
     }
+    // One ordinary harvest per variety: pay 11 coins for seeds and receive 28.
+    QCOMPARE(totalSeedCost, 11);
+    QCOMPARE(totalSales, 28);
 }
 
 void CoreTests::fertilizerWaitsForWaterAndAppliesOnce() {

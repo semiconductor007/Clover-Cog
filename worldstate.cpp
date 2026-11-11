@@ -102,6 +102,7 @@ bool WorldState::damageTree(const QPoint &tilePos, int damage) {
 
 bool WorldState::isTileCultivatable(const QPoint &tilePos) const {
     return isValidTile(tilePos) &&
+           m_collisionLayer.at(tilePos.y()).at(tilePos.x()) == 0 &&
            m_cultivatableLayer.at(tilePos.y()).at(tilePos.x()) ==
                GameConstants::CultivatableGrassGid &&
            m_cultivatedLayer.at(tilePos.y()).at(tilePos.x()) == 0;
