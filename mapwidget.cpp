@@ -1,4 +1,5 @@
 #include "mapwidget.h"
+#include "playercontroller.h"
 
 #include <QDebug>
 #include <QMouseEvent>
@@ -8,6 +9,10 @@
 MapWidget::MapWidget(QWidget *parent)
     : QWidget(parent) {
     setAttribute(Qt::WA_InputMethodEnabled, false);
+}
+
+void MapWidget::setPlayerController(PlayerController *controller) {
+    m_playerController = controller;
 }
 
 bool MapWidget::loadMap(const QString &tmjPath) {
@@ -123,7 +128,13 @@ void MapWidget::mousePressEvent(QMouseEvent *event) {
     if (!isValidTile(tilePos))
         return;
 
-    // A mature crop owns this click even when the backpack is full.
+    // Fertilizer always goes through the crop and inventory checks, even on ripe crops.
+    if (m_playerController && m_playerController->currentTool().type == ToolType::Fertilizer) {
+        emit mapClicked(point);
+        return;
+    }
+
+    // For other tools a mature crop owns the click, even when the backpack is full.
     const HarvestResult preview = m_worldState.previewHarvest(tilePos);
     if (preview.isValid()) {
         if (m_harvestHandler && !m_harvestHandler(preview.type, preview.quantity)) {

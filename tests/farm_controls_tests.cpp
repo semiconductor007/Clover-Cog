@@ -215,6 +215,49 @@ private slots:
         QCOMPARE(mapClicks.count(), 0);
     }
 
+    void fertilizerClickLeavesMatureCropInPlace() {
+        QVERIFY(map->cultivateTile(plot));
+        QVERIFY(map->plantSeed(plot, CropType::Wheat));
+        const int matureDays = CropCatalog::definition(CropType::Wheat).growthDays;
+        for (int day = 0; day < matureDays; ++day) {
+            QVERIFY(map->waterTile(plot));
+            map->advanceDay(day);
+        }
+
+        int stock = 1;
+        int attempts = 0;
+        map->setFertilizeHandler([&](const std::function<bool()> &apply) {
+            ++attempts;
+            if (stock == 0 || !apply()) return false;
+            --stock;
+            return true;
+        });
+        QSignalSpy harvested(map, &MapWidget::cropHarvested);
+        QSignalSpy changed(map, &MapWidget::worldChanged);
+        QSignalSpy feedback(map, &MapWidget::farmingFeedback);
+        bar->selectTool(ToolType::Fertilizer);
+        click(tileCenter(plot));
+        QCOMPARE(harvested.count(), 0);
+        QCOMPARE(attempts, 1);
+        QCOMPARE(stock, 1);
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(feedback.count(), 1);
+        QVERIFY(feedback.first().first().toString().contains(QStringLiteral("已成熟")));
+        const auto crops = map->worldSnapshot().crops;
+        QCOMPARE(crops.size(), 1);
+        QCOMPARE(crops.first().tilePos, plot);
+        QCOMPARE(crops.first().type, CropType::Wheat);
+        QCOMPARE(crops.first().growthDays, matureDays);
+        QVERIFY(!crops.first().fertilizerApplied);
+        QVERIFY(!crops.first().fertilizerBonusPending);
+
+        bar->selectTool(ToolType::EmptyHand);
+        click(tileCenter(plot));
+        QCOMPARE(harvested.count(), 1);
+        QCOMPARE(attempts, 1);
+        QVERIFY(map->worldSnapshot().crops.isEmpty());
+    }
+
     void fertilizerAndWater() {
         int stock = 2;
         int effects = 0;

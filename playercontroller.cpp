@@ -18,7 +18,10 @@ ToolProperty propertyForTool(ToolType type) {
 }
 
 PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
-    : QObject(parent), m_mapWidget(mapWidget), m_currentTool(propertyForTool(ToolType::EmptyHand)) {}
+    : QObject(parent), m_mapWidget(mapWidget), m_currentTool(propertyForTool(ToolType::EmptyHand)) {
+    if (m_mapWidget)
+        m_mapWidget->setPlayerController(this);
+}
 
 void PlayerController::setCurrentTool(int toolIndex) {
     if (toolIndex < 0 || toolIndex >= ToolCount)
