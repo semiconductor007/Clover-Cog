@@ -2,18 +2,20 @@
 
 #include "mapwidget.h"
 
-#include <QDebug>
+
 
 PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
     : QObject(parent), m_mapWidget(mapWidget) {
-    m_tools = {
-        {ToolType::EmptyHand,   "空手",     0,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Axe,         "斧子",     30, ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Hoe,         "锄头",     15, ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::WateringCan, "水壶",     5,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Wheat,       "小麦种子", 0,  ":/anim/planting.png"},
-        {ToolType::Potato,      "土豆种子", 0,  ":/anim/planting.png"}
-    };
+    for (int i = 0; i < ToolCount; ++i) {
+        const auto type = static_cast<ToolType>(i);
+        const bool equipment = i <= static_cast<int>(ToolType::WateringCan);
+        const int damage = type == ToolType::Axe ? 30 :
+                           type == ToolType::Hoe ? 15 :
+                           type == ToolType::WateringCan ? 5 : 0;
+        m_tools.append({type, toolName(type), damage,
+                        equipment ? QStringLiteral(":/characte/Premium Charakter Spritesheet.png")
+                                  : QString()});
+    }
     m_currentTool = m_tools.first();
 }
 
@@ -34,21 +36,17 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
         return;
     }
 
+    const auto crop = seedCropForTool(m_currentTool.type);
+    if (crop != CropType::None) {
+        m_mapWidget->plantSeed(tilePos, crop);
+        return;
+    }
     switch (m_currentTool.type) {
     case ToolType::Hoe:
-        if (m_mapWidget->isTileCultivatable(tilePos)) {
-            m_mapWidget->cultivateTile(tilePos);
-        }
+        m_mapWidget->cultivateTile(tilePos);
         break;
-    case ToolType::Wheat:
-        if (m_mapWidget->isPlantable(tilePos)) {
-            m_mapWidget->plantSeed(tilePos, CropType::Wheat);
-        }
-        break;
-    case ToolType::Potato:
-        if (m_mapWidget->isPlantable(tilePos)) {
-            m_mapWidget->plantSeed(tilePos, CropType::Potato);
-        }
+    case ToolType::Fertilizer:
+        m_mapWidget->fertilizeTile(tilePos);
         break;
     case ToolType::WateringCan:
         m_mapWidget->waterTile(tilePos);

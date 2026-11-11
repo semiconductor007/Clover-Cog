@@ -34,6 +34,7 @@ public:
     explicit ImageMovementWidget(MapWidget *mapWidget, QWidget *parent = nullptr);
     void setInitialPosition(const QPoint &pos); // 新增方法
     void handleToolAction();
+    void setInputBlocked(bool blocked);
     QPoint currentTilePosition() const;
     QPoint absolutePosition() const { return m_absolutePos; }
     // 新增：获取当前工具属性
@@ -44,19 +45,24 @@ public:
 protected:
     // 新增：重写 showEvent 确保控件获取焦点
     void showEvent(QShowEvent *event) override {
-        setFocus();
+        if (!m_inputBlocked) setFocus();
         QWidget::showEvent(event);
     }
-    void mousePressEvent(QMouseEvent* event) override;
+    bool event(QEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 
 public slots:
     void setCurrentTool(int toolIndex); // 根据物品栏索引切换工具
     void useCurrentToolAt(QPoint mapPos);
 signals:
+    void inventoryRequested();
     void interactionRequested(QPoint playerTile);
 private://工具动画
     QMap<ToolType, ToolAnimation> m_toolAnimations;
+    bool m_inputBlocked = false;
+    void clearMovement();
+    QPoint boundedPosition(QPoint pos) const;
     bool m_isActing = false; // 是否正在执行动作
 
     void updateActionAnimation();
@@ -89,7 +95,6 @@ private://工具动画
     int currentLeftFrameIndex;
     int currentUpFrameIndex;
     int currentDownFrameIndex;
-    QPoint position;
     bool isMovingRight;
     bool isMovingLeft;
     bool isMovingUp;
