@@ -19,7 +19,7 @@ int Inventory::count(CropType type) const {
 }
 
 bool Inventory::canAdd(CropType type, int quantity) const {
-    return type != CropType::None && quantity > 0 &&
+    return CropCatalog::definition(type).type != CropType::None && quantity > 0 &&
            quantity <= remainingCapacity();
 }
 

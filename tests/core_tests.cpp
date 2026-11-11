@@ -10,6 +10,10 @@
 #include "worldstate.h"
 
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include "seasoncalendar.h"
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 
@@ -18,7 +22,17 @@ class CoreTests : public QObject {
 
 private slots:
     void gameClockConvertsElapsedTime();
+    void seasonCalendarUsesTheClockDate();
+    void cropCatalogHasIndependentStagesAndIcons();
+    void seasonalPlantingPreservesSeedsAndExistingCrops();
+    void allCropTypesCompleteTheEconomicLoop();
+    void catchingUpAQuietFarmMatchesDailySettlement();
+    void fertilizerWaitsForWaterAndAppliesOnce();
+    void fertilizerRejectsInvalidTargetsAndSnapshots();
+    void fertilizedCropsSaveAndRejectMalformedFlags();
+
     void gameClockOnlySleepsAtNight();
+    void gameClockRunsThroughMidnight();
     void collisionDetectorHandlesBounds();
     void mapLoaderValidatesAndInitializesLayers();
     void mapLoaderPreservesDynamicLayerOrder();
@@ -68,6 +82,25 @@ void CoreTests::gameClockOnlySleepsAtNight() {
     QCOMPARE(clock.hour(), 6);
     QVERIFY(!clock.sleepToNextMorning(6, 20));
     QCOMPARE(clock.day(), 1);
+
+    for (const int minuteOfDay : {0, 1, 5 * 60 + 59, 23 * 60 + 59}) {
+        const int currentDay = 6;
+        clock.setElapsedGameMinutes(currentDay * 24 * 60 + minuteOfDay);
+        QVERIFY(clock.canSleep());
+        QVERIFY(clock.sleepToNextMorning());
+        QCOMPARE(clock.day(), currentDay + (minuteOfDay >= 20 * 60 ? 1 : 0));
+        QCOMPARE(clock.hour(), 6);
+        QCOMPARE(clock.minute(), 0);
+        QVERIFY(!clock.canSleep());
+    }
+}
+
+void CoreTests::gameClockRunsThroughMidnight() {
+    GameClock clock(100);
+    clock.setElapsedGameMinutes(24 * 60 - 1);
+    QTRY_VERIFY_WITH_TIMEOUT(clock.elapsedGameMinutes() >= 24 * 60, 2000);
+    QCOMPARE(clock.day(), 1);
+    QCOMPARE(clock.hour(), 0);
 }
 
 void CoreTests::collisionDetectorHandlesBounds() {
@@ -142,7 +175,7 @@ void CoreTests::worldStateHandlesFarmingAndTrees() {
     MapData data;
     data.mapWidth = 2;
     data.mapHeight = 2;
-    data.cultivatableLayer = {{GameConstants::CultivatableGrassGid, 0}, {0, 0}};
+    data.cultivatableLayer = {{GameConstants::CultivatableGrassGid, GameConstants::CultivatableGrassGid}, {0, 0}};
     data.cultivatedLayer = {{0, 0}, {123, 0}};
     data.cropLayer = {{0, 0}, {0, 0}};
     data.treeLayer = {{0, 7}, {0, 0}};
@@ -179,6 +212,7 @@ void CoreTests::worldStateHandlesFarmingAndTrees() {
     const QPoint tree(1, 0);
     CollisionDetector detector(&state.collisionLayer(), 16, 16);
     QVERIFY(state.hasTreeAt(tree));
+    QVERIFY(!state.cultivate(tree));
     QVERIFY(detector.isColliding(QRect(16, 0, 8, 8)));
     QCOMPARE(state.treeGidAt(tree), 7);
     QVERIFY(state.damageTree(tree, 10));
@@ -200,10 +234,10 @@ void CoreTests::cropDefinitionsControlGrowthAndYield() {
     QCOMPARE(wheat.growthDays, 3);
     QCOMPARE(wheat.harvestYield, 1);
     QCOMPARE(wheat.seedPrice, 2);
-    QCOMPARE(wheat.sellPrice, 4);
+    QCOMPARE(wheat.sellPrice, 5);
     QCOMPARE(potato.growthDays, 5);
     QCOMPARE(potato.harvestYield, 3);
-    QCOMPARE(potato.seedPrice, 5);
+    QCOMPARE(potato.seedPrice, 4);
     QCOMPARE(potato.sellPrice, 3);
 
     MapData data;
@@ -286,7 +320,7 @@ void CoreTests::inventoryEnforcesWholeHarvestCapacity() {
     const HarvestResult preview = state.previewHarvest(QPoint(0, 0));
     QCOMPARE(preview.quantity, 3);
     QVERIFY(!inventory.add(preview.type, preview.quantity));
-    QCOMPARE(state.cropGidAt(QPoint(0, 0)), GameConstants::CropMatureStageGid);
+    QCOMPARE(state.cropGidAt(QPoint(0, 0)), CropCatalog::definition(CropType::Potato).stageGids.last());
 }
 
 void CoreTests::economyRequiresMarketAndSellsAtomically() {
@@ -303,12 +337,12 @@ void CoreTests::economyRequiresMarketAndSellsAtomically() {
     const SaleResult sale = economy.sellAll(QPoint(5, 5), market);
     QVERIFY(sale.success);
     QCOMPARE(sale.itemsSold, 5);
-    QCOMPARE(sale.coinsEarned, 17);
-    QCOMPARE(economy.coins(), 17);
+    QCOMPARE(sale.coinsEarned, 19);
+    QCOMPARE(economy.coins(), 19);
     QCOMPARE(economy.inventory().usedCapacity(), 0);
 
     QVERIFY(!economy.sellAll(QPoint(5, 5), market).success);
-    QCOMPARE(economy.coins(), 17);
+    QCOMPARE(economy.coins(), 19);
 }
 
 void CoreTests::seedsAreConsumedAndPurchasedAtomically() {
@@ -335,11 +369,11 @@ void CoreTests::seedsAreConsumedAndPurchasedAtomically() {
 
     QVERIFY(economy.collectHarvest(CropType::Wheat, 2));
     const QRect market(1, 1, 1, 1);
-    QCOMPARE(economy.sellAll(QPoint(1, 1), market).coinsEarned, 8);
+    QCOMPARE(economy.sellAll(QPoint(1, 1), market).coinsEarned, 10);
     const SeedPurchaseResult purchase = economy.buySeeds(CropType::Potato, 1);
     QVERIFY(purchase.success);
-    QCOMPARE(purchase.coinsSpent, 5);
-    QCOMPARE(economy.coins(), 3);
+    QCOMPARE(purchase.coinsSpent, 4);
+    QCOMPARE(economy.coins(), 6);
     QCOMPARE(economy.seedCount(CropType::Potato),
              GameConstants::InitialPotatoSeeds + 1);
 
@@ -359,6 +393,8 @@ void CoreTests::saveManagerRoundTripsGameStateAndKeepsBackup() {
 
     WorldState world;
     world.initialize(mapData);
+    world.advanceDay(0);
+    world.advanceDay(1);
     QVERIFY(world.cultivate(QPoint(0, 0)));
     QVERIFY(world.plantSeed(QPoint(0, 0), CropType::Wheat, 2));
     QVERIFY(world.waterTile(QPoint(0, 0)));
@@ -411,6 +447,260 @@ void CoreTests::saveManagerRoundTripsGameStateAndKeepsBackup() {
     QVERIFY2(SaveManager::load(path + QStringLiteral(".bak"), &backup, &error),
              qPrintable(error));
     QCOMPARE(backup.gameMinutes, original.gameMinutes);
+}
+
+
+void CoreTests::seasonCalendarUsesTheClockDate() {
+    struct Boundary { qint64 day; qint64 year; Season season; int date; };
+    const Boundary boundaries[] = {
+        {0,1,Season::Spring,1}, {6,1,Season::Spring,7},
+        {7,1,Season::Summer,1}, {13,1,Season::Summer,7},
+        {14,1,Season::Autumn,1}, {20,1,Season::Autumn,7},
+        {21,1,Season::Winter,1}, {27,1,Season::Winter,7},
+        {28,2,Season::Spring,1}, {280021,10001,Season::Winter,1}
+    };
+    for (const auto &b : boundaries) {
+        const SeasonDate date = SeasonCalendar::dateForDay(b.day);
+        QCOMPARE(date.year,b.year); QCOMPARE(date.season,b.season);
+        QCOMPARE(date.dayOfSeason,b.date);
+        const SeasonDate fromMinutes = SeasonCalendar::dateForMinutes(b.day*1440+1439);
+        QCOMPARE(fromMinutes.year,b.year); QCOMPARE(fromMinutes.season,b.season);
+        QCOMPARE(fromMinutes.dayOfSeason,b.date);
+    }
+    QCOMPARE(SeasonCalendar::dateForDay(-1).dayOfSeason,1);
+    QCOMPARE(SeasonCalendar::dateForMinutes(7*1440-1).season,Season::Spring);
+    QCOMPARE(SeasonCalendar::dateForMinutes(7*1440).season,Season::Summer);
+    QVERIFY(SeasonCalendar::seasonId(static_cast<Season>(99)).isEmpty());
+}
+
+void CoreTests::cropCatalogHasIndependentStagesAndIcons() {
+    QCOMPARE(CropCatalog::cropTypes().size(),4);
+    QSet<QString> ids;
+    QSet<int> stageIds;
+    for (CropType type : CropCatalog::cropTypes()) {
+        const auto &crop = CropCatalog::definition(type);
+        QVERIFY(!ids.contains(crop.id)); ids.insert(crop.id);
+        QCOMPARE(CropCatalog::fromId(crop.id),type);
+        QVERIFY(!crop.localizedName.isEmpty());
+        QVERIFY(crop.growthDays>0 && crop.harvestYield>0);
+        QVERIFY(crop.sellPrice*crop.harvestYield>crop.seedPrice);
+        QVERIFY(!crop.seedIcon.resourcePath.isEmpty());
+        QCOMPARE(crop.seedIcon.sourceRect.size(),QSize(16,16));
+        QCOMPARE(crop.harvestIcon.sourceRect.size(),QSize(16,16));
+        QVERIFY(crop.stageGids.size()>=3);
+        for (int gid : crop.stageGids) {
+            QVERIFY(!stageIds.contains(gid)); stageIds.insert(gid);
+        }
+        QCOMPARE(CropCatalog::stageGid(type,0),crop.stageGids.first());
+        QCOMPARE(CropCatalog::stageGid(type,crop.growthDays),crop.stageGids.last());
+        QCOMPARE(CropCatalog::stageGid(type,crop.growthDays+100),crop.stageGids.last());
+    }
+    for (Season season : {Season::Spring,Season::Summer,Season::Autumn,Season::Winter})
+        QVERIFY(CropCatalog::canPlant(CropType::Wheat,season));
+    QVERIFY(!CropCatalog::canPlant(CropType::None,Season::Spring));
+    QVERIFY(!CropCatalog::canPlant(CropType::Wheat,static_cast<Season>(-1)));
+    QVERIFY(!CropCatalog::canPlantOnDay(CropType::Wheat,-1));
+    QCOMPARE(CropCatalog::fromId(QStringLiteral("missing")),CropType::None);
+}
+
+void CoreTests::seasonalPlantingPreservesSeedsAndExistingCrops() {
+    MapData data; data.mapWidth=2; data.mapHeight=1;
+    data.cultivatedLayer={{135,135}};
+    WorldState world; world.initialize(data);
+    EconomyService economy;
+    EconomyState assets=economy.state();
+    assets.seedCounts.insert(static_cast<int>(CropType::Carrot),2);
+    QVERIFY(economy.restore(assets));
+    // The last spring evening permits planting; the same crop survives summer.
+    QVERIFY(economy.plantWithSeed(CropType::Carrot,[&](){return world.plantSeed({0,0},CropType::Carrot,6);}));
+    QCOMPARE(economy.seedCount(CropType::Carrot),1);
+    QVERIFY(world.waterTile({0,0}));world.advanceDay(6,[](){return 99;});
+    const int springGid=world.cropGidAt({0,0});
+    QVERIFY(!economy.plantWithSeed(CropType::Carrot,[&](){return world.plantSeed({1,0},CropType::Carrot,7);}));
+    QCOMPARE(economy.seedCount(CropType::Carrot),1);
+    QCOMPARE(world.cropGidAt({1,0}),0);
+    QVERIFY(world.waterTile({0,0}));world.advanceDay(7,[](){return 99;});
+    QVERIFY(world.cropGidAt({0,0})!=springGid);
+    for (int day=8;day<10;++day) { QVERIFY(world.waterTile({0,0}));world.advanceDay(day,[](){return 99;}); }
+    QVERIFY(world.previewHarvest({0,0}).isValid());
+    WorldState restored;restored.initialize(data);QVERIFY(restored.restore(world.snapshot()));
+    QVERIFY(restored.previewHarvest({0,0}).isValid());
+    QVERIFY(!world.plantSeed({1,0},CropType::Wheat,-1));
+    QVERIFY(!world.plantSeed({1,0},static_cast<CropType>(99),10));
+    const auto unchanged=world.snapshot();
+    world.advanceDay(9,[](){return 0;});
+    QCOMPARE(world.snapshot().lastCompletedDay,unchanged.lastCompletedDay);
+}
+
+void CoreTests::allCropTypesCompleteTheEconomicLoop() {
+    int totalSeedCost = 0;
+    int totalSales = 0;
+    for (CropType type : CropCatalog::cropTypes()) {
+        const auto &crop = CropCatalog::definition(type);
+        int firstDay = 0;
+        while (!CropCatalog::canPlantOnDay(type, firstDay))
+            ++firstDay;
+        MapData map;
+        map.mapWidth = 1;
+        map.mapHeight = 1;
+        map.cultivatedLayer = {{GameConstants::CultivatedTileGid}};
+        WorldState world;
+        world.initialize(map);
+        EconomyService economy;
+        auto assets = economy.state();
+        assets.coins = 100;
+        QVERIFY(economy.restore(assets));
+
+        const int previousSeeds = economy.seedCount(type);
+        const auto purchase = economy.buySeeds(type, 1);
+        QVERIFY(purchase.success);
+        totalSeedCost += purchase.coinsSpent;
+        QVERIFY(economy.plantWithSeed(type, [&]() {
+            return world.plantSeed({0, 0}, type, firstDay);
+        }));
+        QCOMPARE(economy.seedCount(type), previousSeeds);
+        for (int offset = 0; offset < crop.growthDays; ++offset) {
+            QVERIFY(world.waterTile({0, 0}));
+            QCOMPARE(world.advanceDay(firstDay + offset, []() { return 99; }).cropsAdvanced, 1);
+        }
+
+        const auto harvest = world.previewHarvest({0, 0});
+        QCOMPARE(harvest.type, type);
+        QCOMPARE(harvest.quantity, crop.harvestYield);
+        QVERIFY(economy.collectHarvest(type, harvest.quantity));
+        QVERIFY(world.harvest({0, 0}).isValid());
+        const QRect market(2, 2, 1, 1);
+        const auto sale = economy.sellAll({2, 2}, market);
+        QVERIFY(sale.success);
+        totalSales += sale.coinsEarned;
+        QCOMPARE(economy.coins(), 100 - purchase.coinsSpent + sale.coinsEarned);
+        QVERIFY(!world.harvest({0, 0}).isValid());
+        QVERIFY(!economy.sellAll({2, 2}, market).success);
+    }
+    // One ordinary harvest per variety: pay 11 coins for seeds and receive 28.
+    QCOMPARE(totalSeedCost, 11);
+    QCOMPARE(totalSales, 28);
+}
+
+void CoreTests::catchingUpAQuietFarmMatchesDailySettlement() {
+    MapData map;
+    map.mapWidth = 3;
+    map.mapHeight = 1;
+    map.cultivatedLayer = {{135, 135, 135}};
+    WorldState daily;
+    daily.initialize(map);
+    QVERIFY(daily.plantSeed({0, 0}, CropType::Wheat, 0));
+    QVERIFY(daily.plantSeed({1, 0}, CropType::Potato, 0));
+    QVERIFY(daily.plantSeed({2, 0}, CropType::Beet, 14));
+    QVERIFY(daily.fertilize({0, 0}).success);
+    QVERIFY(daily.waterTile({0, 0}));
+    QVERIFY(daily.waterTile({1, 0}));
+    WorldState catchup;
+    catchup.initialize(map);
+    QVERIFY(catchup.restore(daily.snapshot()));
+
+    qint64 expectedStalls = 0;
+    for (int day = 0; day <= 30; ++day)
+        expectedStalls += daily.advanceDay(day).cropsStalled;
+    const auto result = catchup.advanceThroughDay(30);
+    QCOMPARE(result.cropsAdvanced, 2);
+    QCOMPARE(result.fertilizerBonusesUsed, 1);
+    QCOMPARE(result.cropsStalled, expectedStalls);
+    QCOMPARE(catchup.cropLayer(), daily.cropLayer());
+    QCOMPARE(catchup.snapshot().wateredTiles, daily.snapshot().wateredTiles);
+    QVERIFY(!catchup.hasPendingFertilizerBonus({0, 0}));
+
+    constexpr int distantDay = 1000000000;
+    const auto distant = catchup.advanceThroughDay(distantDay);
+    QCOMPARE(distant.cropsStalled, qint64(3) * (distantDay - 30));
+    QCOMPARE(distant.cropsAdvanced, 0);
+    QCOMPARE(catchup.snapshot().lastCompletedDay, distantDay);
+    QCOMPARE(catchup.advanceThroughDay(distantDay).cropsStalled, 0);
+}
+
+void CoreTests::fertilizerWaitsForWaterAndAppliesOnce() {
+    MapData data;data.mapWidth=1;data.mapHeight=1;data.cultivatedLayer={{135}};
+    WorldState world;world.initialize(data);
+    QVERIFY(world.plantSeed({0,0},CropType::Wheat,0));
+    QVERIFY(world.fertilize({0,0}).success);
+    QVERIFY(world.isFertilized({0,0}));QVERIFY(world.hasPendingFertilizerBonus({0,0}));
+    QCOMPARE(world.fertilize({0,0}).failure,FertilizeFailure::AlreadyApplied);
+    const auto dry=world.advanceDay(0,[](){return 99;});
+    QCOMPARE(dry.cropsAdvanced,0);QCOMPARE(dry.fertilizerBonusesUsed,0);
+    QVERIFY(world.hasPendingFertilizerBonus({0,0}));
+    QVERIFY(world.waterTile({0,0}));
+    auto wet=world.advanceDay(1,[](){return 99;});
+    QCOMPARE(wet.cropsAdvanced,1);QCOMPARE(wet.fertilizerBonusesUsed,1);
+    QCOMPARE(world.snapshot().crops.first().growthDays,2);
+    QVERIFY(!world.hasPendingFertilizerBonus({0,0}));
+    QCOMPARE(world.advanceDay(1,[](){return 99;}).cropsAdvanced,0);
+    QCOMPARE(world.snapshot().crops.first().growthDays,2);
+    QVERIFY(world.waterTile({0,0}));world.advanceDay(2,[](){return 99;});
+    QVERIFY(world.previewHarvest({0,0}).isValid());
+    QVERIFY(world.harvest({0,0}).isValid());
+    QVERIFY(!world.isFertilized({0,0}));
+    QVERIFY(world.plantSeed({0,0},CropType::Wheat,3));
+    QVERIFY(world.fertilize({0,0}).success);
+}
+
+void CoreTests::fertilizerRejectsInvalidTargetsAndSnapshots() {
+    MapData data;data.mapWidth=2;data.mapHeight=1;data.cultivatedLayer={{135,135}};
+    WorldState world;world.initialize(data);
+    QCOMPARE(world.fertilize({-1,0}).failure,FertilizeFailure::InvalidTile);
+    QCOMPARE(world.fertilize({0,0}).failure,FertilizeFailure::NoCrop);
+    QVERIFY(world.plantSeed({0,0},CropType::Wheat,0));
+    for(int day=0;day<3;++day) {QVERIFY(world.waterTile({0,0}));world.advanceDay(day,[](){return 99;});}
+    QCOMPARE(world.fertilize({0,0}).failure,FertilizeFailure::AlreadyMature);
+    QVERIFY(!world.isFertilized({0,0}));
+    QVERIFY(world.plantSeed({1,0},CropType::Wheat,3));
+    QVERIFY(world.fertilize({1,0}).success);
+    const auto valid=world.snapshot();auto bad=valid;
+    for(auto &crop:bad.crops)if(crop.tilePos==QPoint(1,0))crop.fertilizerApplied=false;
+    QVERIFY(!world.restore(bad));
+    auto matureBonus=valid;
+    for(auto &crop:matureBonus.crops)if(crop.tilePos==QPoint(0,0)) {
+        crop.fertilizerApplied=true;crop.fertilizerBonusPending=true;
+    }
+    QVERIFY(!world.restore(matureBonus));
+    QVERIFY(world.hasPendingFertilizerBonus({1,0}));
+    QCOMPARE(world.snapshot().lastCompletedDay,valid.lastCompletedDay);
+    WorldState fresh;fresh.initialize(data);QVERIFY(fresh.restore(valid));
+    QVERIFY(fresh.hasPendingFertilizerBonus({1,0}));
+}
+
+void CoreTests::fertilizedCropsSaveAndRejectMalformedFlags() {
+    MapData map;map.mapWidth=1;map.mapHeight=1;map.cultivatedLayer={{135}};
+    WorldState world;world.initialize(map);
+    for (int day=0;day<14;++day) world.advanceDay(day,[](){return 99;});
+    QVERIFY(world.plantSeed({0,0},CropType::Beet,14));
+    QVERIFY(world.fertilize({0,0}).success);
+    GameSaveData state;state.gameMinutes=14*1440+360;state.lastProcessedDay=14;
+    EconomyService economy;auto assets=economy.state();assets.seedCounts.insert(static_cast<int>(CropType::Beet),2);
+    QVERIFY(economy.restore(assets));state.economy=economy.state();state.world=world.snapshot();
+    QTemporaryDir dir;const auto path=dir.filePath(QStringLiteral("fertilized.json"));QString error;
+    QVERIFY2(SaveManager::save(path,state,&error),qPrintable(error));
+    GameSaveData loaded;QVERIFY2(SaveManager::load(path,&loaded,&error),qPrintable(error));
+    QCOMPARE(loaded.world.crops.first().type,CropType::Beet);
+    QVERIFY(loaded.world.crops.first().fertilizerApplied);
+    QVERIFY(loaded.world.crops.first().fertilizerBonusPending);
+    WorldState restored;restored.initialize(map);QVERIFY(restored.restore(loaded.world));
+    QVERIFY(restored.waterTile({0,0}));
+    QCOMPARE(restored.advanceDay(14,[](){return 99;}).fertilizerBonusesUsed,1);
+    QCOMPARE(restored.advanceDay(14,[](){return 99;}).fertilizerBonusesUsed,0);
+    QFile file(path);QVERIFY(file.open(QIODevice::ReadOnly));
+    auto document=QJsonDocument::fromJson(file.readAll());file.close();
+    auto root=document.object();auto w=root.value(QStringLiteral("world")).toObject();
+    auto crops=w.value(QStringLiteral("crops")).toArray();auto crop=crops.first().toObject();
+    crop.insert(QStringLiteral("fertilizerApplied"),false);crops[0]=crop;
+    w.insert(QStringLiteral("crops"),crops);root.insert(QStringLiteral("world"),w);
+    QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Truncate));file.write(QJsonDocument(root).toJson());file.close();
+    GameSaveData unchanged=loaded;
+    QVERIFY(!SaveManager::load(path,&loaded,&error));
+    QCOMPARE(loaded.gameMinutes,unchanged.gameMinutes);
+    QVERIFY(loaded.world.crops.first().fertilizerApplied);
+    root.insert(QStringLiteral("schemaVersion"),1);
+    QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Truncate));file.write(QJsonDocument(root).toJson());file.close();
+    QVERIFY(!SaveManager::load(path,&loaded,&error));
 }
 
 QTEST_APPLESS_MAIN(CoreTests)

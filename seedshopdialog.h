@@ -1,29 +1,22 @@
 #ifndef SEEDSHOPDIALOG_H
 #define SEEDSHOPDIALOG_H
 
-#include "cropdefinition.h"
+#include "economyservice.h"
+#include "farmpanel.h"
 
-#include <QDialog>
-
-class QLabel;
-
-class SeedShopDialog : public QDialog {
+class SeedShopDialog : public FarmPanel {
     Q_OBJECT
-
 public:
     explicit SeedShopDialog(QWidget *parent = nullptr);
-
-    void setState(int coins, int wheatSeeds, int potatoSeeds);
-    void setMessage(const QString &message);
+    void setState(const EconomyService &economy);
 
 signals:
     void purchaseRequested(CropType type, int quantity);
+    void fertilizerPurchaseRequested(int quantity);
 
 private:
-    QLabel *m_coinsLabel = nullptr;
-    QLabel *m_wheatLabel = nullptr;
-    QLabel *m_potatoLabel = nullptr;
-    QLabel *m_messageLabel = nullptr;
+    QHash<CropType, QLabel *> m_seedCounts;
+    QLabel *m_fertilizerCount = nullptr;
 };
 
-#endif // SEEDSHOPDIALOG_H
+#endif

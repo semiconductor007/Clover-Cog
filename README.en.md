@@ -1,61 +1,16 @@
 # Clover-Cog
 
-A pixel-art traditional farming game built with **C++17, Qt 6 Widgets and qmake**. Time continues during the day; after 20:00 the player can sleep to advance one day, harvest the result and walk to a fixed buying point to sell it.
-
-## Current status
-
-The first daily farming loop is now on `main`:
-
-- Wheat and potato with different growth times, yields and prices;
-- Consumable seeds, tilling, planting, daily watering and sleep-based day changes;
-- Limited backpack, coins, a fixed market and a seed shop;
-- JSON save data, backup recovery and core rule tests.
-
-The current focus is S2 polish: Chinese HUD, onboarding prompts, crop growth feedback and boundary regression. Automated planting, harvesting, transport and offline income are outside the current version.
-
-## Core loop
-
-```text
-Buy seeds → Till and plant → Work during the day → Sleep after 20:00
-    ↑                                      ↓
-    └──────── Harvest → Walk to the market and sell ────────┘
-```
-
-## Controls
+A pixel-art farming game built with C++17, Qt 6 Widgets, Qt Multimedia and qmake. Explore the 72×40 farm, grow wheat, potatoes, carrots and beets, sell the harvest at the market and buy seeds and fertilizer. Each season lasts seven days. Time passes through midnight, and sleeping at home between 20:00 and 05:59 skips to 06:00. Sleep and season changes share a short fade to black.
 
 | Action | Input |
 | --- | --- |
 | Move | W / A / S / D |
-| Select a tool or seed | Mouse wheel |
-| Till, plant, water or harvest | Left mouse button |
-| Sleep, sell or open the seed shop | Press E near the matching area |
+| Select a tool or item | Scroll or click a toolbar slot |
+| Till, plant, fertilize, water or harvest | Left-click a tile with the appropriate item |
+| Open the backpack or equip seeds and fertilizer | Press Tab, then select an item |
+| Use the bed, shop or market | Press E at the corresponding location |
+| Close a panel | Esc, or Tab in the backpack |
 
-## Build
+Open `CHECK.pro` in Qt Creator with a Qt 6 desktop kit and a shadow build directory. The Apple silicon build uses Qt 6.10.3. From a Qt-enabled shell with Python 3, run `python3 tests/run_all.py ../build-farm-tests` (on Windows with MinGW, use `py -3`). The Chinese guide covers the local Apple Clang option and the save format. [Build and player guide](README.md) · [Integration and verification](docs/IMPLEMENTATION_PLAN.md)
 
-Use a Qt 6 Desktop Kit, a C++17 compiler and Multimedia. Building tests additionally requires Qt Test (testlib):
-
-```powershell
-qmake CHECK.pro CONFIG+=release
-mingw32-make -j2
-```
-
-Core tests:
-
-```powershell
-qmake tests/tests.pro CONFIG+=release
-mingw32-make -j2
-core_tests.exe -txt
-```
-
-## Documentation
-
-- [Project plan](docs/PROJECT_PLAN.md)
-- [Development guide](docs/DEVELOPMENT.md)
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [Farming requirements](docs/FARMING_REQUIREMENTS.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Asset audit](docs/ASSET_AUDIT.md)
-
-## License and assets
-
-Code is licensed under the Mulan PSL v2. Pixel assets remain under the licenses provided in their source directories. New fonts and assets must record their source and license in the documentation.
+Code is licensed under the Mulan PSL v2. The artwork carries its authors’ licenses. [Asset credits and terms](docs/ASSET_LICENSES.md)

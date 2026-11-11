@@ -102,6 +102,7 @@ bool WorldState::damageTree(const QPoint &tilePos, int damage) {
 
 bool WorldState::isTileCultivatable(const QPoint &tilePos) const {
     return isValidTile(tilePos) &&
+           m_collisionLayer.at(tilePos.y()).at(tilePos.x()) == 0 &&
            m_cultivatableLayer.at(tilePos.y()).at(tilePos.x()) ==
                GameConstants::CultivatableGrassGid &&
            m_cultivatedLayer.at(tilePos.y()).at(tilePos.x()) == 0;
@@ -124,7 +125,8 @@ bool WorldState::isPlantable(const QPoint &tilePos) const {
 bool WorldState::plantSeed(const QPoint &tilePos, CropType cropType,
                            int gameDay) {
     const CropDefinition &definition = CropCatalog::definition(cropType);
-    if (definition.stageGids.isEmpty() || !isPlantable(tilePos)) {
+    if (definition.stageGids.isEmpty() || !isPlantable(tilePos) ||
+        gameDay <= m_lastCompletedDay || !CropCatalog::canPlantOnDay(cropType, gameDay)) {
         return false;
     }
     m_crops.insert(tilePos, CropState{cropType, gameDay, 0});
@@ -145,14 +147,38 @@ bool WorldState::isWatered(const QPoint &tilePos) const {
     return isValidTile(tilePos) && m_wateredTiles.contains(tilePos);
 }
 
+FertilizeResult WorldState::fertilize(const QPoint &tilePos) {
+    if (!isValidTile(tilePos)) return {false, FertilizeFailure::InvalidTile};
+    auto it = m_crops.find(tilePos);
+    if (it == m_crops.end()) return {false, FertilizeFailure::NoCrop};
+    if (it->fertilizerApplied) return {false, FertilizeFailure::AlreadyApplied};
+    if (it->growthDays >= CropCatalog::definition(it->type).growthDays)
+        return {false, FertilizeFailure::AlreadyMature};
+    it->fertilizerApplied = true;
+    it->fertilizerBonusPending = true;
+    return {true, FertilizeFailure::None};
+}
+
+bool WorldState::isFertilized(const QPoint &tilePos) const {
+    const auto it = m_crops.constFind(tilePos);
+    return it != m_crops.cend() && it->fertilizerApplied;
+}
+
+bool WorldState::hasPendingFertilizerBonus(const QPoint &tilePos) const {
+    const auto it = m_crops.constFind(tilePos);
+    return it != m_crops.cend() && it->fertilizerBonusPending;
+}
+
 HarvestResult WorldState::previewHarvest(const QPoint &tilePos) const {
     if (!isValidTile(tilePos)) {
         return {};
     }
-    const CropType type = m_crops.value(tilePos).type;
+    const auto crop = m_crops.constFind(tilePos);
+    if (crop == m_crops.cend()) return {};
+    const CropType type = crop->type;
     const CropDefinition &definition = CropCatalog::definition(type);
-    if (definition.stageGids.isEmpty() ||
-        m_cropLayer.at(tilePos.y()).at(tilePos.x()) != definition.stageGids.last()) {
+    if (definition.type == CropType::None || definition.growthDays <= 0 ||
+        crop->growthDays < definition.growthDays) {
         return {};
     }
     return {type, definition.harvestYield};
@@ -190,12 +216,15 @@ DayAdvanceResult WorldState::advanceDay(int completedDay,
             continue;
         }
 
-        ++crop.growthDays;
+        const int bonus = crop.fertilizerBonusPending ? 1 : 0;
+        crop.growthDays = qMin(crop.growthDays + 1 + bonus, definition.growthDays);
+        if (crop.fertilizerBonusPending) {
+            crop.fertilizerBonusPending = false;
+            ++result.fertilizerBonusesUsed;
+        }
         ++result.cropsAdvanced;
-        const int lastStage = definition.stageGids.size() - 1;
-        const int stage = qMin(crop.growthDays * lastStage / definition.growthDays,
-                               lastStage);
-        m_cropLayer[tilePos.y()][tilePos.x()] = definition.stageGids.at(stage);
+        m_cropLayer[tilePos.y()][tilePos.x()] =
+            CropCatalog::stageGid(crop.type, crop.growthDays);
     }
 
     if (!randomPercent) {
@@ -222,6 +251,44 @@ DayAdvanceResult WorldState::advanceDay(int completedDay,
     return result;
 }
 
+DayAdvanceResult WorldState::advanceThroughDay(int completedDay) {
+    if (qint64(completedDay) <= qint64(m_lastCompletedDay) + 1)
+        return advanceDay(completedDay);
+
+    // Match daily settlement, including the original random rolls for empty soil.
+    // After the first day's watering, only empty soil can still change by itself.
+    int emptySoil = 0;
+    for (int y = 0; y < m_mapHeight; ++y) {
+        for (int x = 0; x < m_mapWidth; ++x) {
+            if (isPlantableSoilGid(m_cultivatedLayer[y][x]) && !m_crops.contains({x, y}))
+                ++emptySoil;
+        }
+    }
+    DayAdvanceResult total;
+    do {
+        const auto day = advanceDay(m_lastCompletedDay + 1);
+        total.cropsAdvanced += day.cropsAdvanced;
+        total.cropsStalled += day.cropsStalled;
+        total.soilRecovered += day.soilRecovered;
+        total.fertilizerBonusesUsed += day.fertilizerBonusesUsed;
+        emptySoil -= day.soilRecovered;
+    } while (m_lastCompletedDay < completedDay && emptySoil > 0 &&
+             GameConstants::EmptySoilRecoveryPercent > 0);
+
+    if (m_lastCompletedDay < completedDay) {
+        // With no water and no soil left to recover, every remaining date has
+        // exactly the same farm state. Count the dry days without replaying frames.
+        for (const auto &crop : m_crops) {
+            if (crop.growthDays >= CropCatalog::definition(crop.type).growthDays)
+                continue;
+            const qint64 firstDryDay = qMax(qint64(m_lastCompletedDay) + 1, qint64(crop.plantedDay));
+            total.cropsStalled += qMax(qint64(0), qint64(completedDay) - firstDryDay + 1);
+        }
+        m_lastCompletedDay = completedDay;
+    }
+    return total;
+}
+
 int WorldState::cropGidAt(const QPoint &tilePos) const {
     if (!isValidTile(tilePos)) {
         return 0;
@@ -244,7 +311,8 @@ WorldStateSnapshot WorldState::snapshot() const {
     result.crops.reserve(m_crops.size());
     for (auto it = m_crops.cbegin(); it != m_crops.cend(); ++it) {
         result.crops.append(
-            {it.key(), it->type, it->plantedDay, it->growthDays});
+            {it.key(), it->type, it->plantedDay, it->growthDays,
+             it->fertilizerApplied, it->fertilizerBonusPending});
     }
     return result;
 }
@@ -275,21 +343,20 @@ bool WorldState::restore(const WorldStateSnapshot &snapshot) {
             definition.growthDays <= 0 ||
             savedCrop.plantedDay < 0 || savedCrop.growthDays < 0 ||
             savedCrop.growthDays > definition.growthDays ||
+            (savedCrop.fertilizerBonusPending &&
+             (!savedCrop.fertilizerApplied || savedCrop.growthDays >= definition.growthDays)) ||
             restoredCrops.contains(savedCrop.tilePos) ||
             !isPlantableSoilGid(
                 snapshot.cultivatedLayer.at(savedCrop.tilePos.y())
                     .at(savedCrop.tilePos.x()))) {
             return false;
         }
-        const int lastStage = definition.stageGids.size() - 1;
-        const int stage = qMin(
-            savedCrop.growthDays * lastStage / definition.growthDays,
-            lastStage);
         restoredCropLayer[savedCrop.tilePos.y()][savedCrop.tilePos.x()] =
-            definition.stageGids.at(stage);
+            CropCatalog::stageGid(savedCrop.type, savedCrop.growthDays);
         restoredCrops.insert(savedCrop.tilePos,
                              CropState{savedCrop.type, savedCrop.plantedDay,
-                                       savedCrop.growthDays});
+                                       savedCrop.growthDays, savedCrop.fertilizerApplied,
+                                       savedCrop.fertilizerBonusPending});
     }
 
     for (const QPoint &tilePos : snapshot.wateredTiles) {

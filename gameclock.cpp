@@ -22,29 +22,38 @@ qint64 GameClock::rawElapsedGameMinutes() const {
 }
 
 qint64 GameClock::elapsedGameMinutes() const {
-    const qint64 absoluteMinutes = m_gameMinuteOffset + rawElapsedGameMinutes();
-    // A player may let the evening clock run out, but the calendar day does
-    // not roll over until the player explicitly sleeps.
-    const qint64 logicalDayEnd =
-        (m_gameMinuteOffset / (24 * 60) + 1) * (24 * 60) - 1;
-    return qMin(absoluteMinutes, logicalDayEnd);
+    return m_gameMinuteOffset + rawElapsedGameMinutes();
 }
 
-bool GameClock::canSleep(int sleepStartHour) const {
-    const int boundedSleepStart = qBound(0, sleepStartHour, 23);
-    return hour() >= boundedSleepStart;
+namespace {
+
+qint64 minutesUntilMorning(qint64 gameMinutes, int wakeHour, int sleepStartHour) {
+    constexpr int dayLength = 24 * 60;
+    const int minuteOfDay = static_cast<int>(gameMinutes % dayLength);
+    const int wakeMinute = qBound(0, wakeHour, 23) * 60;
+    const int sleepMinute = qBound(0, sleepStartHour, 23) * 60;
+    if (minuteOfDay < wakeMinute) {
+        return wakeMinute - minuteOfDay;
+    }
+    if (minuteOfDay >= sleepMinute) {
+        return dayLength - minuteOfDay + wakeMinute;
+    }
+    return 0;
+}
+
+} // namespace
+
+bool GameClock::canSleep(int sleepStartHour, int wakeHour) const {
+    return minutesUntilMorning(elapsedGameMinutes(), wakeHour, sleepStartHour) > 0;
 }
 
 bool GameClock::sleepToNextMorning(int wakeHour, int sleepStartHour) {
-    if (!canSleep(sleepStartHour)) {
+    const qint64 current = elapsedGameMinutes();
+    const qint64 duration = minutesUntilMorning(current, wakeHour, sleepStartHour);
+    if (duration == 0) {
         return false;
     }
-    const int boundedWakeHour = qBound(0, wakeHour, 23);
-    const qint64 current = elapsedGameMinutes();
-    const qint64 nextMorning = (current / (24 * 60) + 1) * 24 * 60
-                               + boundedWakeHour * 60;
-    m_gameMinuteOffset = nextMorning;
-    m_timer.restart();
+    setElapsedGameMinutes(current + duration);
     return true;
 }
 

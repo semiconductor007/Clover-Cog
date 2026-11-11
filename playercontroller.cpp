@@ -2,31 +2,36 @@
 
 #include "mapwidget.h"
 
-#include <QDebug>
+namespace {
+ToolProperty propertyForTool(ToolType type) {
+    ToolProperty tool{type, toolName(type), 0, {}};
+    switch (type) {
+    case ToolType::EmptyHand: break;
+    case ToolType::Axe: tool.damage = 30; break;
+    case ToolType::Hoe: tool.damage = 15; break;
+    case ToolType::WateringCan: tool.damage = 5; break;
+    default: return tool;
+    }
+    tool.animFile = QStringLiteral(":/characte/Premium Charakter Spritesheet.png");
+    return tool;
+}
+}
 
 PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
-    : QObject(parent), m_mapWidget(mapWidget) {
-    m_tools = {
-        {ToolType::EmptyHand,   "空手",     0,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Axe,         "斧子",     30, ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Hoe,         "锄头",     15, ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::WateringCan, "水壶",     5,  ":/characte/Premium Charakter Spritesheet.png"},
-        {ToolType::Wheat,       "小麦种子", 0,  ":/anim/planting.png"},
-        {ToolType::Potato,      "土豆种子", 0,  ":/anim/planting.png"}
-    };
-    m_currentTool = m_tools.first();
+    : QObject(parent), m_mapWidget(mapWidget), m_currentTool(propertyForTool(ToolType::EmptyHand)) {
+    if (m_mapWidget)
+        m_mapWidget->setPlayerController(this);
 }
 
 void PlayerController::setCurrentTool(int toolIndex) {
-    if (toolIndex < 0 || toolIndex >= m_tools.size()) {
+    if (toolIndex < 0 || toolIndex >= ToolCount)
         return;
-    }
-    m_currentTool = m_tools.at(toolIndex);
+    m_currentTool = propertyForTool(static_cast<ToolType>(toolIndex));
     emit toolChanged(m_currentTool.type);
 }
 
 void PlayerController::useToolAt(const QPoint &mapPoint) {
-    if (!m_mapWidget) {
+    if (!m_mapWidget || m_mapWidget->isInputBlocked()) {
         return;
     }
     const QPoint tilePos = m_mapWidget->mapPointToTile(mapPoint);
@@ -34,21 +39,17 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
         return;
     }
 
+    const auto crop = seedCropForTool(m_currentTool.type);
+    if (crop != CropType::None) {
+        m_mapWidget->plantSeed(tilePos, crop);
+        return;
+    }
     switch (m_currentTool.type) {
     case ToolType::Hoe:
-        if (m_mapWidget->isTileCultivatable(tilePos)) {
-            m_mapWidget->cultivateTile(tilePos);
-        }
+        m_mapWidget->cultivateTile(tilePos);
         break;
-    case ToolType::Wheat:
-        if (m_mapWidget->isPlantable(tilePos)) {
-            m_mapWidget->plantSeed(tilePos, CropType::Wheat);
-        }
-        break;
-    case ToolType::Potato:
-        if (m_mapWidget->isPlantable(tilePos)) {
-            m_mapWidget->plantSeed(tilePos, CropType::Potato);
-        }
+    case ToolType::Fertilizer:
+        m_mapWidget->fertilizeTile(tilePos);
         break;
     case ToolType::WateringCan:
         m_mapWidget->waterTile(tilePos);
@@ -59,7 +60,7 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
 }
 
 void PlayerController::useAxeAt(const QPoint &playerCenter, PlayerDirection direction) {
-    if (!m_mapWidget || m_currentTool.type != ToolType::Axe ||
+    if (!m_mapWidget || m_mapWidget->isInputBlocked() || m_currentTool.type != ToolType::Axe ||
         m_mapWidget->tileWidth() <= 0 || m_mapWidget->tileHeight() <= 0) {
         return;
     }

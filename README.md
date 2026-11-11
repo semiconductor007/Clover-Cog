@@ -1,73 +1,51 @@
-# Clover-Cog
+# Clover-Cog · 四季农场
 
-基于 **C++17、Qt 6 Widgets 和 qmake** 的像素风传统农场游戏。白天时间正常流逝，玩家亲自锄地、播种、浇水；晚上 20:00 后睡觉推进日期，收获后带着有限背包到收购点出售，再用金币购买下一批种子。
+一款用 C++17、Qt 6 Widgets 和 qmake 开发的像素农场小游戏。在 72×40 的地图上种地，拿着收获去集市出售，再到商店买下一批种子和肥料。家、小路、桥和农田从开局就能探索。
 
-## 当前状态
+## 从第一批种子开始
 
-传统日制农场的第一版闭环已经合入 `main`：
+开局有 6 颗小麦种子和 3 颗土豆种子。选锄头开地，换种子播种，再用水壶浇水。小麦有 3 个浇过水的生长日就能收获。把 6 份小麦带到收购点，确认出售可得 **30 金币**。商店里 2 金币能买一颗胡萝卜种子，1 金币能买一份基础肥料。给未成熟作物施肥后，下一个浇过水的生长日会额外长一天，每株可施一次。
 
-- 小麦、土豆两种作物，生长天数、产量和售价不同；
-- 消耗型种子、锄地、播种、每日浇水和睡眠跨天；
-- 背包容量、金币、固定收购点和种子商店；
-- JSON 存档、备份恢复和核心规则测试。
+小麦四季皆可播种，土豆适合春夏，胡萝卜适合春秋，甜菜适合秋冬。已经播下的作物可以跨季生长。农产品背包可装 12 份，种子和肥料另计。
 
-当前重点是 S2 体验打磨：中文 HUD、操作反馈、作物成长表现和边界回归；本轮增加扩图、家、四季、可操作背包、自然昼夜、1–2 种新作物及基础肥料。A 管地图，B 管品种/作物/四季，C 管角色/农具，D 管背包/商店，E 管时间/完整昼夜/睡眠及 HUD；品种由 B 确认，具体任务见 [开发文档](docs/DEVELOPMENT.md)，成员请填写 [角色认领表](docs/TEAM_MODULES.md#成员认领表)。自动播种、自动收割、运输和离线收益暂不属于当前版本。
-
-群内认领用：[下载任务分工与产品玩法 Word 文档](docs/Clover-Cog任务认领与产品玩法_四季背包版.docx)。
-
-## 核心循环
-
-```text
-购买种子 → 锄地播种 → 白天照料 → 20:00 后睡眠进入下一天
-    ↑                                      ↓
-    └──────── 收获成熟作物 → 到收购点出售 ─┘
-```
+每季 7 天。夜间可以继续活动，午夜会自动跨日。20:00 至次日 05:59 可以到家中床边按 E，直接睡到最近的 06:00。睡眠和换季都有约 0.9 秒的渐黑过渡，季末入睡时只播放一次。
 
 ## 操作
 
 | 操作 | 输入 |
 | --- | --- |
 | 移动 | W / A / S / D |
-| 切换工具或种子 | 鼠标滚轮 |
-| 锄地、播种、浇水、收获 | 鼠标左键 |
-| 睡眠、出售、打开种子商店 | 靠近对应区域后按 E |
+| 选择农具、种子或肥料 | 滚轮、触控板滚动，或点击底部工具格 |
+| 锄地、播种、施肥、浇水 | 选中相应物品，左键点击地块 |
+| 收获 | 选空手，左键点击成熟作物 |
+| 打开背包、选用物品 | Tab 打开，点击种子或肥料即可装备 |
+| 睡眠、商店、收购 | 走到床铺或对应摊位，按 E 互动 |
+| 关闭面板 | Esc，背包也可用 Tab 关闭 |
 
-## 构建
+游戏在系统的应用数据目录中自动保存为 `farm-v3.json`，旁边的 `.bak` 用于恢复。能读取的 v2 农场会接续到新档。遇到 v1 时另开新局，旧文件保留在原位置。
 
-需要 Qt 6 Desktop Kit、C++17 编译器和 Multimedia；构建测试还需要 Qt Test（testlib）。在 Qt/MinGW 命令行中运行：
+## 打开、构建与运行
 
-```powershell
-qmake CHECK.pro CONFIG+=release
-mingw32-make -j2
+在 Qt Creator 打开 `CHECK.pro`，选择 Qt 6 Desktop Kit 和仓库外的构建目录，构建后运行。Mac 集成版使用 Qt 6.10.3、C++17 编译器、Widgets、Multimedia，测试另用 Qt Test。Windows 队友可以继续用原 Qt 6 Kit。Qt Creator 的 Kit、个人项目设置和构建缓存保存在本机。
+
+在已配置好 qmake 和编译器的终端，从仓库根目录运行九组自动化测试。每组各用一个独立构建目录。
+
+```sh
+# macOS
+python3 tests/run_all.py ../build-farm-tests
 ```
 
-核心测试：
-
 ```powershell
-qmake tests/tests.pro CONFIG+=release
-mingw32-make -j2
-core_tests.exe -txt
+# Windows 的 Qt / MinGW 命令行
+py -3 tests/run_all.py ../build-farm-tests
 ```
 
-## 项目文档
+若 Apple Clang 21 搭配 Qt 6.10.3 提示缺少 ARM intrinsic 声明，在本机 Kit 的 qmake 参数加上 `QMAKE_CXXFLAGS+=-include arm_acle.h`。测试命令可追加 `--qmake-arg 'QMAKE_CXXFLAGS+=-include arm_acle.h'`。
 
-- [项目规划](docs/PROJECT_PLAN.md)：玩法定位、范围和里程碑
-- [开发文档](docs/DEVELOPMENT.md)：状态规则、模块职责和当前任务
-- [执行计划](docs/IMPLEMENTATION_PLAN.md)：S1–S4 开发顺序与验收门
-- [种植需求](docs/FARMING_REQUIREMENTS.md)：首版详细规则
-- [工程架构](docs/ARCHITECTURE.md)：代码现状与技术约束
-- [素材盘点](docs/ASSET_AUDIT.md)：地图、像素 UI 和字体资源
+## 开发资料
 
-## 目录提示
+- 本轮已实现的玩法、收益、过渡时序、Mac 实测和 Windows 待验项见[执行计划](docs/IMPLEMENTATION_PLAN.md)。
+- 四种作物的成长阶段、种子及收获物图标见[作物映射](docs/CROP_CATALOG.md)，地图配色和装饰见[季节资源](docs/SEASON_ASSETS.md)。
+- 团队的原始任务范围见[开发文档](docs/DEVELOPMENT.md)和[任务认领与产品玩法 Word 文档](docs/Clover-Cog任务认领与产品玩法_四季背包版.docx)。分支协作约定见[Git 工作流](docs/GIT_WORKFLOW.md)。
 
-- `mainwindow.*`：主窗口、HUD 和交互组装
-- `worldstate.*`：土地、树木和作物状态
-- `gameclock.*`：游戏时间和睡眠跨天
-- `cropdefinition.*`：作物配置
-- `inventory.*` / `economyservice.*`：背包、金币、出售和种子购买
-- `savemanager.*`：JSON 存档与备份
-- `tests/`：Qt Test 核心规则测试
-
-## 许可与素材
-
-代码使用木兰宽松许可证，第 2 版。仓库内像素素材按各自目录的原始许可使用；新增字体和素材必须在文档中记录来源与许可。
+代码采用木兰宽松许可证第 2 版，像素素材遵循各自作者的许可。[素材来源与署名](docs/ASSET_LICENSES.md)

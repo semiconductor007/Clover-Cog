@@ -2,6 +2,7 @@
 #ifndef TOOLTYPE_H
 #define TOOLTYPE_H
 
+#include "cropdefinition.h"
 #include <QString>
 #include <QPixmap>
 #include <QVector>
@@ -11,9 +12,48 @@ enum class ToolType {
     Axe,        // 斧子
     Hoe,        // 锄头
     WateringCan,// 水壶
-    Wheat,      // 种子1
-    Potato       // 种子2
+    Wheat,
+    Potato,
+    Carrot,
+    Beet,
+    Fertilizer
 };
+
+inline constexpr CropType seedCropForTool(ToolType tool) {
+    switch (tool) {
+    case ToolType::Wheat: return CropType::Wheat;
+    case ToolType::Potato: return CropType::Potato;
+    case ToolType::Carrot: return CropType::Carrot;
+    case ToolType::Beet: return CropType::Beet;
+    default: return CropType::None;
+    }
+}
+
+inline constexpr ToolType toolForSeed(CropType crop) {
+    switch (crop) {
+    case CropType::Wheat: return ToolType::Wheat;
+    case CropType::Potato: return ToolType::Potato;
+    case CropType::Carrot: return ToolType::Carrot;
+    case CropType::Beet: return ToolType::Beet;
+    default: return ToolType::EmptyHand;
+    }
+}
+
+inline constexpr int ToolCount = static_cast<int>(ToolType::Fertilizer) + 1;
+
+inline QString toolName(ToolType tool) {
+    const CropType crop = seedCropForTool(tool);
+    if (crop != CropType::None)
+        return CropCatalog::definition(crop).localizedName + QStringLiteral("种子");
+    switch (tool) {
+    case ToolType::EmptyHand: return QStringLiteral("空手");
+    case ToolType::Axe: return QStringLiteral("斧子");
+    case ToolType::Hoe: return QStringLiteral("锄头");
+    case ToolType::WateringCan: return QStringLiteral("水壶");
+    case ToolType::Fertilizer: return QStringLiteral("基础肥料");
+    default: return {};
+    }
+}
 
 struct ToolAnimation {
     QVector<QPixmap> leftFrames;  // 向左动画帧

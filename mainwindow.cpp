@@ -1,23 +1,33 @@
-//mainwinow.cpp
 #include "mainwindow.h"
 #include "gameconstants.h"
-#include "mapwidget.h"
+#include "inventorydialog.h"
+#include "marketdialog.h"
+#include "scenetransition.h"
 #include "seedshopdialog.h"
-#include <QApplication>
+
+#include <QAudioOutput>
 #include <QCloseEvent>
-#include <QDebug>
 #include <QFileInfo>
-#include <QFontDatabase>
 #include <QFrame>
 #include <QGraphicsProxyWidget>
+#include <QHBoxLayout>
+#include <QMediaPlayer>
 #include <QMouseEvent>
-#include <QPainter>
-#include <QScrollBar>
+#include <QScreen>
+#include <QSoundEffect>
 #include <QTimer>
 #include <QUrl>
 #include <QWheelEvent>
 #include <QtMath>
+#include <utility>
 
+namespace {
+constexpr int CanvasWidth = 576;
+constexpr int HeaderHeight = 34;
+constexpr int MapHeight = 320;
+constexpr int FooterHeight = 68;
+constexpr int CanvasHeight = HeaderHeight + MapHeight + FooterHeight;
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -27,395 +37,279 @@ MainWindow::MainWindow(QWidget *parent)
     , m_gameScene(new QGraphicsScene(this))
     , m_gameView(new QGraphicsView(m_gameScene, this))
     , mapWidget(new MapWidget(m_gameCanvas))
-    , overlay(new QWidget(m_gameCanvas))
-    , clockBgWidget(new ClockBgWidget(m_gameCanvas))
-    ,timeLabel(new QLabel(overlay))
-    ,dayLabel(new QLabel(overlay))
-    , customCursor(QPixmap(":/ui/sprout/Catpaw Mouse icon.png"), 8, 8)  // 初始化成员变量
+    , customCursor(QPixmap(":/ui/sprout/Catpaw Mouse icon.png"), 8, 8)
     , clickCursor(QPixmap(":/ui/sprout/Catpaw holding Mouse icon.png"), 8, 8)
 {
+    setWindowTitle(QStringLiteral("四季农场"));
+    setCursor(customCursor);
+    m_gameClock.setElapsedGameMinutes(m_committedMinutes);
 
-    // ==================== 鼠标设置 ====================
-    // 设置自定义鼠标样式
-    this->setCursor(customCursor);
-
-
-    // ==================== 音乐设置 ====================
-
-    m_player = new QMediaPlayer(this);
-    m_audioOutput = new QAudioOutput(this);
-    m_audioOutput->setVolume(0.5);
-    m_player->setAudioOutput(m_audioOutput);
-
-    // 监听媒体状态变化
-    connect(m_player, &QMediaPlayer::mediaStatusChanged, [this](QMediaPlayer::MediaStatus status) {
-        qDebug() << "MediaStatus:" << status;
-        if (status == QMediaPlayer::LoadedMedia) {
-            qDebug() << "开始播放...";
-            m_player->play();
-        }
-        else if (status == QMediaPlayer::EndOfMedia) {
-            // 当音乐播放结束时，重新播放
-            m_player->play();
-        }
-    });
-
-    // 监听播放状态变化
-    connect(m_player, &QMediaPlayer::playbackStateChanged, [](QMediaPlayer::PlaybackState state) {
-        qDebug() << "PlaybackState:" << state;
-    });
-
-    // 设置资源
-    QString filePath = "qrc:/sounds/wav/On_the_Farm.wav";
-    m_player->setSource(QUrl(filePath));
-
-
-    m_gameClock.setElapsedGameMinutes(GameConstants::WakeUpHour * 60);
-    m_gameClock.start();
-    // ==================== 窗口基础设置 ====================
-
-    constexpr int logicalWidth = 520;
-    constexpr int logicalHeight = 320;
-    resize(logicalWidth, logicalHeight);
-
-    m_gameCanvas->setFixedSize(logicalWidth, logicalHeight);
+    m_gameCanvas->setFixedSize(CanvasWidth, CanvasHeight);
     QPalette canvasPalette = m_gameCanvas->palette();
-    canvasPalette.setColor(QPalette::Window, Qt::black);
+    canvasPalette.setColor(QPalette::Window, QColor("#efdfb9"));
     m_gameCanvas->setPalette(canvasPalette);
     m_gameCanvas->setAutoFillBackground(true);
-    m_gameScene->setSceneRect(0, 0, logicalWidth, logicalHeight);
-
+    m_gameScene->setSceneRect(m_gameCanvas->rect());
     m_gameView->setFrameShape(QFrame::NoFrame);
     m_gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_gameView->setAlignment(Qt::AlignCenter);
-    m_gameView->setBackgroundBrush(QColor(24, 24, 24));
+    m_gameView->setBackgroundBrush(QColor("#26372e"));
     m_gameView->setRenderHint(QPainter::SmoothPixmapTransform, false);
     m_gameView->setTransformationAnchor(QGraphicsView::NoAnchor);
     m_gameView->setResizeAnchor(QGraphicsView::NoAnchor);
     setCentralWidget(m_gameView);
+    m_gameView->viewport()->installEventFilter(this);
 
-    // 地图控件尺寸与主窗口一致
-    mapWidget->setGeometry(0, 0, logicalWidth, logicalHeight);
-    if (!mapWidget->loadMap(":/map/map6.tmj")) {
+    // Reserve separate strips for the HUD and toolbar so both map edges stay playable.
+    mapWidget->setGeometry(0, HeaderHeight, CanvasWidth, MapHeight);
+    if (!mapWidget->loadMap(QStringLiteral(":/map/map6.tmj"))) {
         qCritical() << "Unable to initialize the game map";
     }
-    mapWidget->lower();
     mapWidget->setMarketArea(m_marketArea);
     mapWidget->setShopArea(m_shopArea);
     mapWidget->setBedArea(m_bedArea);
+    m_seasons.load(mapWidget->originalTilesets());
+    mapWidget->setTimeReference([this] { return m_committedMinutes; });
 
-    // ==================== 时钟背景层设置 ====================
-    clockBgWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
-    clockBgWidget->setAttribute(Qt::WA_NoSystemBackground);
-    clockBgWidget->setGeometry(0, 0, logicalWidth, logicalHeight);
-    clockBgWidget->raise(); // 关键修改：将覆盖层置底
+    auto *header = new QWidget(m_gameCanvas);
+    header->setObjectName(QStringLiteral("farmHeader"));
+    header->setGeometry(0, 0, CanvasWidth, HeaderHeight);
+    header->setStyleSheet(QStringLiteral(
+        "QWidget#farmHeader { background: #35533f; }"
+        "QLabel { color: #fff4d8; font-size: 13px; }"
+        "QLabel#gameTime { color: #ffe19c; font-weight: bold; }"));
+    auto *headerRow = new QHBoxLayout(header);
+    headerRow->setContentsMargins(12, 0, 12, 0);
+    headerRow->setSpacing(14);
+    dayLabel = new QLabel(header);
+    dayLabel->setObjectName(QStringLiteral("gameDate"));
+    timeLabel = new QLabel(header);
+    timeLabel->setObjectName(QStringLiteral("gameTime"));
+    m_coinsLabel = new QLabel(header);
+    m_inventoryLabel = new QLabel(header);
+    headerRow->addWidget(dayLabel);
+    headerRow->addWidget(timeLabel);
+    headerRow->addStretch();
+    headerRow->addWidget(m_coinsLabel);
+    headerRow->addWidget(m_inventoryLabel);
 
-    // ==================== 覆盖层设置 ====================
-    overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-    overlay->setAttribute(Qt::WA_NoSystemBackground);
-    overlay->setGeometry(0, 0, logicalWidth, logicalHeight);
-    overlay->raise(); // 关键修改：将覆盖层置底
-
-    loadCustomFont();
-    const QString hudStyle = QStringLiteral(
-        "color: white; background-color: rgba(76, 48, 30, 190);"
-        "border: 1px solid #d9ae68; padding: 2px;");
-    m_coinsLabel = new QLabel(overlay);
-    m_inventoryLabel = new QLabel(overlay);
-    m_cropsLabel = new QLabel(overlay);
-    m_seedsLabel = new QLabel(overlay);
-    m_statusLabel = new QLabel(overlay);
-    for (QLabel *label : {m_coinsLabel, m_inventoryLabel, m_cropsLabel,
-                          m_seedsLabel, m_statusLabel}) {
-        label->setStyleSheet(hudStyle);
-        label->setFont(digitalFont);
-    }
-    m_statusLabel->setAlignment(Qt::AlignCenter);
-    m_coinsLabel->setGeometry(8, 8, 112, 24);
-    m_inventoryLabel->setGeometry(8, 34, 112, 24);
-    m_cropsLabel->setGeometry(8, 60, 180, 24);
-    m_seedsLabel->setGeometry(8, 86, 180, 24);
-    m_statusLabel->setGeometry(90, mapWidget->height() - 92, 340, 24);
-
-
-    // ==================== 角色控件初始化 ====================
     character = new ImageMovementWidget(mapWidget, mapWidget);
-    QPoint initialPos(250, 170);
-    character->setInitialPosition(initialPos);
-    // 初始位置设置为地图中心（根据地图尺寸动态计算）
-    // QPoint initialPos(500, 200);
-    // character->setInitialPosition(initialPos);
+    character->setInitialPosition(QPoint(400, 192));
+    m_daylight = new DayNightOverlay(mapWidget);
+    itemBar = new ItemBar(m_gameCanvas);
+    const int footerTop = HeaderHeight + MapHeight;
+    const QSize barSize = itemBar->sizeHint();
+    itemBar->setGeometry(8, footerTop + (FooterHeight - barSize.height()) / 2,
+                         barSize.width(), barSize.height());
+    mapWidget->installEventFilter(this);
+    const int textLeft = itemBar->geometry().right() + 16;
+    const int textWidth = CanvasWidth - textLeft - 10;
+    m_suppliesLabel = new QLabel(m_gameCanvas);
+    m_suppliesLabel->setGeometry(textLeft, footerTop + 5, textWidth, 22);
+    m_suppliesLabel->setStyleSheet(QStringLiteral("color: #35533f; font-size: 12px; font-weight: bold;"));
+    m_statusLabel = new QLabel(m_gameCanvas);
+    m_statusLabel->setWordWrap(true);
+    m_statusLabel->setGeometry(textLeft, footerTop + 26, textWidth, FooterHeight - 29);
+    m_statusLabel->setStyleSheet(QStringLiteral("color: #453728; font-size: 12px;"));
 
+    m_transition = new SceneTransition(m_gameCanvas);
+    connect(m_transition, &SceneTransition::blackReached, this, &MainWindow::presentTime);
+    connect(m_transition, &SceneTransition::finished, this, [this] {
+        m_transitionActive = false;
+        presentTime();
+        refreshGameplayInput();
+        if (m_panelOpen && m_panelFocusBeforeFade)
+            m_panelFocusBeforeFade->setFocus(Qt::OtherFocusReason);
+        m_panelFocusBeforeFade.clear();
+    });
 
-
-    // 初始化物品栏（父控件为 mapWidget）
-    itemBar = new ItemBar(mapWidget);
-    itemBar->raise(); // 显示在最上层
-
-    // 设置物品栏位置和尺寸（221x54）
-    const int itemBarWidth = 221;
-    const int itemBarHeight = 54;
-    itemBar->setGeometry(
-        (mapWidget->width() - itemBarWidth) / 2, // 水平居中
-        mapWidget->height() - itemBarHeight - 10, // 距离底部 10 像素
-        itemBarWidth,
-        itemBarHeight
-        );
-
-
-    // 连接物品栏的索引变化信号到角色工具切换
+    auto *music = new QMediaPlayer(this);
+    auto *output = new QAudioOutput(music);
+    output->setVolume(0.28f);
+    music->setAudioOutput(output);
+    music->setLoops(QMediaPlayer::Infinite);
+    music->setSource(QUrl(QStringLiteral("qrc:/sounds/wav/On_the_Farm.wav")));
+    music->play();
+    const auto sound = [this](const QString &name, const QString &url) {
+        auto *effect = new QSoundEffect(this);
+        effect->setObjectName(name);
+        effect->setVolume(0.55f);
+        effect->setSource(QUrl(url));
+        return effect;
+    };
+    auto *water = sound(QStringLiteral("wateringSound"), QStringLiteral("qrc:/sounds/water.wav"));
+    auto *harvest = sound(QStringLiteral("harvestSound"), QStringLiteral("qrc:/sounds/harvest.wav"));
+    connect(mapWidget, &MapWidget::tileWatered, water, &QSoundEffect::play);
+    connect(mapWidget, &MapWidget::cropHarvested, harvest, &QSoundEffect::play);
+    connect(itemBar, &ItemBar::itemSelected, this, &MainWindow::updateHud);
     connect(itemBar, &ItemBar::itemSelected,
             character, &ImageMovementWidget::setCurrentTool);
 
     connect(mapWidget, &MapWidget::mapClicked,
             character, &ImageMovementWidget::useCurrentToolAt);
 
+    connect(character, &ImageMovementWidget::inventoryRequested, this, &MainWindow::openInventory);
     mapWidget->setHarvestHandler([this](CropType type, int quantity) {
-        const bool collected = m_economy.collectHarvest(type, quantity);
-        if (collected) {
-            updateHud();
+        return m_economy.collectHarvest(type, quantity);
+    });
+    mapWidget->setPlantHandler([this](CropType type, const std::function<bool()> &action) {
+        return m_economy.plantWithSeed(type, action);
+    });
+    mapWidget->setFertilizeHandler([this](const std::function<bool()> &action) {
+        return m_economy.fertilizeWithItem(action);
+    });
+
+    connect(mapWidget, &MapWidget::farmingFeedback, this, &MainWindow::showStatus);
+    connect(mapWidget, &MapWidget::cropHarvested, this, [this](CropType type, int quantity) {
+        showStatus(QStringLiteral("收获%1 × %2").arg(CropCatalog::definition(type).localizedName)
+                                          .arg(quantity));
+    });
+    connect(mapWidget, &MapWidget::harvestBlocked, this, [this](CropType, int requiredCapacity) {
+        showStatus(QStringLiteral("背包装不下，本次收获需要 %1 份空位").arg(requiredCapacity));
+    });
+    connect(mapWidget, &MapWidget::plantingOutOfSeason, this, [this](CropType type) {
+        showStatus(QStringLiteral("本季不能播种%1").arg(CropCatalog::definition(type).localizedName));
+    });
+    connect(mapWidget, &MapWidget::plantingBlocked, this, [this](CropType type) {
+        showStatus(QStringLiteral("%1种子不足，可到种子商店购买")
+                       .arg(CropCatalog::definition(type).localizedName));
+    });
+
+    connect(character, &ImageMovementWidget::interactionRequested, this, [this](QPoint playerTile) {
+        if (m_panelOpen || m_transitionActive) {
+            return;
         }
-        return collected;
+        if (m_shopArea.contains(playerTile)) {
+            openSeedShop();
+        } else if (m_marketArea.contains(playerTile)) {
+            openMarket();
+        } else if (m_bedArea.contains(playerTile)) {
+            sleepUntilMorning();
+        } else {
+            showStatus(QStringLiteral("站在商店、收购点或床边按 E"));
+        }
     });
-    mapWidget->setPlantHandler(
-        [this](CropType type, const std::function<bool()> &plantAction) {
-            const bool planted = m_economy.plantWithSeed(type, plantAction);
-            if (planted) {
-                updateHud();
-            }
-            return planted;
-        });
-
-    connect(mapWidget, &MapWidget::cropHarvested,
-            [this](CropType type, int quantity) {
-                showStatus(QStringLiteral("+%1 %2")
-                               .arg(quantity)
-                               .arg(CropCatalog::definition(type).displayName));
-            });
-    connect(mapWidget, &MapWidget::harvestBlocked,
-            [this](CropType, int requiredCapacity) {
-                showStatus(QStringLiteral("BAG FULL - NEED %1 SLOTS")
-                               .arg(requiredCapacity));
-            });
-    connect(mapWidget, &MapWidget::plantingBlocked,
-            [this](CropType type) {
-                showStatus(QStringLiteral("NO %1 SEEDS - VISIT SEED SHOP")
-                               .arg(CropCatalog::definition(type).displayName.toUpper()));
-            });
-
-    connect(character, &ImageMovementWidget::interactionRequested,
-            [this](const QPoint &playerTile) {
-                if (m_shopArea.contains(playerTile)) {
-                    openSeedShop();
-                    return;
-                }
-                if (m_bedArea.contains(playerTile)) {
-                    sleepUntilMorning();
-                    return;
-                }
-                if (m_marketArea.contains(playerTile)) {
-                    const SaleResult sale =
-                        m_economy.sellAll(playerTile, m_marketArea);
-                    if (!sale.success) {
-                        showStatus(QStringLiteral("BAG IS EMPTY"));
-                        return;
-                    }
-                    updateHud();
-                    saveGame(false);
-                    showStatus(QStringLiteral("SOLD %1 ITEMS  +%2 COINS")
-                                   .arg(sale.itemsSold)
-                                   .arg(sale.coinsEarned));
-                    return;
-                }
-                showStatus(QStringLiteral("STAND BY A MARKER AND PRESS E"));
-            });
-    connect(mapWidget, &MapWidget::worldChanged,
-            this, [this]() { saveGame(false); });
-
-
-
-
-    // 加载背景
-    loadBackground();
-
-    // == 创建时间标签 ==
-
-
-
-
-    // ==================== 时间标签初始化 ====================
-    timeLabel->setGeometry(
-        overlay->width() - 20, // 右边距
-        10,
-        110,
-        30
-        );
-    timeLabel->setStyleSheet("color: white;");
-    timeLabel->setFont(digitalFont);
-    timeLabel->show();
-
-    QTimer *timeUpdateTimer = new QTimer(this);
-    connect(timeUpdateTimer, &QTimer::timeout, this, &MainWindow::updateTime);
-    timeUpdateTimer->start(1000); // 每秒更新一次
-    updateTime(); // 立即显示初始时间
-
-    // ==================== 天数标签 ====================
-    dayLabel->setGeometry(
-        timeLabel->x() - 100 - 10,     // 时间标签左侧10px
-        10,                           // 与时间标签对齐
-        100,                          // 宽度
-        30                            // 高度
-        );
-    dayLabel->setStyleSheet("color: white;");
-    dayLabel->setFont(digitalFont);
-    dayLabel->setAlignment(Qt::AlignCenter);
-
-
-    // 为窗口安装事件过滤器
-    this->installEventFilter(this);
-
-    // 将时间系统传递给mapWidget（需要先在MapWidget类中添加接收方法）
-    mapWidget->setTimeReference([this]() {
-        return m_gameClock.elapsedGameMinutes();
+    // MapWidget emits this only after both the world action and the inventory action commit.
+    connect(mapWidget, &MapWidget::worldChanged, this, [this] {
+        updateHud();
+        saveGame();
     });
-    const QString savePath = SaveManager::defaultSavePath();
-    const bool hadSave = QFileInfo::exists(savePath) ||
-                         QFileInfo::exists(savePath + ".bak");
-    const bool loadedSave = loadGame();
+
+    loadGame();
+    applyClock(ClockEvent::Load);
     updateHud();
-    if (loadedSave) {
-        showStatus(QStringLiteral("SAVE LOADED"));
-    } else if (!hadSave) {
-        showStatus(QStringLiteral("SELL  |  SEEDS  |  SLEEP - PRESS E"));
-    }
 
-    QTimer *autosaveTimer = new QTimer(this);
-    connect(autosaveTimer, &QTimer::timeout,
-            this, [this]() { saveGame(false); });
+    auto *timeUpdateTimer = new QTimer(this);
+    connect(timeUpdateTimer, &QTimer::timeout, this, &MainWindow::updateTime);
+    timeUpdateTimer->start(100);
+    auto *autosaveTimer = new QTimer(this);
+    connect(autosaveTimer, &QTimer::timeout, this, [this] { applyClock(ClockEvent::Save); });
     autosaveTimer->start(60000);
 
-    // Embed the completed canvas only after every child widget has been
-    // constructed. Children created after an already-visible parent remain
-    // hidden by default, which would make the player and HUD disappear.
-    QGraphicsProxyWidget *gameProxy = m_gameScene->addWidget(m_gameCanvas);
-    gameProxy->setCacheMode(QGraphicsItem::NoCache);
+    m_gameScene->addWidget(m_gameCanvas)->setCacheMode(QGraphicsItem::NoCache);
+    const QSize available = screen()->availableGeometry().size();
+    const bool fitsDouble = available.width() >= CanvasWidth * 2 &&
+                            available.height() >= CanvasHeight * 2 + 36;
+    resize(m_gameCanvas->size() * (fitsDouble ? 2 : 1));
     updateGameScale();
-}
-
-
-
-bool MainWindow::loadCustomFont() {
-    int fontId = QFontDatabase::addApplicationFont(":/tilesets/sprout/pixelFont-7-8x14-sproutLands.ttf");
-    if (fontId == -1) return false;
-    QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-    if (families.isEmpty()) return false;
-    digitalFont = QFont(families.at(0), 10);
-    return true;
-}
-
-void ClockBgWidget::paintEvent(QPaintEvent *event)  {
-    Q_UNUSED(event);
-    QPainter painter(this);
-    if (!clockBg.isNull()) {
-        const int margin = 10;
-        QSize targetSize(120, 40);
-        int xPos = width() - targetSize.width() - margin;
-        int yPos = margin;
-        painter.drawPixmap(xPos, yPos, clockBg.scaled(targetSize, Qt::KeepAspectRatio));
-        painter.drawPixmap(xPos, yPos+38, clockBg.scaled(targetSize, Qt::KeepAspectRatio));
-    }
-}
-
-
-
-void MainWindow::loadBackground() {
-    // 加载整张精灵图
-    QPixmap bg(":/tilesets/sprout/clockbackground.png");
-    if (bg.isNull()) {
-        qDebug() << "[ERROR] Clock background not found!";
-    } else {
-        clockBgWidget->setBackground(bg);  // 关键：将背景图设置到控件
-    }
 }
 
 void MainWindow::updateTime() {
-    QString gameTime = QString("%1:%2")
-    .arg(currentGameHour(), 2, 10, QLatin1Char('0'))
-        .arg(currentGameMinute(), 2, 10, QLatin1Char('0'));
-    timeLabel->setText(gameTime);
+    applyClock(ClockEvent::Tick);
+}
 
-    int days = currentGameDay();
-    dayLabel->setText(QString("DAY %1").arg(days));
+void MainWindow::applyClock(ClockEvent event) {
+    const qint64 minutes = m_gameClock.elapsedGameMinutes();
+    if (event == ClockEvent::Tick && minutes == m_committedMinutes) return;
+    const int day = int(minutes / (24 * 60));
+    const bool crossedDay = m_lastProcessedDay < day;
+    const bool crossedSeason = day / SeasonCalendar::DaysPerSeason !=
+                               currentGameDay() / SeasonCalendar::DaysPerSeason;
+    const bool woke = event == ClockEvent::WakeUp;
+    if (event != ClockEvent::Load && !m_transitionActive && (woke || crossedSeason)) {
+        // Freeze the outgoing farm before changing any crop, HUD or seasonal texture.
+        m_transitionActive = m_transition->start();
+        if (m_panelOpen) m_panelFocusBeforeFade = m_panelOpen->focusWidget();
+        refreshGameplayInput();
+    }
+
+    m_committedMinutes = minutes;
+    const DayAdvanceResult result = processDayTransitions();
+    if (woke) {
+        showStatus(crossedDay
+            ? QStringLiteral("早上好！作物成长 %1 株，缺水 %2 株。")
+                  .arg(result.cropsAdvanced).arg(result.cropsStalled)
+            : QStringLiteral("天亮了，田里的浇水状态已保留。"));
+    } else if (crossedDay && event != ClockEvent::Load) {
+        showStatus(QStringLiteral("新的一天，作物成长 %1 株，缺水 %2 株。")
+                       .arg(result.cropsAdvanced).arg(result.cropsStalled));
+    }
+    if (!m_transitionActive) presentTime();
+    if (crossedDay || woke || event == ClockEvent::Save)
+        saveGame(event != ClockEvent::Save);
 }
 
 DayAdvanceResult MainWindow::processDayTransitions() {
-    DayAdvanceResult total;
     const int currentDay = currentGameDay();
-    bool processedDay = false;
-    while (m_lastProcessedDay < currentDay) {
-        const DayAdvanceResult result = mapWidget->advanceDay(m_lastProcessedDay);
-        total.cropsAdvanced += result.cropsAdvanced;
-        total.cropsStalled += result.cropsStalled;
-        total.soilRecovered += result.soilRecovered;
-        ++m_lastProcessedDay;
-        processedDay = true;
+    if (m_lastProcessedDay >= currentDay)
+        return {};
+    const auto result = mapWidget->advanceThroughDay(currentDay - 1);
+    m_lastProcessedDay = currentDay;
+    return result;
+}
+
+void MainWindow::presentTime() {
+    const int day = currentGameDay();
+    if (m_visibleDay != day) {
+        const SeasonDate date = SeasonCalendar::dateForDay(day);
+        const Season season = date.season;
+        if (m_visibleDay < 0 || season != SeasonCalendar::dateForDay(m_visibleDay).season) {
+            mapWidget->setSeasonAppearance(m_seasons.tilesets(season),
+                [this, season](QPainter &painter, const QPoint &offset, const WorldState &world) {
+                    m_seasons.paintDecorations(season, painter, offset, world);
+                });
+        }
+        dayLabel->setText(QStringLiteral("第 %1 年 · %2 %3 日")
+                              .arg(date.year).arg(SeasonCalendar::seasonName(season))
+                              .arg(date.dayOfSeason));
+        m_visibleDay = day;
+        refreshOpenPanel();
     }
-    if (processedDay) {
-        saveGame(false);
-    }
-    return total;
+    timeLabel->setText(QStringLiteral("%1:%2").arg(currentGameHour(), 2, 10, QLatin1Char('0'))
+                                              .arg(currentGameMinute(), 2, 10, QLatin1Char('0')));
+    m_daylight->setGameMinutes(m_committedMinutes);
 }
 
 void MainWindow::sleepUntilMorning() {
-    if (!m_gameClock.canSleep(GameConstants::SleepStartHour)) {
-        showStatus(QStringLiteral("CANNOT SLEEP BEFORE 20:00"));
+    if (m_transitionActive || m_panelOpen || !m_bedArea.contains(character->currentTilePosition()))
+        return;
+    if (!m_gameClock.sleepToNextMorning()) {
+        showStatus(QStringLiteral("可在 20:00 至次日 06:00 前到床边睡觉。"));
         return;
     }
-    if (!m_gameClock.sleepToNextMorning(GameConstants::WakeUpHour,
-                                        GameConstants::SleepStartHour)) {
-        showStatus(QStringLiteral("CANNOT SLEEP BEFORE 20:00"));
-        return;
-    }
-    const DayAdvanceResult result = processDayTransitions();
-    updateTime();
-    showStatus(QStringLiteral("GOOD MORNING  GROW +%1  PAUSED %2  SOIL -%3")
-                   .arg(result.cropsAdvanced)
-                   .arg(result.cropsStalled)
-                   .arg(result.soilRecovered));
-    saveGame(false);
+    applyClock(ClockEvent::WakeUp);
 }
 
-void MainWindow::resizeEvent(QResizeEvent *event) {
-    QMainWindow::resizeEvent(event);
-    updateGameScale();
-    // 调整背景图大小
-    background = background.scaled(this->size(), Qt::KeepAspectRatioByExpanding);
-    // 调整时间标签位置
-    if (timeLabel && mapWidget) {
-        // 右边距 10px，上边距 10px，标签尺寸 100x30
-        timeLabel->setGeometry(
-            mapWidget->width() - 102,  // 右边距 10px（110 = 100宽度 + 10右边距）
-            12,                        // 上边距
-            100,                       // 宽度
-            30                         // 高度
-            );
+bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_gameView->viewport() && event->type() == QEvent::Resize) {
+        updateGameScale();
     }
-    if (dayLabel && mapWidget)
-    {
-        dayLabel->setGeometry(
-            mapWidget->width() - 119,  // 右边距 10px（110 = 100宽度 + 10右边距）
-            50,                        // 上边距
-            100,                       // 宽度
-            30                         // 高度
-            );
+    if (m_transitionActive && m_panelOpen &&
+        (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease ||
+         event->type() == QEvent::ShortcutOverride)) {
+        auto *widget = qobject_cast<QWidget *>(watched);
+        if (widget && widget->window() == m_panelOpen) {
+            event->accept();
+            return true;
+        }
     }
-
-    if (m_coinsLabel) m_coinsLabel->setGeometry(8, 8, 112, 24);
-    if (m_inventoryLabel) m_inventoryLabel->setGeometry(8, 34, 112, 24);
-    if (m_cropsLabel) m_cropsLabel->setGeometry(8, 60, 180, 24);
-    if (m_seedsLabel) m_seedsLabel->setGeometry(8, 86, 180, 24);
-    if (m_statusLabel) m_statusLabel->setGeometry(90, mapWidget->height() - 92, 340, 24);
+    // The toolbar sits outside the scene, but the wheel still works over the farm.
+    if (watched == mapWidget && event->type() == QEvent::Wheel) {
+        itemBar->wheelEvent(static_cast<QWheelEvent *>(event));
+        return true;
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::updateGameScale() {
@@ -431,9 +325,9 @@ void MainWindow::updateGameScale() {
     const qreal availableScale = qMin(
         static_cast<qreal>(viewportSize.width()) / m_gameCanvas->width(),
         static_cast<qreal>(viewportSize.height()) / m_gameCanvas->height());
+    const qreal dpr = m_gameView->viewport()->devicePixelRatioF();
     const qreal pixelScale = availableScale >= 1.0
-        ? qMax<qreal>(1.0, qFloor(availableScale))
-        : availableScale;
+        ? qFloor(availableScale * dpr) / dpr : availableScale;
 
     m_gameView->resetTransform();
     m_gameView->scale(pixelScale, pixelScale);
@@ -442,53 +336,135 @@ void MainWindow::updateGameScale() {
 
 void MainWindow::updateHud() {
     const Inventory &inventory = m_economy.inventory();
-    m_coinsLabel->setText(QStringLiteral("COINS %1").arg(m_economy.coins()));
-    m_inventoryLabel->setText(QStringLiteral("BAG %1/%2")
-                                  .arg(inventory.usedCapacity())
-                                  .arg(inventory.capacity()));
-    m_cropsLabel->setText(QStringLiteral("WHEAT %1   POTATO %2")
-                              .arg(inventory.count(CropType::Wheat))
-                              .arg(inventory.count(CropType::Potato)));
-    m_seedsLabel->setText(QStringLiteral("SEEDS  W %1   P %2")
-                              .arg(m_economy.seedCount(CropType::Wheat))
-                              .arg(m_economy.seedCount(CropType::Potato)));
+    m_coinsLabel->setText(QStringLiteral("金币 %1").arg(m_economy.coins()));
+    m_inventoryLabel->setText(QStringLiteral("背包 %1 / %2")
+                                  .arg(inventory.usedCapacity()).arg(inventory.capacity()));
+    const CropType crop = seedCropForTool(itemBar->selectedTool());
+    if (crop != CropType::None) {
+        m_suppliesLabel->setText(QStringLiteral("%1种子 %2 份  ·  肥料 %3 份")
+            .arg(CropCatalog::definition(crop).localizedName)
+            .arg(m_economy.seedCount(crop)).arg(m_economy.fertilizerCount()));
+    } else {
+        qint64 seeds = 0;
+        for (CropType type : CropCatalog::cropTypes()) seeds += m_economy.seedCount(type);
+        m_suppliesLabel->setText(QStringLiteral("种子 %1 份  ·  肥料 %2 份")
+                                     .arg(seeds).arg(m_economy.fertilizerCount()));
+    }
 }
 
 void MainWindow::showStatus(const QString &message) {
     m_statusLabel->setText(message);
 }
 
-void MainWindow::openSeedShop() {
-    SeedShopDialog dialog(this);
-    const auto refreshDialog = [this, &dialog]() {
-        dialog.setState(m_economy.coins(),
-                        m_economy.seedCount(CropType::Wheat),
-                        m_economy.seedCount(CropType::Potato));
-    };
-    refreshDialog();
+void MainWindow::openInventory() {
+    if (m_panelOpen || m_transitionActive) {
+        return;
+    }
+    auto *dialog = new InventoryDialog(this);
+    connect(dialog, &InventoryDialog::toolRequested, this, [this](ToolType tool) {
+        itemBar->selectTool(tool);
+    });
+    showFarmPanel(dialog);
+}
 
-    connect(&dialog, &SeedShopDialog::purchaseRequested,
-            this, [this, &dialog, refreshDialog](CropType type, int quantity) {
-                const SeedPurchaseResult result =
-                    m_economy.buySeeds(type, quantity);
-                if (!result.success) {
-                    dialog.setMessage(
-                        result.failure == SeedPurchaseFailure::InsufficientCoins
-                            ? QStringLiteral("NOT ENOUGH COINS")
-                            : QStringLiteral("INVALID PURCHASE"));
-                    return;
-                }
-                updateHud();
-                refreshDialog();
-                saveGame(false);
-                dialog.setMessage(QStringLiteral("BOUGHT %1 %2 SEEDS  -%3 COINS")
-                                      .arg(result.quantity)
-                                      .arg(CropCatalog::definition(type)
-                                               .displayName.toUpper())
-                                      .arg(result.coinsSpent));
-            });
-    dialog.exec();
-    character->setFocus();
+void MainWindow::openSeedShop() {
+    auto *dialog = new SeedShopDialog(this);
+    const auto purchase = [this, dialog](ToolType tool, int quantity) {
+        if (!m_shopArea.contains(character->currentTilePosition())) {
+            dialog->setMessage(QStringLiteral("请到种子商店购买"));
+            return;
+        }
+        const CropType crop = seedCropForTool(tool);
+        const bool fertilizer = tool == ToolType::Fertilizer;
+        const auto result = fertilizer ? m_economy.buyFertilizer(quantity)
+                                       : m_economy.buySeeds(crop, quantity);
+        if (!result.success) {
+            dialog->setMessage(result.failure == SeedPurchaseFailure::InsufficientCoins
+                                   ? QStringLiteral("金币不足")
+                                   : QStringLiteral("无法购买该数量，库存未变"));
+            return;
+        }
+        const QString item = fertilizer ? QStringLiteral("基础肥料")
+                                        : CropCatalog::definition(crop).localizedName + QStringLiteral("种子");
+        finishTrade(dialog, QStringLiteral("已购入%1 × %2，花费 %3 金币")
+                                .arg(item).arg(quantity).arg(result.coinsSpent));
+    };
+    connect(dialog, &SeedShopDialog::purchaseRequested, this, [purchase](CropType crop, int quantity) {
+        purchase(toolForSeed(crop), quantity);
+    });
+    connect(dialog, &SeedShopDialog::fertilizerPurchaseRequested, this, [purchase](int quantity) {
+        purchase(ToolType::Fertilizer, quantity);
+    });
+    showFarmPanel(dialog);
+}
+
+void MainWindow::openMarket() {
+    auto *dialog = new MarketDialog(this);
+    connect(dialog, &MarketDialog::saleRequested, this, [this, dialog] {
+        const SaleResult sale = m_economy.sellAll(character->currentTilePosition(), m_marketArea);
+        if (!sale.success) {
+            dialog->setMessage(QStringLiteral("未能出售，请检查站点、库存和金币余额"));
+            return;
+        }
+        finishTrade(dialog, QStringLiteral("已售出 %1 份农产品，收入 %2 金币")
+                                .arg(sale.itemsSold).arg(sale.coinsEarned));
+    });
+    showFarmPanel(dialog);
+}
+
+void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
+    updateHud();
+    refreshOpenPanel();
+    const QString message = saveGame(false) ? receipt : receipt + QStringLiteral("（未保存）");
+    dialog->setMessage(message);
+    showStatus(message);
+}
+
+void MainWindow::showFarmPanel(QDialog *dialog) {
+    m_panelOpen = dialog;
+    // Panel hotkeys use event filters and can otherwise fire on a disabled widget.
+    dialog->installEventFilter(this);
+    for (QWidget *child : dialog->findChildren<QWidget *>())
+        child->installEventFilter(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &QDialog::finished, this, [this] {
+        m_panelOpen.clear();
+        refreshGameplayInput();
+        // Reactivate the game after Qt has finished dismissing the modal window.
+        QTimer::singleShot(0, this, [this] {
+            if (isVisible() && !m_panelOpen && !m_transitionActive) {
+                activateWindow();
+                refreshGameplayInput();
+            }
+        });
+    });
+    refreshOpenPanel();
+    refreshGameplayInput();
+    dialog->open();
+}
+
+void MainWindow::refreshOpenPanel() {
+    if (auto *bag = qobject_cast<InventoryDialog *>(m_panelOpen.data())) {
+        bag->setState(m_economy, itemBar->selectedTool(), currentGameDay());
+    } else if (auto *shop = qobject_cast<SeedShopDialog *>(m_panelOpen.data())) {
+        shop->setState(m_economy);
+    } else if (auto *market = qobject_cast<MarketDialog *>(m_panelOpen.data())) {
+        market->setState(m_economy);
+    }
+}
+
+void MainWindow::refreshGameplayInput() {
+    const bool blocked = m_panelOpen || m_transitionActive;
+    character->setInputBlocked(blocked);
+    mapWidget->setInputBlocked(blocked);
+    itemBar->setEnabled(!blocked);
+    if (m_panelOpen) {
+        m_panelOpen->setEnabled(!m_transitionActive);
+    }
+    if (!blocked) {
+        m_gameView->setFocus(Qt::OtherFocusReason);
+        character->setFocus(Qt::OtherFocusReason);
+    }
 }
 
 bool MainWindow::saveGame(bool showError) {
@@ -496,95 +472,82 @@ bool MainWindow::saveGame(bool showError) {
         return false;
     }
     GameSaveData data;
-    data.gameMinutes = m_gameClock.elapsedGameMinutes();
+    data.gameMinutes = m_committedMinutes;
     data.lastProcessedDay = m_lastProcessedDay;
     data.playerPosition = character->absolutePosition();
     data.economy = m_economy.state();
     data.world = mapWidget->worldSnapshot();
 
     QString errorMessage;
-    if (!SaveManager::save(SaveManager::defaultSavePath(), data,
-                           &errorMessage)) {
+    const auto compatible = [this](const GameSaveData &candidate) {
+        return isCompatibleSave(candidate);
+    };
+    if (!SaveManager::save(SaveManager::defaultSavePath(), data, &errorMessage, compatible)) {
         if (showError) {
-            showStatus(QStringLiteral("SAVE FAILED: %1").arg(errorMessage));
+            // A world action can emit its success feedback immediately after worldChanged.
+            QTimer::singleShot(0, this, [this, errorMessage] {
+                showStatus(QStringLiteral("保存失败：%1").arg(errorMessage));
+            });
         }
         return false;
     }
     return true;
 }
 
-bool MainWindow::loadGame() {
-    const QString savePath = SaveManager::defaultSavePath();
-    if (!QFileInfo::exists(savePath) && !QFileInfo::exists(savePath + ".bak")) {
-        return false;
+void MainWindow::loadGame() {
+    const QString current = SaveManager::defaultSavePath();
+    const QString legacy = SaveManager::legacySavePath();
+    const auto hasSave = [](const QString &path) {
+        return QFileInfo::exists(path) || QFileInfo::exists(path + QStringLiteral(".bak"));
+    };
+    const bool hasCurrent = hasSave(current);
+    const QString source = hasCurrent ? current : legacy;
+    if (!hasSave(source)) {
+        showStatus(QStringLiteral("WASD 移动，滚轮选工具。Tab 背包，E 互动。"));
+        return;
     }
 
-    GameSaveData data;
-    QString errorMessage;
-    bool loaded = SaveManager::load(savePath, &data, &errorMessage);
-    if (!loaded) {
-        loaded = SaveManager::load(savePath + ".bak", &data, &errorMessage);
+    for (const QString &path : {source, source + QStringLiteral(".bak")}) {
+        GameSaveData data;
+        if (!SaveManager::load(path, &data) || !restoreGame(data)) {
+            continue;
+        }
+        showStatus(path == source ? QStringLiteral("已读取农场存档")
+                                  : QStringLiteral("已从备份恢复农场"));
+        return;
     }
-    const int currentDay = static_cast<int>(data.gameMinutes / (24 * 60));
-    const int mapPixelWidth = mapWidget->mapWidth() * mapWidget->tileWidth();
-    const int mapPixelHeight = mapWidget->mapHeight() * mapWidget->tileHeight();
-    if (!loaded || data.lastProcessedDay > currentDay ||
-        data.world.lastCompletedDay != data.lastProcessedDay - 1 ||
-        data.playerPosition.x() < 0 || data.playerPosition.y() < 0 ||
-        data.playerPosition.x() + character->width() > mapPixelWidth ||
-        data.playerPosition.y() + character->height() > mapPixelHeight) {
+    if (hasCurrent) {
         m_saveEnabled = false;
-        showStatus(QStringLiteral("SAVE LOAD FAILED - ORIGINAL PRESERVED: %1")
-                       .arg(errorMessage));
+        showStatus(QStringLiteral("农场存档无法恢复，已保留文件并暂停保存"));
+    } else {
+        showStatus(QStringLiteral("已保留旧存档，新农场将另行保存"));
+    }
+}
+
+bool MainWindow::isCompatibleSave(const GameSaveData &data) const {
+    const int maxX = mapWidget->mapWidth() * mapWidget->tileWidth() - character->width();
+    const int maxY = mapWidget->mapHeight() * mapWidget->tileHeight() - character->height();
+    const auto &layer = data.world.cultivatedLayer;
+    return !layer.isEmpty() && layer.size() == mapWidget->mapHeight() &&
+           layer.first().size() == mapWidget->mapWidth() &&
+           data.playerPosition.x() >= 0 && data.playerPosition.x() <= maxX &&
+           data.playerPosition.y() >= 0 && data.playerPosition.y() <= maxY &&
+           data.economy.inventoryCapacity == GameConstants::InitialInventoryCapacity;
+}
+
+bool MainWindow::restoreGame(const GameSaveData &data) {
+    if (!isCompatibleSave(data)) {
         return false;
     }
-
-    const EconomyState oldEconomy = m_economy.state();
-    const WorldStateSnapshot oldWorld = mapWidget->worldSnapshot();
-    if (!m_economy.restore(data.economy) ||
-        !mapWidget->restoreWorld(data.world)) {
-        m_economy.restore(oldEconomy);
-        mapWidget->restoreWorld(oldWorld);
-        m_saveEnabled = false;
-        showStatus(QStringLiteral("SAVE LOAD FAILED: INVALID GAME STATE"));
+    EconomyService candidate;
+    if (!candidate.restore(data.economy) || !mapWidget->restoreWorld(data.world)) {
         return false;
     }
-
+    m_economy = std::move(candidate);
     m_gameClock.setElapsedGameMinutes(data.gameMinutes);
     m_lastProcessedDay = data.lastProcessedDay;
     character->setInitialPosition(data.playerPosition);
     return true;
-}
-
-bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (event->type() == QEvent::Wheel) {
-        itemBar->wheelEvent(static_cast<QWheelEvent*>(event));
-        return true; // 拦截滚轮事件
-    }
-
-    if (event->type() == QEvent::MouseButtonPress) {
-        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-        if (mouseEvent->button() == Qt::LeftButton) {
-            qDebug() << "[MainWindow] 鼠标点击位置（窗口坐标）:" << mouseEvent->pos();
-
-            // 获取地图控件的滚动偏移
-            int mapOffsetX = mapWidget->offsetX();
-            int mapOffsetY = mapWidget->offsetY();
-
-            // 计算实际点击位置在地图中的全局坐标
-            QPoint mapGlobalPos = mapWidget->mapToGlobal(QPoint(0, 0));
-            QPoint actualMapPos = mouseEvent->pos() + QPoint(mapOffsetX, mapOffsetY);
-
-            // 转换为角色控件的局部坐标
-            QPoint characterLocalPos = character->mapFromGlobal(actualMapPos + mapGlobalPos);
-            if (character->rect().contains(characterLocalPos)) {
-                qDebug() << "点击在角色控件内";
-                character->handleToolAction();
-            }
-            return false; // 允许事件继续传递
-        }
-    }
-    return QMainWindow::eventFilter(watched, event);
 }
 
 // 重写鼠标按下事件（在头文件中声明）
@@ -606,19 +569,6 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    saveGame(false);
+    applyClock(ClockEvent::Save);
     QMainWindow::closeEvent(event);
-}
-
-// ==================== 程序入口 ====================
-int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
-    QApplication::setOrganizationName(QStringLiteral("CloverCog"));
-    QApplication::setApplicationName(QStringLiteral("Clover-Cog"));
-
-
-    MainWindow mainWindow;
-    mainWindow.show();
-
-    return app.exec();
 }

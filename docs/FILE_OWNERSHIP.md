@@ -5,7 +5,7 @@
 | 文件范围 | 主责 | 直接消费者与交接 |
 | --- | --- | --- |
 | `map6.tmj`、`.tsx`、本轮素材、`character.qrc` | A，统一制图和资源登记 | B 给农田/作物/季节资源清单，C 给碰撞，D/E 给交互坐标 |
-| `worldstate.*`、`cropdefinition.*`、拟新增季节规则文件如 `seasoncalendar.*` | B，作物、品种、适季、阶段映射、施肥与农田日结算 | E 提供累计日期并调度；C/D 消费目录和规则 |
+| `worldstate.*`、`cropdefinition.*`、`seasoncalendar.*` | B，作物、品种、适季、阶段映射、施肥与农田日结算 | E 提供累计日期并调度；C/D 消费目录和规则 |
 | `mapdata.*`、`mapwidget.*`、`maprenderer.*`、`rpg.*`、`playercontroller.*`、`collisiondetector.*`、`tooltype.h`、`itembar.*` | C，输入/碰撞/镜头、工具栏和基础地图/作物绘制 | D 提供背包选择意图，E 使用环境覆盖层挂接点；C 不实现夜色算法 |
 | `inventory.*`、`economyservice.*`、`seedshopdialog.*`、拟新增 `inventorydialog.*` | D，库存和背包面板、商店/收购/肥料交易 | B 给物品及价格，C 接选择/输入屏蔽，E 只读 HUD |
 | `gameclock.*`、拟新增 `daynightoverlay.*` 等环境覆盖层 | E，连续时间、睡眠、完整昼夜绘制及季节色调呈现 | B 消费日期；C 只交付挂接点，不复制逻辑 |
@@ -27,3 +27,11 @@
 ## 协作窗口
 
 地图及资源 A 单人编辑。B 先给稳定作物/物品 ID、适季和图集坐标；B/E 冻结日期与日结算顺序；D/C 冻结背包选中和面板屏蔽接口。主窗口按 D→E 顺序交接，E 可先独立实现时钟与覆盖层。共享头、存档字段、构建和测试修改先列消费者及验证方法，再合并。每位成员独立分支，不共用未提交工作区。
+
+## B 本次必要接入窗口（2026-11-08）
+
+用户授权继续 B 开发，本次除 B 域外，顺序接入 A 的 qmake/地图/QRC/TSX 追加资源，D 的 SaveManager 作物施肥字段，以及 C 的 MapWidget 适季信号和主窗口的一条失败提示连接。没有并行编辑者；未接管 C/D/E 整套功能。共享文件已完成 Mac 构建及规则测试，消费者审查、Windows 与完整界面联调待进行；具体字段与交接见 [CROP_CATALOG](CROP_CATALOG.md)。本窗口完成后释放共享文件编辑，后续按原主责继续。
+
+## A 季节资源接入窗口（2026-11-11）
+
+用户另行授权 A 支援：仅保留 resources/seasons、独立的 tools/season_preview，修改 character.qrc 并更新任务/资源文档。后续发布整理按用户要求暂缓，新增打包脚本/部署文档已移至仓库外备份。未修改 map6、C/E 地图显示与时钟、B 作物规则或 D 资产接口；运行接入仍交原主责。资源契约 v1 和验证见 [SEASON_ASSETS](SEASON_ASSETS.md)。

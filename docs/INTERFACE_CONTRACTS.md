@@ -1,8 +1,8 @@
 # 当前接口约定
 
-2026-11-06 修订：本轮增加四季与可操作背包。B 负责作物/四季规则，D 负责背包/商店，E 完整负责时间/昼夜绘制/睡眠，C 不再承担昼夜。新增功能均为待实现要求，状态及首版规则以 [DEVELOPMENT.md](DEVELOPMENT.md) 第 0 节为准。
+2026-11-06 修订：本轮增加四季与可操作背包。B 负责作物/四季规则，D 负责背包/商店，E 完整负责时间/昼夜绘制/睡眠，C 不再承担昼夜。B 规则已于 2026-11-08 实现，C/D/E 的新增界面与调度仍待实现；状态及首版规则以 [DEVELOPMENT.md](DEVELOPMENT.md) 第 0 节为准。
 
-版本：v1.1 方案修订。本文区分第一版已有接口与本轮待实现要求；尚未创建的自动化、物流和离线接口不在本版本中设计。
+版本：v1.2 B 实现交接（消费者审查待确认）。本文区分已有接口与本轮待实现要求；尚未创建的自动化、物流和离线接口不在本版本中设计。
 
 ## GameClock（E 主责）
 
@@ -20,13 +20,20 @@
 - `harvest()` 只返回成熟作物的类型和整格产量。
 - MapWidget 负责地图输入和绘制，收获入包由外部 `harvestHandler` 决定。
 
-## 四季查询（待实现，B 主责）
+## 四季查询（B 已实现，E 接入待做）
 
-季节从 GameClock 的累计日期推导，集中配置每季天数，返回年份、季节和季内日期；不创建第二套时钟。B 的作物目录提供允许播种季节，非适季播种失败不扣种子，已有作物跨季继续成长。E 调度时先按结束日期完成 B 的农田结算，再刷新日期与环境。睡眠、自然跨日和读档必须一致。拟新增类型/签名在 B/E/C/D 确认后登记，不当作现有 API。
+- `SeasonCalendar::dateForDay(qint64)` / `dateForMinutes(qint64)` 返回 `SeasonDate { year, season, dayOfSeason }`，只读换算、不计时。
+- 首轮 `DaysPerSeason=7`，日 0 为第一年春季第 1 天，日 28 为第二年春季第 1 天；季长仍待试玩确认。
+- `CropCatalog::canPlant(type, season)` / `canPlantOnDay(type, day)` 与 WorldState 共同校验新播种；非适季失败不扣种，已有作物跨季继续成长。
+- E 必须按顺序逐日调用 `advanceDay(completedDay)`，同日重复调用无效；该入口不自动补结算遗漏日期。时钟、睡眠、HUD 和环境仍属 E 待开发。
+
+## 施肥（B 地块效果已实现，C/D 接入待做）
+
+`WorldState::fertilize(tile)` 返回 `FertilizeResult {success, failure}`。未成熟作物每株最多一次，下一次有浇水日结算额外增长 1 天，干旱保留奖励；无效目标/空地/已施肥/成熟均失败不改地块。D 检查库存、同步调用后仅在成功时扣 1，C 负责施用输入；库存事务尚未实现。`isFertilized()`、`hasPendingFertilizerBonus()` 可供展示，日结算统计返回 `fertilizerBonusesUsed`。
 
 ## CropCatalog
 
-每种作物提供稳定的 `CropType`、显示名、生长天数、产量、种子价格、出售价格、阶段图块、可播种季节及物品图标。新增作物应扩展配置和测试，不在 UI 回调里复制数值。
+已包含 Wheat=1、Potato=2、Carrot=3、Beet=4；原枚举值保留。目录提供稳定 id、displayName/localizedName、生长天数、产量、种子价格、出售价格、stageGids、plantingSeasons、seedIcon/harvestIcon。`cropTypes()` 枚举全部品种，`fromId()` 解析存档 ID，`stageGid()` 按有效生长日取图。配置和矩形清单见 [CROP_CATALOG](CROP_CATALOG.md)，新增价格待 D 复核，UI 不复制数值。
 
 ## Inventory / EconomyService
 
@@ -40,7 +47,7 @@
 
 ## SaveManager
 
-D 汇总存档，包含累计游戏时间、已处理日期、玩家位置、容量及农产品/种子/肥料数量、世界和施肥状态。季节从日期推导，必要时记录季节配置版本，不保存第二份可漂移的当前季节计数。写入使用临时文件替换，并保留 `.bak`；加载失败时不能静默覆盖有效存档。
+当前 v2 在 SavedCropState/JSON 增加 fertilizerApplied、fertilizerBonusPending 布尔字段；只接受新版本，旧档保留、不迁移。非法标志或快照恢复失败时不改变活动状态。D 后续汇总存档，包含累计游戏时间、已处理日期、玩家位置、容量及农产品/种子/肥料数量、世界和施肥状态。季节从日期推导，必要时记录季节配置版本，不保存第二份可漂移的当前季节计数。写入使用临时文件替换，并保留 `.bak`；加载失败时不能静默覆盖有效存档。
 
 ## UI 约束
 
@@ -49,3 +56,7 @@ UI 只调用上述服务并显示返回结果，不保存第二份业务状态�
 ## 未来扩展原则
 
 新作物、扩图、肥料和分类出售必须复用现有服务。肥料成功作用于有效目标后才扣除数量，失败保持道具与地块状态不变，由 D/B 对齐操作契约和保存字段。自动化、运输和离线收益若未来立项，先单独冻结接口和存档字段，再实现业务。
+
+## 季节环境资源 v1（A 已交付，C/E 待接入）
+
+`:/seasons/manifest.json` 提供与 SeasonCalendar 一致的四季 ID、七张原始纹理绑定和精确 RGB 映射；`:/seasons/decorations.json` 提供四种矩形像素图案及十二个可达草地点。只处理白名单环境图，保留 alpha/尺寸/旧 GID；原始纹理按季节生成缓存，地图、作物和存档不重置。装饰在地图后、角色/HUD 前绘制，有锄地/作物则跳过，无碰撞和业务效果。完整字段与渲染参考见 [SEASON_ASSETS](SEASON_ASSETS.md)，消费者审查和游戏实际联调待进行。

@@ -32,7 +32,6 @@ signals:
 
 private:
     QPointer<MapWidget> m_mapWidget;
-    QVector<ToolProperty> m_tools;
     ToolProperty m_currentTool;
 };
 

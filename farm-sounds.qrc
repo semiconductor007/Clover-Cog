@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/sounds">
+        <file alias="water.wav">resources/audio/water.wav</file>
+        <file alias="harvest.wav">resources/audio/harvest.wav</file>
+    </qresource>
+</RCC>

@@ -1,5 +1,4 @@
 #include "collisiondetector.h"
-#include<QDebug>
 
 CollisionDetector::CollisionDetector(const QVector<QVector<int>> *collisionLayer,
                                      int tileWidth, int tileHeight)
@@ -7,30 +6,20 @@ CollisionDetector::CollisionDetector(const QVector<QVector<int>> *collisionLayer
 
 bool CollisionDetector::isColliding(const QRect &characterRect) const {
     if (!m_collisionLayer || m_tileWidth <= 0 || m_tileHeight <= 0 ||
-        m_collisionLayer->isEmpty() || m_collisionLayer->first().isEmpty()) {
+        characterRect.isEmpty() || characterRect.right() < 0 || characterRect.bottom() < 0)
         return false;
-    }
-    const QVector<QVector<int>> &layer = *m_collisionLayer;
 
-    // 计算覆盖的图块范围
-    int tileLeft = characterRect.left() / m_tileWidth;
-    int tileRight = (characterRect.right() - 1) / m_tileWidth;
-    int tileTop = characterRect.top() / m_tileHeight;
-    int tileBottom = (characterRect.bottom() - 1) / m_tileHeight;
-
-    // 边界约束
-    tileLeft = qMax(0, tileLeft);
-    tileRight = qMin(layer[0].size() - 1, tileRight);
-    tileTop = qMax(0, tileTop);
-    tileBottom = qMin(layer.size() - 1, tileBottom);
-
-    // 遍历所有覆盖的图块
-    for (int y = tileTop; y <= tileBottom; ++y) {
-        for (int x = tileLeft; x <= tileRight; ++x) {
-            if (layer[y][x] != 0) {
-                qDebug() << "[碰撞发生]";
-                return true; // 碰撞！
-            }
+    const auto &layer = *m_collisionLayer;
+    // QRect's right and bottom edges are inclusive.
+    const int left = qMax(0, characterRect.left() / m_tileWidth);
+    const int right = characterRect.right() / m_tileWidth;
+    const int top = qMax(0, characterRect.top() / m_tileHeight);
+    const int bottom = qMin(layer.size() - 1, characterRect.bottom() / m_tileHeight);
+    for (int y = top; y <= bottom; ++y) {
+        const auto &row = layer.at(y);
+        const int last = qMin(row.size() - 1, right);
+        for (int x = left; x <= last; ++x) {
+            if (row.at(x) != 0) return true;
         }
     }
     return false;

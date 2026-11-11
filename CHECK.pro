@@ -14,8 +14,11 @@ SOURCES += \
     economyservice.cpp \
     gameclock.cpp \
     inventory.cpp \
+    inventorydialog.cpp \
+    marketdialog.cpp \
     itembar.cpp \
     mapdata.cpp \
+    main.cpp \
     mainwindow.cpp \
     maprenderer.cpp \
     mapwidget.cpp \
@@ -31,9 +34,13 @@ HEADERS += \
     economyservice.h \
     gameclock.h \
     gameconstants.h \
+    farmpanel.h \
+    inventorydialog.h \
+    marketdialog.h \
     itembar.h \
     inventory.h \
     mapdata.h \
+    farmicons.h \
     mainwindow.h \
     maprenderer.h \
     mapwidget.h \
@@ -53,3 +60,12 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 RESOURCES += \
     character.qrc
+
+# B: season conversion is shared by crop planting rules and time consumers.
+SOURCES += seasoncalendar.cpp
+HEADERS += seasoncalendar.h
+
+# E: shared sleep/season transition, scene lighting and seasonal rendering.
+SOURCES += seasonappearance.cpp scenetransition.cpp
+HEADERS += seasonappearance.h scenetransition.h
+RESOURCES += farm-sounds.qrc

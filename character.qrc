@@ -53,6 +53,22 @@
         <file>sprout/Water Objects.png</file>
         <file>sprout/Water.png</file>
         <file>sprout/Wooden_Bridge.png</file>
+        <file>sprout/Wooden_House_Walls.png</file>
+        <file>tsx/Wooden_House_Walls.tsx</file>
+        <file>sprout/Wooden_House_Roof.png</file>
+        <file>tsx/Wooden_House_Roof.tsx</file>
+        <file>tsx/Basic_Furniture.tsx</file>
+        <file>tsx/Paths.tsx</file>
+        <file>sprout/Workstation.png</file>
+        <file>tsx/Workstation.tsx</file>
+        <file>sprout/Signs.png</file>
+        <file>tsx/Signs.tsx</file>
+        <file>tsx/Chest.tsx</file>
+        <file>sprout/Water_Well.png</file>
+        <file>tsx/Water_Well.tsx</file>
+        <file>tsx/Spring_Crops.tsx</file>
+        <file alias="sprout/Spring_Crops.png">Farm RPG FREE 16x16 - Tiny Asset Pack/Objects/Spring Crops.png</file>
+        <file alias="sprout/Crop_Items.png">sprout/Sprout Lands - Sprites - premium pack/Objects/Items/farming-Plants-items.png</file>
     </qresource>
     <qresource prefix="/ui">
         <file>sprout/Sprout Lands - UI Pack - Basic pack/Sprite sheets/Sprite sheet for Basic Pack.png</file>
@@ -72,5 +88,14 @@
     <qresource prefix="/sounds">
         <file>wav/On_the_Farm.mp3</file>
         <file>wav/On_the_Farm.wav</file>
+    </qresource>
+    <qresource prefix="/seasons">
+        <file alias="manifest.json">resources/seasons/manifest.json</file>
+        <file alias="decorations.json">resources/seasons/decorations.json</file>
+        <file alias="NOTICE.txt">resources/seasons/NOTICE.txt</file>
+    </qresource>
+    <qresource prefix="/farm-ui">
+        <file alias="slots.png">resources/ui/inventory-slots.png</file>
+        <file alias="soil-items.png">sprout/Sprout Lands - Sprites - premium pack/Objects/Items/grass-n-ground-tile-items.png</file>
     </qresource>
 </RCC>

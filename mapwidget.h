@@ -6,12 +6,15 @@
 #include "worldstate.h"
 
 #include <QPoint>
+#include <QPointer>
 #include <QPixmap>
 #include <QRect>
 #include <QVector>
 #include <QWidget>
 #include <functional>
 #include <utility>
+
+class PlayerController;
 
 class MapWidget : public QWidget {
     Q_OBJECT
@@ -20,6 +23,7 @@ public:
     explicit MapWidget(QWidget *parent = nullptr);
 
     bool loadMap(const QString &tmjPath);
+    void setPlayerController(PlayerController *controller);
     int tileWidth() const { return m_tileWidth; }
     int tileHeight() const { return m_tileHeight; }
     int mapWidth() const { return m_mapWidth; }
@@ -30,6 +34,14 @@ public:
     int viewportHeight() const { return height(); }
     const QVector<QVector<int>> &collisionLayer() const { return m_worldState.collisionLayer(); }
 
+    void setInputBlocked(bool blocked) { m_inputBlocked = blocked; }
+    bool isInputBlocked() const { return m_inputBlocked; }
+    const QVector<Tileset> &originalTilesets() const { return m_originalTilesets; }
+    void setSeasonAppearance(QVector<Tileset> displayTilesets,
+                             std::function<void(QPainter &, const QPoint &, const WorldState &)> paintScenery);
+    void setFertilizeHandler(std::function<bool(const std::function<bool()> &)> handler) {
+        m_fertilizeHandler = std::move(handler);
+    }
     void setViewportCenter(int x, int y);
     void setTimeReference(std::function<qint64()> timeGetter) {
         m_getGameMinutes = std::move(timeGetter);
@@ -67,17 +79,22 @@ public:
     bool isTileCultivatable(const QPoint &tilePos) const;
     bool isPlantable(const QPoint &tilePos) const;
     bool plantSeed(const QPoint &tilePos, CropType cropType);
+    bool fertilizeTile(const QPoint &tilePos);
     bool waterTile(const QPoint &tilePos);
     DayAdvanceResult advanceDay(int completedDay,
                                 std::function<int()> randomPercent = {});
+    DayAdvanceResult advanceThroughDay(int completedDay);
     QPoint mapPointToTile(const QPoint &mapPoint) const;
     bool isValidTile(const QPoint &tilePos) const;
 
 signals:
     void mapClicked(QPoint pos);
+    void farmingFeedback(QString message);
+    void tileWatered();
     void cropHarvested(CropType type, int quantity);
     void harvestBlocked(CropType type, int requiredCapacity);
     void plantingBlocked(CropType type);
+    void plantingOutOfSeason(CropType type);
     void mapLoadFailed(const QString &message);
     void worldChanged();
 
@@ -86,9 +103,13 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
 
 private:
+    QPointer<PlayerController> m_playerController;
     std::function<qint64()> m_getGameMinutes;
     std::function<bool(CropType, int)> m_harvestHandler;
     std::function<bool(CropType, const std::function<bool()> &)> m_plantHandler;
+    std::function<bool(const std::function<bool()> &)> m_fertilizeHandler;
+    std::function<void(QPainter &, const QPoint &, const WorldState &)> m_paintScenery;
+    bool m_inputBlocked = false;
     int m_offsetX = 0;
     int m_offsetY = 0;
     QVector<MapRenderLayer> m_renderLayers;
@@ -96,14 +117,13 @@ private:
     int m_tileHeight = 0;
     int m_mapWidth = 0;
     int m_mapHeight = 0;
-    QVector<Tileset> m_tilesets;
+    QVector<Tileset> m_originalTilesets;
+    QVector<Tileset> m_displayTilesets;
     WorldState m_worldState;
     MapRenderer m_renderer;
     QRect m_marketArea;
     QRect m_shopArea;
     QRect m_bedArea;
-    QPixmap m_marketIcon;
-    QPixmap m_bedIcon;
 };
 
 #endif // MAPWIDGET_H

@@ -1,103 +1,95 @@
-// mainwindow.h
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QMainWindow>
-#include <QAudioOutput>
-#include <QCursor>
-#include <QFont>
-#include <QGraphicsScene>
-#include <QGraphicsView>
-#include <QLabel>
-#include <QMediaPlayer>
-#include <QPixmap>
-#include <QRect>
 #include "economyservice.h"
 #include "gameclock.h"
 #include "itembar.h"
 #include "mapwidget.h"
 #include "rpg.h"
 #include "savemanager.h"
+#include "seasonappearance.h"
 
+#include <QCursor>
+#include <QGraphicsScene>
+#include <QGraphicsView>
+#include <QLabel>
+#include <QMainWindow>
+#include <QPointer>
 
+class DayNightOverlay;
+class FarmPanel;
+class QDialog;
+class SceneTransition;
 
-class ClockBgWidget : public QWidget {
-public:
-    explicit ClockBgWidget(QWidget *parent = nullptr) : QWidget(parent) {}
-    void setBackground(const QPixmap &bg) { clockBg = bg; update(); }
-protected:
-    void paintEvent(QPaintEvent *event) override;
-private:
-    QPixmap clockBg;
-
-};
-
-
-// 在MainWindow类定义中添加
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    MainWindow(QWidget *parent = nullptr);
-    int currentGameHour() const { return m_gameClock.hour(); }
-    int currentGameDay() const { return m_gameClock.day(); }
-    int currentGameMinute() const { return m_gameClock.minute(); }
-
+    explicit MainWindow(QWidget *parent = nullptr);
+    int currentGameHour() const { return int(m_committedMinutes / 60 % 24); }
+    int currentGameDay() const { return int(m_committedMinutes / (24 * 60)); }
+    int currentGameMinute() const { return int(m_committedMinutes % 60); }
 
 private slots:
     void updateTime();
     void sleepUntilMorning();
 
 protected:
-    void mousePressEvent(QMouseEvent *event) override;  // 声明鼠标按下事件
-    void mouseReleaseEvent(QMouseEvent *event) override; // 声明鼠标释放事件
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
 
 private:
-    bool eventFilter(QObject *watched, QEvent *event) override;
+    enum class ClockEvent { Tick, WakeUp, Load, Save };
+
+    void applyClock(ClockEvent event);
+    DayAdvanceResult processDayTransitions();
+    void presentTime();
+    void updateGameScale();
+    void updateHud();
+    void showStatus(const QString &message);
+    void openInventory();
+    void openSeedShop();
+    void openMarket();
+    void showFarmPanel(QDialog *dialog);
+    void refreshOpenPanel();
+    void refreshGameplayInput();
+    void finishTrade(FarmPanel *dialog, const QString &receipt);
+    bool saveGame(bool showError = true);
+    void loadGame();
+    bool restoreGame(const GameSaveData &data);
+    bool isCompatibleSave(const GameSaveData &data) const;
+
     GameClock m_gameClock;
+    // Map actions and saves use the last sampled time whose days have been settled.
+    qint64 m_committedMinutes = GameConstants::WakeUpHour * 60;
     int m_lastProcessedDay = 0;
+    int m_visibleDay = -1;
     bool m_saveEnabled = true;
     EconomyService m_economy;
-    const QRect m_marketArea{19, 11, 2, 2};
-    const QRect m_shopArea{22, 11, 2, 2};
-    const QRect m_bedArea{16, 11, 2, 2};
+    QPointer<QDialog> m_panelOpen;
+    QPointer<QWidget> m_panelFocusBeforeFade;
+    bool m_transitionActive = false;
+    const QRect m_marketArea{28, 18, 2, 2};
+    const QRect m_shopArea{33, 18, 2, 2};
+    const QRect m_bedArea{25, 8, 2, 2};
     QWidget *m_gameCanvas;
     QGraphicsScene *m_gameScene;
     QGraphicsView *m_gameView;
-    MapWidget* mapWidget;  // 添加mapWidget成员声明
-    ImageMovementWidget* character;
-    ItemBar* itemBar;
-
-    QWidget *overlay; // 添加覆盖层控件声明
-    QLabel *m_coinsLabel = nullptr;
-    QLabel *m_inventoryLabel = nullptr;
-    QLabel *m_cropsLabel = nullptr;
-    QLabel *m_seedsLabel = nullptr;
-    QLabel *m_statusLabel = nullptr;
-    void updateHud();
-    void showStatus(const QString &message);
-    void openSeedShop();
-    bool saveGame(bool showError = true);
-    bool loadGame();
-    DayAdvanceResult processDayTransitions();
-
-    ClockBgWidget *clockBgWidget;
-    QPixmap background;
-
-    QLabel *timeLabel;    // 显示时间的标签
-    QFont digitalFont;    // 自定义字体对象
+    MapWidget *mapWidget;
+    ImageMovementWidget *character;
+    ItemBar *itemBar;
+    SeasonAppearance m_seasons;
+    DayNightOverlay *m_daylight;
+    SceneTransition *m_transition;
+    QLabel *m_coinsLabel;
+    QLabel *m_inventoryLabel;
+    QLabel *m_suppliesLabel;
+    QLabel *m_statusLabel;
+    QLabel *timeLabel;
     QLabel *dayLabel;
-
-    void updateGameScale();
-    bool loadCustomFont(); // 加载字体
-    void resizeEvent(QResizeEvent *event) override;
-    void loadBackground();   // 加载背景图
-
-    QMediaPlayer *m_player;
-    QAudioOutput *m_audioOutput;
     QCursor customCursor;
     QCursor clickCursor;
-
 };
 
 #endif // MAINWINDOW_H
