@@ -20,6 +20,9 @@ def main():
     make = shutil.which(args.make)
     if not (qmake and make and args.jobs > 0):
         parser.error("select a Qt Kit, its make tool, and a positive job count")
+    # The commands run from a different shadow directory for each suite.
+    qmake = str(Path(qmake).absolute())
+    make = str(Path(make).absolute())
     build_root = args.build_dir.resolve()
     if test_root == build_root or test_root in build_root.parents:
         parser.error("choose a build directory outside the test sources")

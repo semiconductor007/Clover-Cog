@@ -26,6 +26,7 @@ private slots:
     void cropCatalogHasIndependentStagesAndIcons();
     void seasonalPlantingPreservesSeedsAndExistingCrops();
     void allCropTypesCompleteTheEconomicLoop();
+    void catchingUpAQuietFarmMatchesDailySettlement();
     void fertilizerWaitsForWaterAndAppliesOnce();
     void fertilizerRejectsInvalidTargetsAndSnapshots();
     void fertilizedCropsSaveAndRejectMalformedFlags();
@@ -579,6 +580,42 @@ void CoreTests::allCropTypesCompleteTheEconomicLoop() {
     // One ordinary harvest per variety: pay 11 coins for seeds and receive 28.
     QCOMPARE(totalSeedCost, 11);
     QCOMPARE(totalSales, 28);
+}
+
+void CoreTests::catchingUpAQuietFarmMatchesDailySettlement() {
+    MapData map;
+    map.mapWidth = 3;
+    map.mapHeight = 1;
+    map.cultivatedLayer = {{135, 135, 135}};
+    WorldState daily;
+    daily.initialize(map);
+    QVERIFY(daily.plantSeed({0, 0}, CropType::Wheat, 0));
+    QVERIFY(daily.plantSeed({1, 0}, CropType::Potato, 0));
+    QVERIFY(daily.plantSeed({2, 0}, CropType::Beet, 14));
+    QVERIFY(daily.fertilize({0, 0}).success);
+    QVERIFY(daily.waterTile({0, 0}));
+    QVERIFY(daily.waterTile({1, 0}));
+    WorldState catchup;
+    catchup.initialize(map);
+    QVERIFY(catchup.restore(daily.snapshot()));
+
+    qint64 expectedStalls = 0;
+    for (int day = 0; day <= 30; ++day)
+        expectedStalls += daily.advanceDay(day).cropsStalled;
+    const auto result = catchup.advanceThroughDay(30);
+    QCOMPARE(result.cropsAdvanced, 2);
+    QCOMPARE(result.fertilizerBonusesUsed, 1);
+    QCOMPARE(result.cropsStalled, expectedStalls);
+    QCOMPARE(catchup.cropLayer(), daily.cropLayer());
+    QCOMPARE(catchup.snapshot().wateredTiles, daily.snapshot().wateredTiles);
+    QVERIFY(!catchup.hasPendingFertilizerBonus({0, 0}));
+
+    constexpr int distantDay = 1000000000;
+    const auto distant = catchup.advanceThroughDay(distantDay);
+    QCOMPARE(distant.cropsStalled, qint64(3) * (distantDay - 30));
+    QCOMPARE(distant.cropsAdvanced, 0);
+    QCOMPARE(catchup.snapshot().lastCompletedDay, distantDay);
+    QCOMPARE(catchup.advanceThroughDay(distantDay).cropsStalled, 0);
 }
 
 void CoreTests::fertilizerWaitsForWaterAndAppliesOnce() {

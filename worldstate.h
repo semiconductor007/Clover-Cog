@@ -27,7 +27,7 @@ struct FertilizeResult {
 
 struct DayAdvanceResult {
     int cropsAdvanced = 0;
-    int cropsStalled = 0;
+    qint64 cropsStalled = 0;
     int soilRecovered = 0;
     int fertilizerBonusesUsed = 0;
 
@@ -76,6 +76,7 @@ public:
     HarvestResult harvest(const QPoint &tilePos);
     DayAdvanceResult advanceDay(int completedDay,
                                 std::function<int()> randomPercent = {});
+    DayAdvanceResult advanceThroughDay(int completedDay);
     int cropGidAt(const QPoint &tilePos) const;
     int treeGidAt(const QPoint &tilePos) const;
     WorldStateSnapshot snapshot() const;

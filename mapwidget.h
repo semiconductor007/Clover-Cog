@@ -79,6 +79,7 @@ public:
     bool waterTile(const QPoint &tilePos);
     DayAdvanceResult advanceDay(int completedDay,
                                 std::function<int()> randomPercent = {});
+    DayAdvanceResult advanceThroughDay(int completedDay);
     QPoint mapPointToTile(const QPoint &mapPoint) const;
     bool isValidTile(const QPoint &tilePos) const;
 

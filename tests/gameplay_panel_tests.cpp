@@ -229,7 +229,7 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     auto *map = gameMap(game);
     QVERIFY(map);
     auto *player = map->findChild<ImageMovementWidget *>();
-    auto *bar = map->findChild<ItemBar *>();
+    auto *bar = map->parentWidget()->findChild<ItemBar *>();
     QVERIFY(player && bar);
     QCOMPARE(player->currentTilePosition(), QPoint(33, 18));
     QTRY_VERIFY(QApplication::focusWidget());
@@ -378,9 +378,18 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         return arrived;
     };
     const auto pressGameKey = [](Qt::Key key) {
-        QWidget *focus = QApplication::focusWidget();
-        if (!focus) return false;
-        QTest::keyClick(focus, key);
+        // Modal activation is asynchronous on both Cocoa and the offscreen plugin.
+        // Deliver the key after Qt has moved keyboard focus into the visible panel.
+        QDialog *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        const bool ready = QTest::qWaitFor([&] {
+            QWidget *focus = QApplication::focusWidget();
+            return focus && (!modal || focus->window() == modal);
+        }, 2000);
+        if (!ready) {
+            qWarning() << "Keyboard focus" << QApplication::focusWidget() << "modal" << modal;
+            return false;
+        }
+        QTest::keyClick(QApplication::focusWidget(), key);
         return true;
     };
     const auto selectFromBag = [&](int category, const QString &listName, ToolType tool) {

@@ -266,3 +266,9 @@ DayAdvanceResult MapWidget::advanceDay(int completedDay,
     update();
     return result;
 }
+
+DayAdvanceResult MapWidget::advanceThroughDay(int completedDay) {
+    const auto result = m_worldState.advanceThroughDay(completedDay);
+    update();
+    return result;
+}

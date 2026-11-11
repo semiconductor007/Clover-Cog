@@ -251,6 +251,44 @@ DayAdvanceResult WorldState::advanceDay(int completedDay,
     return result;
 }
 
+DayAdvanceResult WorldState::advanceThroughDay(int completedDay) {
+    if (qint64(completedDay) <= qint64(m_lastCompletedDay) + 1)
+        return advanceDay(completedDay);
+
+    // Match daily settlement, including the original random rolls for empty soil.
+    // After the first day's watering, only empty soil can still change by itself.
+    int emptySoil = 0;
+    for (int y = 0; y < m_mapHeight; ++y) {
+        for (int x = 0; x < m_mapWidth; ++x) {
+            if (isPlantableSoilGid(m_cultivatedLayer[y][x]) && !m_crops.contains({x, y}))
+                ++emptySoil;
+        }
+    }
+    DayAdvanceResult total;
+    do {
+        const auto day = advanceDay(m_lastCompletedDay + 1);
+        total.cropsAdvanced += day.cropsAdvanced;
+        total.cropsStalled += day.cropsStalled;
+        total.soilRecovered += day.soilRecovered;
+        total.fertilizerBonusesUsed += day.fertilizerBonusesUsed;
+        emptySoil -= day.soilRecovered;
+    } while (m_lastCompletedDay < completedDay && emptySoil > 0 &&
+             GameConstants::EmptySoilRecoveryPercent > 0);
+
+    if (m_lastCompletedDay < completedDay) {
+        // With no water and no soil left to recover, every remaining date has
+        // exactly the same farm state. Count the dry days without replaying frames.
+        for (const auto &crop : m_crops) {
+            if (crop.growthDays >= CropCatalog::definition(crop.type).growthDays)
+                continue;
+            const qint64 firstDryDay = qMax(qint64(m_lastCompletedDay) + 1, qint64(crop.plantedDay));
+            total.cropsStalled += qMax(qint64(0), qint64(completedDay) - firstDryDay + 1);
+        }
+        m_lastCompletedDay = completedDay;
+    }
+    return total;
+}
+
 int WorldState::cropGidAt(const QPoint &tilePos) const {
     if (!isValidTile(tilePos)) {
         return 0;
