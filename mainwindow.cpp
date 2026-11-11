@@ -17,6 +17,7 @@
 #include <QUrl>
 #include <QWheelEvent>
 #include <QtMath>
+#include <utility>
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -284,16 +285,8 @@ MainWindow::MainWindow(QWidget *parent)
     mapWidget->setTimeReference([this]() {
         return m_gameClock.elapsedGameMinutes();
     });
-    const QString savePath = SaveManager::defaultSavePath();
-    const bool hadSave = QFileInfo::exists(savePath) ||
-                         QFileInfo::exists(savePath + ".bak");
-    const bool loadedSave = loadGame();
+    loadGame();
     updateHud();
-    if (loadedSave) {
-        showStatus(QStringLiteral("SAVE LOADED"));
-    } else if (!hadSave) {
-        showStatus(QStringLiteral("SELL  |  SEEDS  |  SLEEP - PRESS E"));
-    }
 
     QTimer *autosaveTimer = new QTimer(this);
     connect(autosaveTimer, &QTimer::timeout,
@@ -509,52 +502,61 @@ bool MainWindow::saveGame(bool showError) {
 
     QString errorMessage;
     if (!SaveManager::save(SaveManager::defaultSavePath(), data,
-                           &errorMessage)) {
+                           &errorMessage, m_loadedFromBackup)) {
         if (showError) {
-            showStatus(QStringLiteral("SAVE FAILED: %1").arg(errorMessage));
+            showStatus(QStringLiteral("保存失败：%1").arg(errorMessage));
         }
         return false;
     }
+    m_loadedFromBackup = false;
     return true;
 }
 
-bool MainWindow::loadGame() {
-    const QString savePath = SaveManager::defaultSavePath();
-    if (!QFileInfo::exists(savePath) && !QFileInfo::exists(savePath + ".bak")) {
-        return false;
+void MainWindow::loadGame() {
+    const QString current = SaveManager::defaultSavePath();
+    const QString legacy = SaveManager::legacySavePath();
+    const auto hasSave = [](const QString &path) {
+        return QFileInfo::exists(path) || QFileInfo::exists(path + QStringLiteral(".bak"));
+    };
+    const bool hasCurrent = hasSave(current);
+    const QString source = hasCurrent ? current : legacy;
+    if (!hasSave(source)) {
+        showStatus(QStringLiteral("Tab 打开背包，E 与站点互动"));
+        return;
     }
 
-    GameSaveData data;
-    QString errorMessage;
-    bool loaded = SaveManager::load(savePath, &data, &errorMessage);
-    if (!loaded) {
-        loaded = SaveManager::load(savePath + ".bak", &data, &errorMessage);
+    for (const QString &path : {source, source + QStringLiteral(".bak")}) {
+        GameSaveData data;
+        if (!SaveManager::load(path, &data) || !restoreGame(data)) {
+            continue;
+        }
+        m_loadedFromBackup = hasCurrent && path != source;
+        showStatus(path == source ? QStringLiteral("已读取农场存档")
+                                  : QStringLiteral("已从备份恢复农场"));
+        return;
     }
-    const int currentDay = static_cast<int>(data.gameMinutes / (24 * 60));
-    const int mapPixelWidth = mapWidget->mapWidth() * mapWidget->tileWidth();
-    const int mapPixelHeight = mapWidget->mapHeight() * mapWidget->tileHeight();
-    if (!loaded || data.lastProcessedDay > currentDay ||
-        data.world.lastCompletedDay != data.lastProcessedDay - 1 ||
-        data.playerPosition.x() < 0 || data.playerPosition.y() < 0 ||
-        data.playerPosition.x() + character->width() > mapPixelWidth ||
-        data.playerPosition.y() + character->height() > mapPixelHeight) {
+    if (hasCurrent) {
         m_saveEnabled = false;
-        showStatus(QStringLiteral("SAVE LOAD FAILED - ORIGINAL PRESERVED: %1")
-                       .arg(errorMessage));
+        showStatus(QStringLiteral("农场存档无法恢复，已保留文件并暂停保存"));
+    } else {
+        showStatus(QStringLiteral("已保留旧存档，新农场将另行保存"));
+    }
+}
+
+bool MainWindow::restoreGame(const GameSaveData &data) {
+    const int maxX = mapWidget->mapWidth() * mapWidget->tileWidth() - character->width();
+    const int maxY = mapWidget->mapHeight() * mapWidget->tileHeight() - character->height();
+    if (data.playerPosition.x() < 0 || data.playerPosition.x() > maxX ||
+        data.playerPosition.y() < 0 || data.playerPosition.y() > maxY ||
+        data.economy.inventoryCapacity != GameConstants::InitialInventoryCapacity) {
         return false;
     }
 
-    const EconomyState oldEconomy = m_economy.state();
-    const WorldStateSnapshot oldWorld = mapWidget->worldSnapshot();
-    if (!m_economy.restore(data.economy) ||
-        !mapWidget->restoreWorld(data.world)) {
-        m_economy.restore(oldEconomy);
-        mapWidget->restoreWorld(oldWorld);
-        m_saveEnabled = false;
-        showStatus(QStringLiteral("SAVE LOAD FAILED: INVALID GAME STATE"));
+    EconomyService candidate;
+    if (!candidate.restore(data.economy) || !mapWidget->restoreWorld(data.world)) {
         return false;
     }
-
+    m_economy = std::move(candidate);
     m_gameClock.setElapsedGameMinutes(data.gameMinutes);
     m_lastProcessedDay = data.lastProcessedDay;
     character->setInitialPosition(data.playerPosition);

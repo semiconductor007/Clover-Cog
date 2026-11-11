@@ -57,6 +57,7 @@ private:
     GameClock m_gameClock;
     int m_lastProcessedDay = 0;
     bool m_saveEnabled = true;
+    bool m_loadedFromBackup = false;
     EconomyService m_economy;
     const QRect m_marketArea{28, 18, 2, 2};
     const QRect m_shopArea{33, 18, 2, 2};
@@ -78,7 +79,8 @@ private:
     void showStatus(const QString &message);
     void openSeedShop();
     bool saveGame(bool showError = true);
-    bool loadGame();
+    void loadGame();
+    bool restoreGame(const GameSaveData &data);
     DayAdvanceResult processDayTransitions();
 
     ClockBgWidget *clockBgWidget;
