@@ -1,7 +1,9 @@
 //mainwinow.cpp
 #include "mainwindow.h"
 #include "gameconstants.h"
+#include "inventorydialog.h"
 #include "mapwidget.h"
+#include "marketdialog.h"
 #include "seedshopdialog.h"
 #include <QApplication>
 #include <QCloseEvent>
@@ -15,7 +17,6 @@
 #include <QScrollBar>
 #include <QTimer>
 #include <QUrl>
-#include <QWheelEvent>
 #include <QtMath>
 #include <utility>
 
@@ -154,16 +155,10 @@ MainWindow::MainWindow(QWidget *parent)
     itemBar = new ItemBar(mapWidget);
     itemBar->raise(); // 显示在最上层
 
-    // 设置物品栏位置和尺寸（221x54）
-    const int itemBarWidth = 221;
-    const int itemBarHeight = 54;
-    itemBar->setGeometry(
-        (mapWidget->width() - itemBarWidth) / 2, // 水平居中
-        mapWidget->height() - itemBarHeight - 10, // 距离底部 10 像素
-        itemBarWidth,
-        itemBarHeight
-        );
-
+    const QSize barSize = itemBar->sizeHint();
+    itemBar->setGeometry((mapWidget->width() - barSize.width()) / 2,
+                         mapWidget->height() - barSize.height() - 10,
+                         barSize.width(), barSize.height());
 
     // 连接物品栏的索引变化信号到角色工具切换
     connect(itemBar, &ItemBar::itemSelected,
@@ -172,75 +167,52 @@ MainWindow::MainWindow(QWidget *parent)
     connect(mapWidget, &MapWidget::mapClicked,
             character, &ImageMovementWidget::useCurrentToolAt);
 
+    connect(character, &ImageMovementWidget::inventoryRequested, this, &MainWindow::openInventory);
     mapWidget->setHarvestHandler([this](CropType type, int quantity) {
-        const bool collected = m_economy.collectHarvest(type, quantity);
-        if (collected) {
-            updateHud();
+        return m_economy.collectHarvest(type, quantity);
+    });
+    mapWidget->setPlantHandler([this](CropType type, const std::function<bool()> &action) {
+        return m_economy.plantWithSeed(type, action);
+    });
+    mapWidget->setFertilizeHandler([this](const std::function<bool()> &action) {
+        return m_economy.fertilizeWithItem(action);
+    });
+
+    connect(mapWidget, &MapWidget::farmingFeedback, this, &MainWindow::showStatus);
+    connect(mapWidget, &MapWidget::cropHarvested, this, [this](CropType type, int quantity) {
+        showStatus(QStringLiteral("收获%1 × %2").arg(CropCatalog::definition(type).localizedName)
+                                          .arg(quantity));
+    });
+    connect(mapWidget, &MapWidget::harvestBlocked, this, [this](CropType, int requiredCapacity) {
+        showStatus(QStringLiteral("背包装不下，本次收获需要 %1 份空位").arg(requiredCapacity));
+    });
+    connect(mapWidget, &MapWidget::plantingOutOfSeason, this, [this](CropType type) {
+        showStatus(QStringLiteral("本季不能播种%1").arg(CropCatalog::definition(type).localizedName));
+    });
+    connect(mapWidget, &MapWidget::plantingBlocked, this, [this](CropType type) {
+        showStatus(QStringLiteral("%1种子不足，可到种子商店购买")
+                       .arg(CropCatalog::definition(type).localizedName));
+    });
+
+    connect(character, &ImageMovementWidget::interactionRequested, this, [this](QPoint playerTile) {
+        if (m_panelOpen || m_transitionActive) {
+            return;
         }
-        return collected;
+        if (m_shopArea.contains(playerTile)) {
+            openSeedShop();
+        } else if (m_marketArea.contains(playerTile)) {
+            openMarket();
+        } else if (m_bedArea.contains(playerTile)) {
+            sleepUntilMorning();
+        } else {
+            showStatus(QStringLiteral("站在商店、收购点或床边按 E"));
+        }
     });
-    mapWidget->setPlantHandler(
-        [this](CropType type, const std::function<bool()> &plantAction) {
-            const bool planted = m_economy.plantWithSeed(type, plantAction);
-            if (planted) {
-                updateHud();
-            }
-            return planted;
-        });
-
-    connect(mapWidget, &MapWidget::cropHarvested,
-            [this](CropType type, int quantity) {
-                showStatus(QStringLiteral("+%1 %2")
-                               .arg(quantity)
-                               .arg(CropCatalog::definition(type).displayName));
-            });
-    connect(mapWidget, &MapWidget::harvestBlocked,
-            [this](CropType, int requiredCapacity) {
-                showStatus(QStringLiteral("BAG FULL - NEED %1 SLOTS")
-                               .arg(requiredCapacity));
-            });
-    connect(mapWidget, &MapWidget::plantingOutOfSeason,
-            this, [this](CropType type) {
-        showStatus(QStringLiteral("%1: OUT OF SEASON")
-                       .arg(CropCatalog::definition(type).displayName.toUpper()));
+    // MapWidget emits this only after both the world action and the inventory action commit.
+    connect(mapWidget, &MapWidget::worldChanged, this, [this] {
+        updateHud();
+        saveGame();
     });
-    connect(mapWidget, &MapWidget::plantingBlocked,
-            [this](CropType type) {
-                showStatus(QStringLiteral("NO %1 SEEDS - VISIT SEED SHOP")
-                               .arg(CropCatalog::definition(type).displayName.toUpper()));
-            });
-
-    connect(character, &ImageMovementWidget::interactionRequested,
-            [this](const QPoint &playerTile) {
-                if (m_shopArea.contains(playerTile)) {
-                    openSeedShop();
-                    return;
-                }
-                if (m_bedArea.contains(playerTile)) {
-                    sleepUntilMorning();
-                    return;
-                }
-                if (m_marketArea.contains(playerTile)) {
-                    const SaleResult sale =
-                        m_economy.sellAll(playerTile, m_marketArea);
-                    if (!sale.success) {
-                        showStatus(QStringLiteral("BAG IS EMPTY"));
-                        return;
-                    }
-                    updateHud();
-                    saveGame(false);
-                    showStatus(QStringLiteral("SOLD %1 ITEMS  +%2 COINS")
-                                   .arg(sale.itemsSold)
-                                   .arg(sale.coinsEarned));
-                    return;
-                }
-                showStatus(QStringLiteral("STAND BY A MARKER AND PRESS E"));
-            });
-    connect(mapWidget, &MapWidget::worldChanged,
-            this, [this]() { saveGame(false); });
-
-
-
 
     // 加载背景
     loadBackground();
@@ -277,9 +249,6 @@ MainWindow::MainWindow(QWidget *parent)
     dayLabel->setFont(digitalFont);
     dayLabel->setAlignment(Qt::AlignCenter);
 
-
-    // 为窗口安装事件过滤器
-    this->installEventFilter(this);
 
     // 将时间系统传递给mapWidget（需要先在MapWidget类中添加接收方法）
     mapWidget->setTimeReference([this]() {
@@ -360,7 +329,7 @@ DayAdvanceResult MainWindow::processDayTransitions() {
         processedDay = true;
     }
     if (processedDay) {
-        saveGame(false);
+        refreshOpenPanel();
     }
     return total;
 }
@@ -456,37 +425,111 @@ void MainWindow::showStatus(const QString &message) {
     m_statusLabel->setText(message);
 }
 
-void MainWindow::openSeedShop() {
-    SeedShopDialog dialog(this);
-    const auto refreshDialog = [this, &dialog]() {
-        dialog.setState(m_economy.coins(),
-                        m_economy.seedCount(CropType::Wheat),
-                        m_economy.seedCount(CropType::Potato));
-    };
-    refreshDialog();
+void MainWindow::openInventory() {
+    if (m_panelOpen || m_transitionActive) {
+        return;
+    }
+    auto *dialog = new InventoryDialog(this);
+    connect(dialog, &InventoryDialog::toolRequested, this, [this](ToolType tool) {
+        itemBar->selectTool(tool);
+    });
+    showFarmPanel(dialog);
+}
 
-    connect(&dialog, &SeedShopDialog::purchaseRequested,
-            this, [this, &dialog, refreshDialog](CropType type, int quantity) {
-                const SeedPurchaseResult result =
-                    m_economy.buySeeds(type, quantity);
-                if (!result.success) {
-                    dialog.setMessage(
-                        result.failure == SeedPurchaseFailure::InsufficientCoins
-                            ? QStringLiteral("NOT ENOUGH COINS")
-                            : QStringLiteral("INVALID PURCHASE"));
-                    return;
-                }
-                updateHud();
-                refreshDialog();
-                saveGame(false);
-                dialog.setMessage(QStringLiteral("BOUGHT %1 %2 SEEDS  -%3 COINS")
-                                      .arg(result.quantity)
-                                      .arg(CropCatalog::definition(type)
-                                               .displayName.toUpper())
-                                      .arg(result.coinsSpent));
-            });
-    dialog.exec();
-    character->setFocus();
+void MainWindow::openSeedShop() {
+    auto *dialog = new SeedShopDialog(this);
+    const auto purchase = [this, dialog](ToolType tool, int quantity) {
+        if (!m_shopArea.contains(character->currentTilePosition())) {
+            dialog->setMessage(QStringLiteral("请到种子商店购买"));
+            return;
+        }
+        const CropType crop = seedCropForTool(tool);
+        const bool fertilizer = tool == ToolType::Fertilizer;
+        const auto result = fertilizer ? m_economy.buyFertilizer(quantity)
+                                       : m_economy.buySeeds(crop, quantity);
+        if (!result.success) {
+            dialog->setMessage(result.failure == SeedPurchaseFailure::InsufficientCoins
+                                   ? QStringLiteral("金币不足")
+                                   : QStringLiteral("无法购买该数量，库存未变"));
+            return;
+        }
+        const QString item = fertilizer ? QStringLiteral("基础肥料")
+                                        : CropCatalog::definition(crop).localizedName + QStringLiteral("种子");
+        finishTrade(dialog, QStringLiteral("已购入%1 × %2，花费 %3 金币")
+                                .arg(item).arg(quantity).arg(result.coinsSpent));
+    };
+    connect(dialog, &SeedShopDialog::purchaseRequested, this, [purchase](CropType crop, int quantity) {
+        purchase(toolForSeed(crop), quantity);
+    });
+    connect(dialog, &SeedShopDialog::fertilizerPurchaseRequested, this, [purchase](int quantity) {
+        purchase(ToolType::Fertilizer, quantity);
+    });
+    showFarmPanel(dialog);
+}
+
+void MainWindow::openMarket() {
+    auto *dialog = new MarketDialog(this);
+    connect(dialog, &MarketDialog::saleRequested, this, [this, dialog] {
+        const SaleResult sale = m_economy.sellAll(character->currentTilePosition(), m_marketArea);
+        if (!sale.success) {
+            dialog->setMessage(QStringLiteral("未能出售，请检查站点、库存和金币余额"));
+            return;
+        }
+        finishTrade(dialog, QStringLiteral("已售出 %1 份农产品，收入 %2 金币")
+                                .arg(sale.itemsSold).arg(sale.coinsEarned));
+    });
+    showFarmPanel(dialog);
+}
+
+void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
+    updateHud();
+    refreshOpenPanel();
+    const QString message = saveGame(false) ? receipt : receipt + QStringLiteral("（未保存）");
+    dialog->setMessage(message);
+    showStatus(message);
+}
+
+void MainWindow::showFarmPanel(QDialog *dialog) {
+    m_panelOpen = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &QDialog::finished, this, [this] {
+        m_panelOpen.clear();
+        refreshGameplayInput();
+        // Reactivate the game after Qt has finished dismissing the modal window.
+        QTimer::singleShot(0, this, [this] {
+            if (isVisible() && !m_panelOpen && !m_transitionActive) {
+                activateWindow();
+                refreshGameplayInput();
+            }
+        });
+    });
+    refreshOpenPanel();
+    refreshGameplayInput();
+    dialog->open();
+}
+
+void MainWindow::refreshOpenPanel() {
+    if (auto *bag = qobject_cast<InventoryDialog *>(m_panelOpen.data())) {
+        bag->setState(m_economy, itemBar->selectedTool(), currentGameDay());
+    } else if (auto *shop = qobject_cast<SeedShopDialog *>(m_panelOpen.data())) {
+        shop->setState(m_economy);
+    } else if (auto *market = qobject_cast<MarketDialog *>(m_panelOpen.data())) {
+        market->setState(m_economy);
+    }
+}
+
+void MainWindow::refreshGameplayInput() {
+    const bool blocked = m_panelOpen || m_transitionActive;
+    character->setInputBlocked(blocked);
+    mapWidget->setInputBlocked(blocked);
+    itemBar->setEnabled(!blocked);
+    if (m_panelOpen) {
+        m_panelOpen->setEnabled(!m_transitionActive);
+    }
+    if (!blocked) {
+        m_gameView->setFocus(Qt::OtherFocusReason);
+        character->setFocus(Qt::OtherFocusReason);
+    }
 }
 
 bool MainWindow::saveGame(bool showError) {
@@ -501,14 +544,18 @@ bool MainWindow::saveGame(bool showError) {
     data.world = mapWidget->worldSnapshot();
 
     QString errorMessage;
-    if (!SaveManager::save(SaveManager::defaultSavePath(), data,
-                           &errorMessage, m_loadedFromBackup)) {
+    const auto compatible = [this](const GameSaveData &candidate) {
+        return isCompatibleSave(candidate);
+    };
+    if (!SaveManager::save(SaveManager::defaultSavePath(), data, &errorMessage, compatible)) {
         if (showError) {
-            showStatus(QStringLiteral("保存失败：%1").arg(errorMessage));
+            // A world action can emit its success feedback immediately after worldChanged.
+            QTimer::singleShot(0, this, [this, errorMessage] {
+                showStatus(QStringLiteral("保存失败：%1").arg(errorMessage));
+            });
         }
         return false;
     }
-    m_loadedFromBackup = false;
     return true;
 }
 
@@ -530,7 +577,6 @@ void MainWindow::loadGame() {
         if (!SaveManager::load(path, &data) || !restoreGame(data)) {
             continue;
         }
-        m_loadedFromBackup = hasCurrent && path != source;
         showStatus(path == source ? QStringLiteral("已读取农场存档")
                                   : QStringLiteral("已从备份恢复农场"));
         return;
@@ -543,15 +589,21 @@ void MainWindow::loadGame() {
     }
 }
 
-bool MainWindow::restoreGame(const GameSaveData &data) {
+bool MainWindow::isCompatibleSave(const GameSaveData &data) const {
     const int maxX = mapWidget->mapWidth() * mapWidget->tileWidth() - character->width();
     const int maxY = mapWidget->mapHeight() * mapWidget->tileHeight() - character->height();
-    if (data.playerPosition.x() < 0 || data.playerPosition.x() > maxX ||
-        data.playerPosition.y() < 0 || data.playerPosition.y() > maxY ||
-        data.economy.inventoryCapacity != GameConstants::InitialInventoryCapacity) {
+    const auto &layer = data.world.cultivatedLayer;
+    return !layer.isEmpty() && layer.size() == mapWidget->mapHeight() &&
+           layer.first().size() == mapWidget->mapWidth() &&
+           data.playerPosition.x() >= 0 && data.playerPosition.x() <= maxX &&
+           data.playerPosition.y() >= 0 && data.playerPosition.y() <= maxY &&
+           data.economy.inventoryCapacity == GameConstants::InitialInventoryCapacity;
+}
+
+bool MainWindow::restoreGame(const GameSaveData &data) {
+    if (!isCompatibleSave(data)) {
         return false;
     }
-
     EconomyService candidate;
     if (!candidate.restore(data.economy) || !mapWidget->restoreWorld(data.world)) {
         return false;
@@ -561,37 +613,6 @@ bool MainWindow::restoreGame(const GameSaveData &data) {
     m_lastProcessedDay = data.lastProcessedDay;
     character->setInitialPosition(data.playerPosition);
     return true;
-}
-
-bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (event->type() == QEvent::Wheel) {
-        itemBar->wheelEvent(static_cast<QWheelEvent*>(event));
-        return true; // 拦截滚轮事件
-    }
-
-    if (event->type() == QEvent::MouseButtonPress) {
-        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-        if (mouseEvent->button() == Qt::LeftButton) {
-            qDebug() << "[MainWindow] 鼠标点击位置（窗口坐标）:" << mouseEvent->pos();
-
-            // 获取地图控件的滚动偏移
-            int mapOffsetX = mapWidget->offsetX();
-            int mapOffsetY = mapWidget->offsetY();
-
-            // 计算实际点击位置在地图中的全局坐标
-            QPoint mapGlobalPos = mapWidget->mapToGlobal(QPoint(0, 0));
-            QPoint actualMapPos = mouseEvent->pos() + QPoint(mapOffsetX, mapOffsetY);
-
-            // 转换为角色控件的局部坐标
-            QPoint characterLocalPos = character->mapFromGlobal(actualMapPos + mapGlobalPos);
-            if (character->rect().contains(characterLocalPos)) {
-                qDebug() << "点击在角色控件内";
-                character->handleToolAction();
-            }
-            return false; // 允许事件继续传递
-        }
-    }
-    return QMainWindow::eventFilter(watched, event);
 }
 
 // 重写鼠标按下事件（在头文件中声明）

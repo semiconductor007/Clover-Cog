@@ -348,8 +348,13 @@ QString SaveManager::legacySavePath() {
 }
 
 bool SaveManager::save(const QString &path, const GameSaveData &data,
-                       QString *errorMessage, bool preserveBackup) {
+                       QString *errorMessage,
+                       const std::function<bool(const GameSaveData &)> &compatible) {
     if (!validSnapshot(data, errorMessage)) {
+        return false;
+    }
+    if (compatible && !compatible(data)) {
+        setError(errorMessage, QStringLiteral("当前农场状态与地图或背包容量不符"));
         return false;
     }
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
@@ -366,16 +371,16 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
         GameSaveData previous;
         return readSave(candidate, &previous, original, nullptr) &&
                previous.world.cultivatedLayer.size() == layer.size() &&
-               previous.world.cultivatedLayer.first().size() == layer.first().size();
+               previous.world.cultivatedLayer.first().size() == layer.first().size() &&
+               (!compatible || compatible(previous));
     };
 
     QByteArray previous;
-    if (hasPrimary && !preserveBackup && recoverable(path, &previous)) {
+    if (hasPrimary && recoverable(path, &previous)) {
         if (!writeAtomically(backupPath, previous, errorMessage)) {
             return false;
         }
     } else if (hasPrimary || hasBackup) {
-        // The caller may have rejected the primary for runtime map/position reasons.
         if (!hasBackup || !recoverable(backupPath, nullptr)) {
             setError(errorMessage, QStringLiteral("未找到有效备份，已保留已有存档"));
             return false;

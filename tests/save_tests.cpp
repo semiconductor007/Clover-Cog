@@ -54,6 +54,7 @@ private slots:
     void invalidV3StockRejected_data();
     void invalidV3StockRejected();
     void backupSurvivesUnreadablePrimary();
+    void backupSurvivesRuntimeRejectedPrimary_data();
     void backupSurvivesRuntimeRejectedPrimary();
     void invalidCopiesArePreserved();
     void rejectedSnapshotAndFailedBackupLeavePrimaryAlone();
@@ -175,26 +176,54 @@ void SaveTests::backupSurvivesUnreadablePrimary() {
     QCOMPARE(data.economy.coins, 5);
 }
 
+void SaveTests::backupSurvivesRuntimeRejectedPrimary_data() {
+    QTest::addColumn<bool>("corruptPosition");
+    QTest::newRow("outside-map") << true;
+    QTest::newRow("wrong-capacity") << false;
+}
+
 void SaveTests::backupSurvivesRuntimeRejectedPrimary() {
+    QFETCH(bool, corruptPosition);
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString path = dir.filePath("farm.json");
     const QString backup = path + ".bak";
+    const auto compatible = [](const GameSaveData &data) {
+        return data.playerPosition.x() < 2 * 16 && data.economy.inventoryCapacity == 12;
+    };
     auto data = newFarm();
-    QVERIFY(SaveManager::save(path, data));
+    QVERIFY(SaveManager::save(path, data, nullptr, compatible));
     const QByteArray original = readFile(path);
-    auto root = QJsonDocument::fromJson(original).object();
-    root.insert("playerPosition", QJsonObject{{"x", 1000}, {"y", 0}});
-    QVERIFY(writeFile(path, QJsonDocument(root).toJson()));
-    QVERIFY(SaveManager::load(path, &data));
-    QVERIFY(data.playerPosition.x() > 2 * 16);
-    QVERIFY(SaveManager::load(backup, &data));
+    auto invalid = data;
+    if (corruptPosition) {
+        invalid.playerPosition.setX(1000);
+    } else {
+        invalid.economy.inventoryCapacity = 99;
+    }
+    // A rejected live snapshot must not alter either copy.
+    QVERIFY(!SaveManager::save(path, invalid, nullptr, compatible));
+    QCOMPARE(readFile(path), original);
+    QCOMPARE(readFile(backup), original);
+
+    // Change the primary on disk after startup, leaving the playable backup untouched.
+    const QString replacement = dir.filePath("replacement.json");
+    QVERIFY(SaveManager::save(replacement, invalid));
+    QVERIFY(writeFile(path, readFile(replacement)));
     data.economy.coins = 6;
-    QVERIFY(SaveManager::save(path, data, nullptr, true));
+    QVERIFY(SaveManager::save(path, data, nullptr, compatible));
     QCOMPARE(readFile(backup), original);
     QVERIFY(SaveManager::load(path, &data));
     QCOMPARE(data.economy.coins, 6);
     QCOMPARE(data.playerPosition, QPoint(0, 0));
+    QCOMPARE(data.economy.inventoryCapacity, 12);
+
+    // If both files are unplayable, preserve them and report the failure.
+    const QByteArray rejected = readFile(replacement);
+    QVERIFY(writeFile(path, rejected));
+    QVERIFY(writeFile(backup, rejected));
+    QVERIFY(!SaveManager::save(path, data, nullptr, compatible));
+    QCOMPARE(readFile(path), rejected);
+    QCOMPARE(readFile(backup), rejected);
 }
 
 void SaveTests::invalidCopiesArePreserved() {

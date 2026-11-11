@@ -1,76 +1,54 @@
 #include "seedshopdialog.h"
-
-#include "cropdefinition.h"
-
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QPushButton>
-#include <QVBoxLayout>
-
-namespace {
-
-QWidget *createSeedRow(CropType type, QLabel **countLabel,
-                       SeedShopDialog *dialog) {
-    QWidget *row = new QWidget(dialog);
-    QHBoxLayout *layout = new QHBoxLayout(row);
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    const CropDefinition &definition = CropCatalog::definition(type);
-    QLabel *name = new QLabel(
-        QStringLiteral("%1  %2 COINS").arg(definition.displayName)
-            .arg(definition.seedPrice), row);
-    *countLabel = new QLabel(row);
-    QPushButton *buyOne = new QPushButton(QStringLiteral("BUY 1"), row);
-    QPushButton *buyFive = new QPushButton(QStringLiteral("BUY 5"), row);
-
-    layout->addWidget(name, 1);
-    layout->addWidget(*countLabel);
-    layout->addWidget(buyOne);
-    layout->addWidget(buyFive);
-
-    QObject::connect(buyOne, &QPushButton::clicked, dialog,
-                     [dialog, type]() { emit dialog->purchaseRequested(type, 1); });
-    QObject::connect(buyFive, &QPushButton::clicked, dialog,
-                     [dialog, type]() { emit dialog->purchaseRequested(type, 5); });
-    return row;
-}
-
-} // namespace
+#include "farmicons.h"
 
 SeedShopDialog::SeedShopDialog(QWidget *parent)
-    : QDialog(parent) {
-    setWindowTitle(QStringLiteral("SEED SHOP"));
-    setModal(true);
-    setMinimumWidth(390);
+    : FarmPanel(QStringLiteral("种子商店"), parent) {
+    setObjectName(QStringLiteral("shopDialog"));
+    auto *goods = new QGridLayout;
+    goods->setColumnStretch(1, 1);
+    goods->setHorizontalSpacing(10);
+    tableHeading(goods, 0, QStringLiteral("商品"), 2);
+    tableHeading(goods, 2, QStringLiteral("单价"));
+    tableHeading(goods, 3, QStringLiteral("持有"));
+    tableHeading(goods, 4, QStringLiteral("购买数量"), 2);
 
-    QVBoxLayout *layout = new QVBoxLayout(this);
-    m_coinsLabel = new QLabel(this);
-    layout->addWidget(m_coinsLabel);
-    layout->addWidget(createSeedRow(CropType::Wheat, &m_wheatLabel, this));
-    layout->addWidget(createSeedRow(CropType::Potato, &m_potatoLabel, this));
-
-    m_messageLabel = new QLabel(QStringLiteral("SELECT SEEDS TO BUY"), this);
-    m_messageLabel->setAlignment(Qt::AlignCenter);
-    layout->addWidget(m_messageLabel);
-
-    QPushButton *closeButton = new QPushButton(QStringLiteral("CLOSE"), this);
-    connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
-    layout->addWidget(closeButton);
-
-    setStyleSheet(QStringLiteral(
-        "QDialog { background: #4c301e; color: white; }"
-        "QLabel { color: white; padding: 4px; }"
-        "QPushButton { background: #e8c98f; color: #4c301e;"
-        " border: 2px solid #8f6038; padding: 5px 10px; }"
-        "QPushButton:pressed { background: #c99f67; }"));
+    int row = 1;
+    auto addGoods = [&](const QString &id, const QString &name, const QPixmap &icon,
+                        int price, auto requestPurchase) {
+        productCell(goods, row, name, icon);
+        goods->addWidget(new QLabel(QStringLiteral("%1 金币").arg(price), this), row, 2);
+        auto *count = new QLabel(this);
+        count->setObjectName(QStringLiteral("owned_%1").arg(id));
+        goods->addWidget(count, row, 3);
+        int column = 4;
+        for (int quantity : {1, 5}) {
+            auto *button = makeButton(QStringLiteral("买 %1").arg(quantity),
+                                      QStringLiteral("buy_%1_%2").arg(id).arg(quantity));
+            button->setAccessibleName(QStringLiteral("购买 %1 份%2").arg(quantity).arg(name));
+            button->setToolTip(QStringLiteral("花费 %1 金币").arg(price * quantity));
+            goods->addWidget(button, row, column++);
+            connect(button, &QPushButton::clicked, this,
+                    [requestPurchase, quantity] { requestPurchase(quantity); });
+        }
+        ++row;
+        return count;
+    };
+    for (CropType crop : CropCatalog::cropTypes()) {
+        const auto &def = CropCatalog::definition(crop);
+        m_seedCounts[crop] = addGoods(def.id, def.localizedName + QStringLiteral("种子"),
+                                      FarmIcons::crop(def.seedIcon), def.seedPrice,
+                                      [this, crop](int n) { emit purchaseRequested(crop, n); });
+    }
+    m_fertilizerCount = addGoods(QStringLiteral("fertilizer"), QStringLiteral("基础肥料"),
+                                 FarmIcons::fertilizer(), EconomyService::FertilizerPrice,
+                                 [this](int n) { emit fertilizerPurchaseRequested(n); });
+    body->addLayout(goods);
+    addFooter(QStringLiteral("购入的种子和肥料可在背包中选用。"));
 }
 
-void SeedShopDialog::setState(int coins, int wheatSeeds, int potatoSeeds) {
-    m_coinsLabel->setText(QStringLiteral("COINS: %1").arg(coins));
-    m_wheatLabel->setText(QStringLiteral("OWNED: %1").arg(wheatSeeds));
-    m_potatoLabel->setText(QStringLiteral("OWNED: %1").arg(potatoSeeds));
-}
-
-void SeedShopDialog::setMessage(const QString &message) {
-    m_messageLabel->setText(message);
+void SeedShopDialog::setState(const EconomyService &economy) {
+    summary->setText(QStringLiteral("金币  %1").arg(economy.coins()));
+    for (auto it = m_seedCounts.cbegin(); it != m_seedCounts.cend(); ++it)
+        it.value()->setText(QString::number(economy.seedCount(it.key())));
+    m_fertilizerCount->setText(QString::number(economy.fertilizerCount()));
 }

@@ -14,6 +14,8 @@ SOURCES += \
     economyservice.cpp \
     gameclock.cpp \
     inventory.cpp \
+    inventorydialog.cpp \
+    marketdialog.cpp \
     itembar.cpp \
     mapdata.cpp \
     main.cpp \
@@ -32,6 +34,9 @@ HEADERS += \
     economyservice.h \
     gameclock.h \
     gameconstants.h \
+    farmpanel.h \
+    inventorydialog.h \
+    marketdialog.h \
     itembar.h \
     inventory.h \
     mapdata.h \

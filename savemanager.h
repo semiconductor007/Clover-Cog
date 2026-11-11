@@ -6,6 +6,7 @@
 
 #include <QPoint>
 #include <QString>
+#include <functional>
 
 struct GameSaveData {
     qint64 gameMinutes = 0;
@@ -22,7 +23,8 @@ public:
     static QString defaultSavePath();
     static QString legacySavePath();
     static bool save(const QString &path, const GameSaveData &data,
-                     QString *errorMessage = nullptr, bool preserveBackup = false);
+                     QString *errorMessage = nullptr,
+                     const std::function<bool(const GameSaveData &)> &compatible = {});
     static bool load(const QString &path, GameSaveData *data,
                      QString *errorMessage = nullptr);
 };
