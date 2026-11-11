@@ -392,6 +392,8 @@ void CoreTests::saveManagerRoundTripsGameStateAndKeepsBackup() {
 
     WorldState world;
     world.initialize(mapData);
+    world.advanceDay(0);
+    world.advanceDay(1);
     QVERIFY(world.cultivate(QPoint(0, 0)));
     QVERIFY(world.plantSeed(QPoint(0, 0), CropType::Wheat, 2));
     QVERIFY(world.waterTile(QPoint(0, 0)));

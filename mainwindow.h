@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QMediaPlayer>
 #include <QPixmap>
+#include <QPointer>
 #include <QRect>
 #include "economyservice.h"
 #include "gameclock.h"
@@ -20,6 +21,9 @@
 #include "savemanager.h"
 
 
+
+class QDialog;
+class FarmPanel;
 
 class ClockBgWidget : public QWidget {
 public:
@@ -53,11 +57,12 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
-    bool eventFilter(QObject *watched, QEvent *event) override;
     GameClock m_gameClock;
     int m_lastProcessedDay = 0;
     bool m_saveEnabled = true;
     EconomyService m_economy;
+    QPointer<QDialog> m_panelOpen;
+    bool m_transitionActive = false;
     const QRect m_marketArea{28, 18, 2, 2};
     const QRect m_shopArea{33, 18, 2, 2};
     const QRect m_bedArea{25, 8, 2, 2};
@@ -76,9 +81,17 @@ private:
     QLabel *m_statusLabel = nullptr;
     void updateHud();
     void showStatus(const QString &message);
+    void openInventory();
     void openSeedShop();
+    void openMarket();
+    void showFarmPanel(QDialog *dialog);
+    void refreshOpenPanel();
+    void refreshGameplayInput();
+    void finishTrade(FarmPanel *dialog, const QString &receipt);
     bool saveGame(bool showError = true);
-    bool loadGame();
+    void loadGame();
+    bool restoreGame(const GameSaveData &data);
+    bool isCompatibleSave(const GameSaveData &data) const;
     DayAdvanceResult processDayTransitions();
 
     ClockBgWidget *clockBgWidget;

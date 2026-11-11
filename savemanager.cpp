@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <limits>
 
 namespace {
 
@@ -31,12 +32,12 @@ bool pointFromJson(const QJsonValue &value, QPoint *point) {
         return false;
     }
     const QJsonObject object = value.toObject();
-    if (!object.value(QStringLiteral("x")).isDouble() ||
-        !object.value(QStringLiteral("y")).isDouble()) {
+    const int x = object.value(QStringLiteral("x")).toInt(-1);
+    const int y = object.value(QStringLiteral("y")).toInt(-1);
+    if (x < 0 || y < 0) {
         return false;
     }
-    *point = QPoint(object.value(QStringLiteral("x")).toInt(),
-                    object.value(QStringLiteral("y")).toInt());
+    *point = QPoint(x, y);
     return true;
 }
 
@@ -109,16 +110,54 @@ void setError(QString *errorMessage, const QString &message) {
     }
 }
 
-} // namespace
+// Check gameplay invariants before accepting a file or rotating it into the backup.
+bool validSnapshot(const GameSaveData &data, QString *errorMessage) {
+    const qint64 day = data.gameMinutes / (24 * 60);
+    if (data.gameMinutes < 0 || day > std::numeric_limits<int>::max() ||
+        data.lastProcessedDay < 0 || data.lastProcessedDay > day ||
+        data.world.lastCompletedDay != data.lastProcessedDay - 1 ||
+        data.playerPosition.x() < 0 || data.playerPosition.y() < 0) {
+        setError(errorMessage, QStringLiteral("存档日期或角色位置无效"));
+        return false;
+    }
 
-QString SaveManager::defaultSavePath() {
-    const QString directory =
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    return QDir(directory).filePath(QStringLiteral("savegame.json"));
+    EconomyService economy;
+    if (!economy.restore(data.economy)) {
+        setError(errorMessage, QStringLiteral("存档中的金币或库存无效"));
+        return false;
+    }
+
+    const auto &layer = data.world.cultivatedLayer;
+    if (layer.isEmpty() || layer.first().isEmpty()) {
+        setError(errorMessage, QStringLiteral("存档缺少地图"));
+        return false;
+    }
+    for (const auto &row : layer) {
+        if (row.size() != layer.first().size()) {
+            setError(errorMessage, QStringLiteral("存档中的地图尺寸无效"));
+            return false;
+        }
+    }
+    for (const auto &crop : data.world.crops) {
+        if (crop.plantedDay > day) {
+            setError(errorMessage, QStringLiteral("作物播种时间晚于存档日期"));
+            return false;
+        }
+    }
+
+    MapData map;
+    map.mapWidth = layer.first().size();
+    map.mapHeight = layer.size();
+    WorldState world;
+    world.initialize(map);
+    if (!world.restore(data.world)) {
+        setError(errorMessage, QStringLiteral("存档中的农田状态无效"));
+        return false;
+    }
+    return true;
 }
 
-bool SaveManager::save(const QString &path, const GameSaveData &data,
-                       QString *errorMessage) {
+QByteArray encodeSave(const GameSaveData &data) {
     QJsonObject economy;
     economy.insert(QStringLiteral("coins"), data.economy.coins);
     economy.insert(QStringLiteral("inventoryCapacity"),
@@ -127,6 +166,8 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
                    countsToJson(data.economy.inventoryCounts));
     economy.insert(QStringLiteral("seeds"),
                    countsToJson(data.economy.seedCounts));
+
+    economy.insert(QStringLiteral("fertilizerCount"), data.economy.fertilizerCount);
 
     QJsonArray crops;
     for (const SavedCropState &crop : data.world.crops) {
@@ -151,7 +192,7 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
                  data.world.lastCompletedDay);
 
     QJsonObject root;
-    root.insert(QStringLiteral("schemaVersion"), SchemaVersion);
+    root.insert(QStringLiteral("schemaVersion"), SaveManager::SchemaVersion);
     root.insert(QStringLiteral("gameMinutes"),
                 QString::number(data.gameMinutes));
     root.insert(QStringLiteral("lastProcessedDay"), data.lastProcessedDay);
@@ -160,61 +201,21 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
     root.insert(QStringLiteral("economy"), economy);
     root.insert(QStringLiteral("world"), world);
 
-    const QFileInfo fileInfo(path);
-    if (!QDir().mkpath(fileInfo.absolutePath())) {
-        setError(errorMessage, QStringLiteral("Cannot create save directory"));
-        return false;
-    }
-    if (QFileInfo::exists(path)) {
-        QFile existing(path);
-        if (existing.open(QIODevice::ReadOnly)) {
-            const QJsonDocument existingDocument =
-                QJsonDocument::fromJson(existing.readAll());
-            if (existingDocument.isObject() &&
-                existingDocument.object()
-                        .value(QStringLiteral("schemaVersion"))
-                        .toInt(-1) == SchemaVersion) {
-                const QString backupPath = path + QStringLiteral(".bak");
-                QFile::remove(backupPath);
-                QFile::copy(path, backupPath);
-            }
-        }
-    }
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly)) {
-        setError(errorMessage, file.errorString());
-        return false;
-    }
-    const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Indented);
-    if (file.write(json) != json.size() || !file.commit()) {
-        setError(errorMessage, file.errorString());
-        return false;
-    }
-    return true;
+    return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
 
-bool SaveManager::load(const QString &path, GameSaveData *data,
-                       QString *errorMessage) {
-    if (!data) {
-        setError(errorMessage, QStringLiteral("Missing save destination"));
-        return false;
-    }
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        setError(errorMessage, file.errorString());
-        return false;
-    }
+bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMessage) {
     QJsonParseError parseError;
     const QJsonDocument document =
-        QJsonDocument::fromJson(file.readAll(), &parseError);
+        QJsonDocument::fromJson(contents, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         setError(errorMessage, parseError.errorString());
         return false;
     }
     const QJsonObject root = document.object();
-    if (root.value(QStringLiteral("schemaVersion")).toInt(-1) !=
-        SchemaVersion) {
-        setError(errorMessage, QStringLiteral("Unsupported save version"));
+    const int version = root.value(QStringLiteral("schemaVersion")).toInt(-1);
+    if (version != 2 && version != SaveManager::SchemaVersion) {
+        setError(errorMessage, QStringLiteral("不支持的存档版本"));
         return false;
     }
 
@@ -227,7 +228,7 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
     if (!minutesOk || parsed.gameMinutes < 0 || parsed.lastProcessedDay < 0 ||
         !pointFromJson(root.value(QStringLiteral("playerPosition")),
                        &parsed.playerPosition)) {
-        setError(errorMessage, QStringLiteral("Invalid time or player state"));
+        setError(errorMessage, QStringLiteral("时间或角色位置无效"));
         return false;
     }
 
@@ -235,12 +236,16 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
     parsed.economy.coins = economy.value(QStringLiteral("coins")).toInt(-1);
     parsed.economy.inventoryCapacity =
         economy.value(QStringLiteral("inventoryCapacity")).toInt(-1);
+    const QJsonValue fertilizer = economy.value(QStringLiteral("fertilizerCount"));
+    parsed.economy.fertilizerCount = (version == 2 && fertilizer.isUndefined())
+        ? 0 : fertilizer.toInt(-1);
     if (parsed.economy.coins < 0 || parsed.economy.inventoryCapacity < 0 ||
+        parsed.economy.fertilizerCount < 0 ||
         !countsFromJson(economy.value(QStringLiteral("inventory")),
                         &parsed.economy.inventoryCounts) ||
         !countsFromJson(economy.value(QStringLiteral("seeds")),
                         &parsed.economy.seedCounts)) {
-        setError(errorMessage, QStringLiteral("Invalid economy state"));
+        setError(errorMessage, QStringLiteral("存档中的库存或金币无效"));
         return false;
     }
 
@@ -252,19 +257,19 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
         parsed.world.lastCompletedDay < -1 ||
         !world.value(QStringLiteral("crops")).isArray() ||
         !world.value(QStringLiteral("wateredTiles")).isArray()) {
-        setError(errorMessage, QStringLiteral("Invalid world state"));
+        setError(errorMessage, QStringLiteral("地图存档无效"));
         return false;
     }
     for (const QJsonValue &cropValue :
          world.value(QStringLiteral("crops")).toArray()) {
         if (!cropValue.isObject()) {
-            setError(errorMessage, QStringLiteral("Invalid crop state"));
+            setError(errorMessage, QStringLiteral("作物存档无效"));
             return false;
         }
         const QJsonObject object = cropValue.toObject();
         SavedCropState crop;
         if (!pointFromJson(object, &crop.tilePos)) {
-            setError(errorMessage, QStringLiteral("Invalid crop position"));
+            setError(errorMessage, QStringLiteral("作物位置无效"));
             return false;
         }
         crop.type = cropType(object.value(QStringLiteral("type")).toString());
@@ -275,7 +280,7 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
         if (crop.type == CropType::None || crop.plantedDay < 0 ||
             crop.growthDays < 0 || !applied.isBool() || !pending.isBool() ||
             (pending.toBool() && !applied.toBool())) {
-            setError(errorMessage, QStringLiteral("Invalid crop values"));
+            setError(errorMessage, QStringLiteral("作物状态无效"));
             return false;
         }
         crop.fertilizerApplied = applied.toBool();
@@ -286,12 +291,110 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
          world.value(QStringLiteral("wateredTiles")).toArray()) {
         QPoint point;
         if (!pointFromJson(pointValue, &point)) {
-            setError(errorMessage, QStringLiteral("Invalid watered tile"));
+            setError(errorMessage, QStringLiteral("浇水位置无效"));
             return false;
         }
         parsed.world.wateredTiles.insert(point);
     }
 
+    if (!validSnapshot(parsed, errorMessage)) {
+        return false;
+    }
     *data = parsed;
     return true;
+}
+
+bool readSave(const QString &path, GameSaveData *data, QByteArray *original,
+              QString *errorMessage) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        setError(errorMessage, file.errorString());
+        return false;
+    }
+    const QByteArray contents = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        setError(errorMessage, file.errorString());
+        return false;
+    }
+    if (!decodeSave(contents, data, errorMessage)) {
+        return false;
+    }
+    if (original) {
+        *original = contents;
+    }
+    return true;
+}
+
+bool writeAtomically(const QString &path, const QByteArray &contents, QString *errorMessage) {
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() ||
+        !file.commit()) {
+        setError(errorMessage, file.errorString());
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+QString SaveManager::defaultSavePath() {
+    const QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    return dir.filePath(QStringLiteral("farm-v3.json"));
+}
+
+QString SaveManager::legacySavePath() {
+    const QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    return dir.filePath(QStringLiteral("savegame.json"));
+}
+
+bool SaveManager::save(const QString &path, const GameSaveData &data,
+                       QString *errorMessage,
+                       const std::function<bool(const GameSaveData &)> &compatible) {
+    if (!validSnapshot(data, errorMessage)) {
+        return false;
+    }
+    if (compatible && !compatible(data)) {
+        setError(errorMessage, QStringLiteral("当前农场状态与地图或背包容量不符"));
+        return false;
+    }
+    if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+        setError(errorMessage, QStringLiteral("无法建立存档目录"));
+        return false;
+    }
+
+    const QByteArray contents = encodeSave(data);
+    const QString backupPath = path + QStringLiteral(".bak");
+    const bool hasPrimary = QFileInfo::exists(path);
+    const bool hasBackup = QFileInfo::exists(backupPath);
+    const auto &layer = data.world.cultivatedLayer;
+    const auto recoverable = [&](const QString &candidate, QByteArray *original) {
+        GameSaveData previous;
+        return readSave(candidate, &previous, original, nullptr) &&
+               previous.world.cultivatedLayer.size() == layer.size() &&
+               previous.world.cultivatedLayer.first().size() == layer.first().size() &&
+               (!compatible || compatible(previous));
+    };
+
+    QByteArray previous;
+    if (hasPrimary && recoverable(path, &previous)) {
+        if (!writeAtomically(backupPath, previous, errorMessage)) {
+            return false;
+        }
+    } else if (hasPrimary || hasBackup) {
+        if (!hasBackup || !recoverable(backupPath, nullptr)) {
+            setError(errorMessage, QStringLiteral("未找到有效备份，已保留已有存档"));
+            return false;
+        }
+    } else if (!writeAtomically(backupPath, contents, errorMessage)) {
+        return false;
+    }
+    return writeAtomically(path, contents, errorMessage);
+}
+
+bool SaveManager::load(const QString &path, GameSaveData *data, QString *errorMessage) {
+    if (!data) {
+        setError(errorMessage, QStringLiteral("缺少存档读取目标"));
+        return false;
+    }
+    return readSave(path, data, nullptr, errorMessage);
 }

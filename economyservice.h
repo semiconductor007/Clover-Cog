@@ -33,27 +33,37 @@ struct EconomyState {
     int inventoryCapacity = 0;
     QHash<int, int> inventoryCounts;
     QHash<int, int> seedCounts;
+    int fertilizerCount = 0;
 };
 
 class EconomyService {
 public:
+    static constexpr int FertilizerPrice = 1;
+
     explicit EconomyService(int inventoryCapacity = 12);
 
     const Inventory &inventory() const { return m_inventory; }
     int coins() const { return m_coins; }
     int seedCount(CropType type) const;
+    int fertilizerCount() const { return m_fertilizerCount; }
 
     bool collectHarvest(CropType type, int quantity);
     bool plantWithSeed(CropType type, const std::function<bool()> &plantAction);
+    bool fertilizeWithItem(const std::function<bool()> &fertilizeAction);
+    SeedPurchaseResult buyFertilizer(int quantity);
     SeedPurchaseResult buySeeds(CropType type, int quantity);
     SaleResult sellAll(const QPoint &playerTile, const QRect &marketArea);
     EconomyState state() const;
     bool restore(const EconomyState &state);
 
 private:
+    SeedPurchaseResult buySupply(CropType type, int quantity, int price);
+
     Inventory m_inventory;
     int m_coins = 0;
     QHash<int, int> m_seedCounts;
+    int m_fertilizerCount = 0;
+    bool m_applyingItem = false;
 };
 
 #endif // ECONOMYSERVICE_H
