@@ -16,6 +16,7 @@ SOURCES += \
     inventory.cpp \
     itembar.cpp \
     mapdata.cpp \
+    main.cpp \
     mainwindow.cpp \
     maprenderer.cpp \
     mapwidget.cpp \
@@ -34,6 +35,7 @@ HEADERS += \
     itembar.h \
     inventory.h \
     mapdata.h \
+    farmicons.h \
     mainwindow.h \
     maprenderer.h \
     mapwidget.h \

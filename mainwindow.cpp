@@ -614,16 +614,3 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     saveGame(false);
     QMainWindow::closeEvent(event);
 }
-
-// ==================== 程序入口 ====================
-int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
-    QApplication::setOrganizationName(QStringLiteral("CloverCog"));
-    QApplication::setApplicationName(QStringLiteral("Clover-Cog"));
-
-
-    MainWindow mainWindow;
-    mainWindow.show();
-
-    return app.exec();
-}

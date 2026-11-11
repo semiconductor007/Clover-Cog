@@ -23,3 +23,7 @@
 ## 本轮范围
 
 按用户最新要求，后续打包/发布整理暂缓。上述来源、随包说明及未决项先记录，四季资源按既有 Sprout 原图和署名交付；不以本轮素材检查代表完整发布审查。此前已进行的本地部署试验及辅助脚本留在仓库外备份，不纳入本次交付，不继续推进或对外发布。
+
+## 本轮实际选用的界面素材
+
+物品格使用 Cup Nooble 的 Sprout Lands Premium UI Pack 中的 Inventory_Blocks_Spritesheet.png，登记为 `:/farm-ui/slots.png`。肥料使用已有 Sprout Lands 物品图集中首格的土壤块，界面名称为“基础肥料”。原图署名 Cup Nooble，素材条款见本页所列作者说明。

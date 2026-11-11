@@ -212,10 +212,10 @@ void CoreTests::cropDefinitionsControlGrowthAndYield() {
     QCOMPARE(wheat.growthDays, 3);
     QCOMPARE(wheat.harvestYield, 1);
     QCOMPARE(wheat.seedPrice, 2);
-    QCOMPARE(wheat.sellPrice, 4);
+    QCOMPARE(wheat.sellPrice, 5);
     QCOMPARE(potato.growthDays, 5);
     QCOMPARE(potato.harvestYield, 3);
-    QCOMPARE(potato.seedPrice, 5);
+    QCOMPARE(potato.seedPrice, 4);
     QCOMPARE(potato.sellPrice, 3);
 
     MapData data;
@@ -315,12 +315,12 @@ void CoreTests::economyRequiresMarketAndSellsAtomically() {
     const SaleResult sale = economy.sellAll(QPoint(5, 5), market);
     QVERIFY(sale.success);
     QCOMPARE(sale.itemsSold, 5);
-    QCOMPARE(sale.coinsEarned, 17);
-    QCOMPARE(economy.coins(), 17);
+    QCOMPARE(sale.coinsEarned, 19);
+    QCOMPARE(economy.coins(), 19);
     QCOMPARE(economy.inventory().usedCapacity(), 0);
 
     QVERIFY(!economy.sellAll(QPoint(5, 5), market).success);
-    QCOMPARE(economy.coins(), 17);
+    QCOMPARE(economy.coins(), 19);
 }
 
 void CoreTests::seedsAreConsumedAndPurchasedAtomically() {
@@ -347,11 +347,11 @@ void CoreTests::seedsAreConsumedAndPurchasedAtomically() {
 
     QVERIFY(economy.collectHarvest(CropType::Wheat, 2));
     const QRect market(1, 1, 1, 1);
-    QCOMPARE(economy.sellAll(QPoint(1, 1), market).coinsEarned, 8);
+    QCOMPARE(economy.sellAll(QPoint(1, 1), market).coinsEarned, 10);
     const SeedPurchaseResult purchase = economy.buySeeds(CropType::Potato, 1);
     QVERIFY(purchase.success);
-    QCOMPARE(purchase.coinsSpent, 5);
-    QCOMPARE(economy.coins(), 3);
+    QCOMPARE(purchase.coinsSpent, 4);
+    QCOMPARE(economy.coins(), 6);
     QCOMPARE(economy.seedCount(CropType::Potato),
              GameConstants::InitialPotatoSeeds + 1);
 
