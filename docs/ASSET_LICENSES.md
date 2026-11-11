@@ -12,7 +12,7 @@
 
 ## Sprout Lands UI
 
-官方来源：[Sprout Lands - UI Pack](https://cupnooble.itch.io/sprout-lands-ui-pack)。当前已引用的 Basic UI 随包说明：[read_me.txt](../sprout/Sprout%20Lands%20-%20UI%20Pack%20-%20Basic%20pack/read_me.txt)。新购 Premium UI 包由用户确认已购买，仍本地保留；本次季节资源不引用该包的新图片、字体或天气组件，不将原 ZIP/整包加入提交或预览分发目录。UI 接入时按实际选用文件继续登记。
+UI 由 Cup Nooble 制作。Basic 素材沿用[随包说明](../sprout/Sprout%20Lands%20-%20UI%20Pack%20-%20Basic%20pack/read_me.txt)。项目负责人已确认购买 Premium UI，本轮工具栏选用了其中一张物品格图集，原始压缩包与其解压目录保存在本机。[作者页面](https://cupnooble.itch.io/sprout-lands-ui-pack) · [随选用图集保留的署名及许可](../resources/ui/NOTICE.txt)
 
 ## Farm RPG FREE 的来源与未决项
 
@@ -26,4 +26,4 @@
 
 ## 本轮实际选用的界面素材
 
-物品格使用 Cup Nooble 的 Sprout Lands Premium UI Pack 中的 Inventory_Blocks_Spritesheet.png，登记为 `:/farm-ui/slots.png`。肥料使用已有 Sprout Lands 物品图集中首格的土壤块，界面名称为“基础肥料”。原图署名 Cup Nooble，素材条款见本页所列作者说明。
+物品格使用 Cup Nooble 的 Sprout Lands Premium UI Pack 中的 `Inventory_Blocks_Spritesheet.png`，仓库文件为 `resources/ui/inventory-slots.png`，QRC 路径为 `:/farm-ui/slots.png`。基础肥料图标取自已有 Sprout Lands 物品图集的首格土壤块。浇水与收获使用本项目新制作的两个短音效，随 `farm-sounds.qrc` 载入。

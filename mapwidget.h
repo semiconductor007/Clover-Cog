@@ -6,12 +6,15 @@
 #include "worldstate.h"
 
 #include <QPoint>
+#include <QPointer>
 #include <QPixmap>
 #include <QRect>
 #include <QVector>
 #include <QWidget>
 #include <functional>
 #include <utility>
+
+class PlayerController;
 
 class MapWidget : public QWidget {
     Q_OBJECT
@@ -20,6 +23,7 @@ public:
     explicit MapWidget(QWidget *parent = nullptr);
 
     bool loadMap(const QString &tmjPath);
+    void setPlayerController(PlayerController *controller);
     int tileWidth() const { return m_tileWidth; }
     int tileHeight() const { return m_tileHeight; }
     int mapWidth() const { return m_mapWidth; }
@@ -99,6 +103,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
 
 private:
+    QPointer<PlayerController> m_playerController;
     std::function<qint64()> m_getGameMinutes;
     std::function<bool(CropType, int)> m_harvestHandler;
     std::function<bool(CropType, const std::function<bool()> &)> m_plantHandler;
