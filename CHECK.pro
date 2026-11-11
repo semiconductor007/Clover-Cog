@@ -59,3 +59,8 @@ RESOURCES += \
 # B: season conversion is shared by crop planting rules and time consumers.
 SOURCES += seasoncalendar.cpp
 HEADERS += seasoncalendar.h
+
+# E: shared sleep/season transition, scene lighting and seasonal rendering.
+SOURCES += seasonappearance.cpp scenetransition.cpp
+HEADERS += seasonappearance.h scenetransition.h
+RESOURCES += farm-sounds.qrc

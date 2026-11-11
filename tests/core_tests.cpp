@@ -31,6 +31,7 @@ private slots:
     void fertilizedCropsSaveAndRejectMalformedFlags();
 
     void gameClockOnlySleepsAtNight();
+    void gameClockRunsThroughMidnight();
     void collisionDetectorHandlesBounds();
     void mapLoaderValidatesAndInitializesLayers();
     void mapLoaderPreservesDynamicLayerOrder();
@@ -80,6 +81,25 @@ void CoreTests::gameClockOnlySleepsAtNight() {
     QCOMPARE(clock.hour(), 6);
     QVERIFY(!clock.sleepToNextMorning(6, 20));
     QCOMPARE(clock.day(), 1);
+
+    for (const int minuteOfDay : {0, 1, 5 * 60 + 59, 23 * 60 + 59}) {
+        const int currentDay = 6;
+        clock.setElapsedGameMinutes(currentDay * 24 * 60 + minuteOfDay);
+        QVERIFY(clock.canSleep());
+        QVERIFY(clock.sleepToNextMorning());
+        QCOMPARE(clock.day(), currentDay + (minuteOfDay >= 20 * 60 ? 1 : 0));
+        QCOMPARE(clock.hour(), 6);
+        QCOMPARE(clock.minute(), 0);
+        QVERIFY(!clock.canSleep());
+    }
+}
+
+void CoreTests::gameClockRunsThroughMidnight() {
+    GameClock clock(100);
+    clock.setElapsedGameMinutes(24 * 60 - 1);
+    QTRY_VERIFY_WITH_TIMEOUT(clock.elapsedGameMinutes() >= 24 * 60, 2000);
+    QCOMPARE(clock.day(), 1);
+    QCOMPARE(clock.hour(), 0);
 }
 
 void CoreTests::collisionDetectorHandlesBounds() {
