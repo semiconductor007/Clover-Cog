@@ -107,8 +107,8 @@ void MapWidget::setViewportCenter(int x, int y) {
     const int maxOffsetX = qMax(0, mapPixelWidth - width());
     const int maxOffsetY = qMax(0, mapPixelHeight - height());
 
-    m_offsetX = qBound(0, x - width() / 2, maxOffsetX);
-    m_offsetY = qBound(0, y - height() / 2, maxOffsetY);
+    m_offsetX = qBound(0, qMax(0, x) - width() / 2, maxOffsetX);
+    m_offsetY = qBound(0, qMax(0, y) - height() / 2, maxOffsetY);
     update();
 }
 
@@ -212,6 +212,7 @@ bool MapWidget::plantSeed(const QPoint &tilePos, CropType cropType) {
 }
 
 bool MapWidget::fertilizeTile(const QPoint &tilePos) {
+    WorldState candidate = m_worldState;
     FertilizeResult result;
     bool attempted = false;
     // The inventory owner checks stock, calls the effect synchronously, then
@@ -220,10 +221,11 @@ bool MapWidget::fertilizeTile(const QPoint &tilePos) {
         if (attempted)
             return false;
         attempted = true;
-        result = m_worldState.fertilize(tilePos);
+        result = candidate.fertilize(tilePos);
         return result.success;
     };
     if (m_fertilizeHandler && m_fertilizeHandler(apply) && result.success) {
+        m_worldState = std::move(candidate);
         update();
         emit worldChanged();
         emit farmingFeedback(QStringLiteral("已施肥，下次浇水结算时加快生长"));
