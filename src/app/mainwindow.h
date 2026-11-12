@@ -49,6 +49,7 @@ protected:
 
 private:
     enum class ClockEvent { Tick, WakeUp, Load, Save };
+    enum class WakeSaveState { None, Saved, Failed };
 
     enum class Page { Home, Farm, Pause };
     void enterFarm();
@@ -69,8 +70,12 @@ private:
     void showFarmPanel(QDialog *dialog);
     void refreshOpenPanel();
     void refreshGameplayInput();
+    void finishWakeSave();
+    void showWakeSaveFailure();
+    void resolveWakeSaveFailure(bool saved);
     void finishTrade(FarmPanel *dialog, const QString &receipt);
     bool saveGame(bool showError = true);
+    bool writeGameSave(bool showError);
     void loadGame();
     bool restoreGame(const GameSaveData &data);
     bool isCompatibleSave(const GameSaveData &data) const;
@@ -90,6 +95,8 @@ private:
     EconomyService m_economy;
     QPointer<QDialog> m_panelOpen;
     QPointer<QMessageBox> m_closePrompt;
+    QPointer<QMessageBox> m_wakeSavePrompt;
+    WakeSaveState m_wakeSaveState = WakeSaveState::None;
     bool m_discardOnClose = false;
     QPointer<QWidget> m_panelFocusBeforeFade;
     bool m_transitionActive = false;

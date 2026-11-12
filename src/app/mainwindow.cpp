@@ -132,6 +132,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (m_panelOpen && m_panelFocusBeforeFade)
             m_panelFocusBeforeFade->setFocus(Qt::OtherFocusReason);
         m_panelFocusBeforeFade.clear();
+        finishWakeSave();
     });
 
     m_music = new QMediaPlayer(this);
@@ -187,7 +188,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(character, &ImageMovementWidget::interactionRequested, this, [this](QPoint playerTile) {
-        if (m_page != Page::Farm || m_panelOpen || m_transitionActive) {
+        if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+            m_wakeSaveState == WakeSaveState::Failed) {
             return;
         }
         if (m_shopArea.contains(playerTile)) {
@@ -273,7 +275,8 @@ void MainWindow::enterFarm() {
 }
 
 void MainWindow::pauseFarm() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive) return;
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed) return;
     m_gameClock.pause();
     applyClock(ClockEvent::Tick);
     // A key at the first instant of a new season must let its single transition finish.
@@ -306,6 +309,8 @@ void MainWindow::updateTime() {
 }
 
 bool MainWindow::applyClock(ClockEvent event) {
+    if (m_wakeSaveState == WakeSaveState::Failed)
+        return event != ClockEvent::Save;
     if (m_page != Page::Farm || m_closePrompt) return true;
     const qint64 minutes = m_gameClock.elapsedGameMinutes();
     if (event == ClockEvent::Tick && minutes == m_committedMinutes) return true;
@@ -333,7 +338,24 @@ bool MainWindow::applyClock(ClockEvent event) {
                        .arg(result.cropsAdvanced).arg(result.cropsStalled));
     }
     if (!m_transitionActive) presentTime();
-    if (crossedDay || woke || event == ClockEvent::Save)
+    if (woke) {
+        const bool saved = saveGame(false);
+        // A protected, read-only farm must keep its existing no-write behaviour.
+        if (m_saveEnabled) {
+            m_wakeSaveState = saved ? WakeSaveState::Saved : WakeSaveState::Failed;
+            if (!saved) {
+                // Keep the already settled morning even if writing took time.
+                m_gameClock.setElapsedGameMinutes(m_committedMinutes);
+                m_gameClock.pause();
+                m_tick->stop();
+                m_autosave->stop();
+                refreshGameplayInput();
+            }
+            finishWakeSave();
+        }
+        return saved;
+    }
+    if (crossedDay || event == ClockEvent::Save)
         return saveGame(event != ClockEvent::Save);
     return true;
 }
@@ -370,7 +392,8 @@ void MainWindow::presentTime() {
 }
 
 void MainWindow::sleepUntilMorning() {
-    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || !m_bedArea.contains(character->currentTilePosition()))
+    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed || !m_bedArea.contains(character->currentTilePosition()))
         return;
     if (!m_gameClock.sleepToNextMorning()) {
         showStatus(QStringLiteral("可在 20:00 至次日 06:00 前到床边睡觉。"));
@@ -380,7 +403,8 @@ void MainWindow::sleepUntilMorning() {
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (m_page == Page::Farm && !m_panelOpen && !m_closePrompt && event->type() == QEvent::KeyPress) {
+    if (m_page == Page::Farm && !m_panelOpen && !m_closePrompt &&
+        m_wakeSaveState != WakeSaveState::Failed && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape && key->modifiers() == Qt::NoModifier) {
             if (!key->isAutoRepeat()) pauseFarm();
@@ -452,7 +476,8 @@ void MainWindow::showStatus(const QString &message) {
 }
 
 void MainWindow::openInventory() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive) {
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed) {
         return;
     }
     auto *dialog = new InventoryDialog(this);
@@ -574,7 +599,8 @@ void MainWindow::refreshOpenPanel() {
 }
 
 void MainWindow::refreshGameplayInput() {
-    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt;
+    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+                         m_wakeSaveState == WakeSaveState::Failed;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
     itemBar->setEnabled(!blocked);
@@ -587,7 +613,77 @@ void MainWindow::refreshGameplayInput() {
     }
 }
 
+void MainWindow::finishWakeSave() {
+    if (m_transitionActive || m_closePrompt || m_page != Page::Farm) return;
+    if (m_wakeSaveState == WakeSaveState::Failed) {
+        showWakeSaveFailure();
+    } else if (m_wakeSaveState == WakeSaveState::Saved) {
+        m_wakeSaveState = WakeSaveState::None;
+        emit wakeSaved();
+    }
+}
+
+void MainWindow::showWakeSaveFailure() {
+    if (m_wakeSaveState != WakeSaveState::Failed || m_transitionActive || m_closePrompt) return;
+    if (m_wakeSavePrompt) {
+        m_wakeSavePrompt->show();
+        m_wakeSavePrompt->raise();
+        return;
+    }
+    auto *question = new QMessageBox(QMessageBox::Warning, QStringLiteral("睡醒后保存失败"),
+        QStringLiteral("已到早晨，进度还没保存。可以检查存档目录后重试，也可以继续游戏。"),
+        QMessageBox::NoButton, this);
+    question->setObjectName(QStringLiteral("wakeSaveFailure"));
+    question->setAttribute(Qt::WA_DeleteOnClose);
+    auto *retry = question->addButton(QStringLiteral("重试保存"), QMessageBox::AcceptRole);
+    auto *keepPlaying = question->addButton(QStringLiteral("继续游戏"), QMessageBox::RejectRole);
+    retry->setObjectName(QStringLiteral("retryWakeSave"));
+    keepPlaying->setObjectName(QStringLiteral("continueAfterWakeSave"));
+    question->setDefaultButton(retry);
+    question->setEscapeButton(keepPlaying);
+    m_wakeSavePrompt = question;
+    connect(question, &QDialog::finished, this, [this, question, retry] {
+        m_wakeSavePrompt.clear();
+        if (question->clickedButton() == retry) {
+            // Retry the settled snapshot only: never advance the clock or crops again.
+            if (!writeGameSave(false)) {
+                QTimer::singleShot(0, this, &MainWindow::showWakeSaveFailure);
+                return;
+            }
+            resolveWakeSaveFailure(true);
+        } else {
+            resolveWakeSaveFailure(false);
+        }
+    });
+    question->open();
+}
+
+void MainWindow::resolveWakeSaveFailure(bool saved) {
+    m_wakeSaveState = saved ? WakeSaveState::Saved : WakeSaveState::None;
+    showStatus(saved ? QStringLiteral("早晨进度已保存。") : QStringLiteral("进度尚未保存，已继续游戏。"));
+    m_gameClock.resume();
+    m_tick->start();
+    m_autosave->start();
+    m_music->play();
+    refreshGameplayInput();
+    finishWakeSave();
+    // Restore focus after the modal dialog has completed its dismissal.
+    QTimer::singleShot(0, this, [this] {
+        if (isVisible() && m_page == Page::Farm && !m_closePrompt &&
+            m_wakeSaveState == WakeSaveState::None) {
+            activateWindow();
+            refreshGameplayInput();
+        }
+    });
+}
+
 bool MainWindow::saveGame(bool showError) {
+    // World actions and background saves cannot resolve a failed wake implicitly.
+    if (m_wakeSaveState == WakeSaveState::Failed) return false;
+    return writeGameSave(showError);
+}
+
+bool MainWindow::writeGameSave(bool showError) {
     if (!m_saveEnabled) {
         return false;
     }
@@ -693,6 +789,7 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 void MainWindow::closeEvent(QCloseEvent *event) {
     if (m_page == Page::Home || !m_saveEnabled || m_discardOnClose) {
         m_discardOnClose = false;
+        m_wakeSaveState = WakeSaveState::None;
         QMainWindow::closeEvent(event);
         return;
     }
@@ -708,12 +805,14 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     // Sample the frozen minute and settle any midnight before the single write attempt.
     const bool saved = m_page == Page::Farm ? applyClock(ClockEvent::Save) : saveGame(false);
     if (saved) {
+        m_wakeSaveState = WakeSaveState::None;
         QMainWindow::closeEvent(event);
         return;
     }
 
     event->ignore();
     m_music->pause();
+    if (m_wakeSavePrompt) m_wakeSavePrompt->hide();
     const QPointer<QWidget> focus = QApplication::focusWidget();
     auto *question = new QMessageBox(QMessageBox::Warning, QStringLiteral("退出前保存失败"),
         QStringLiteral("农场未能保存。可以留下检查存档目录，也可以放弃上次保存之后的进度并退出。"),
@@ -735,13 +834,14 @@ void MainWindow::closeEvent(QCloseEvent *event) {
             close();
             return;
         }
-        if (m_page == Page::Farm) {
+        if (m_page == Page::Farm && m_wakeSaveState != WakeSaveState::Failed) {
             m_gameClock.resume();
             m_tick->start();
             m_autosave->start();
             m_music->play();
         }
         refreshGameplayInput();
+        finishWakeSave();
         if (focus && focus->isVisible() && focus->isEnabled()) focus->setFocus(Qt::OtherFocusReason);
     });
     question->open();
