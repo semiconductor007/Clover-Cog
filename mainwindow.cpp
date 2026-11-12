@@ -13,6 +13,9 @@
 #include <QGraphicsProxyWidget>
 #include <QHBoxLayout>
 #include <QMediaPlayer>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QScreen>
@@ -306,10 +309,10 @@ void MainWindow::updateTime() {
     applyClock(ClockEvent::Tick);
 }
 
-void MainWindow::applyClock(ClockEvent event) {
-    if (m_page != Page::Farm) return;
+bool MainWindow::applyClock(ClockEvent event) {
+    if (m_page != Page::Farm || m_closePrompt) return true;
     const qint64 minutes = m_gameClock.elapsedGameMinutes();
-    if (event == ClockEvent::Tick && minutes == m_committedMinutes) return;
+    if (event == ClockEvent::Tick && minutes == m_committedMinutes) return true;
     const int day = int(minutes / (24 * 60));
     const bool crossedDay = m_lastProcessedDay < day;
     const bool crossedSeason = day / SeasonCalendar::DaysPerSeason !=
@@ -335,7 +338,8 @@ void MainWindow::applyClock(ClockEvent event) {
     }
     if (!m_transitionActive) presentTime();
     if (crossedDay || woke || event == ClockEvent::Save)
-        saveGame(event != ClockEvent::Save);
+        return saveGame(event != ClockEvent::Save);
+    return true;
 }
 
 DayAdvanceResult MainWindow::processDayTransitions() {
@@ -380,7 +384,7 @@ void MainWindow::sleepUntilMorning() {
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (m_page == Page::Farm && !m_panelOpen && event->type() == QEvent::KeyPress) {
+    if (m_page == Page::Farm && !m_panelOpen && !m_closePrompt && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape && key->modifiers() == Qt::NoModifier) {
             if (!key->isAutoRepeat()) pauseFarm();
@@ -549,12 +553,12 @@ void MainWindow::refreshOpenPanel() {
 }
 
 void MainWindow::refreshGameplayInput() {
-    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive;
+    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
     itemBar->setEnabled(!blocked);
     if (m_panelOpen) {
-        m_panelOpen->setEnabled(!m_transitionActive);
+        m_panelOpen->setEnabled(!m_transitionActive && !m_closePrompt);
     }
     if (!blocked) {
         m_gameView->setFocus(Qt::OtherFocusReason);
@@ -666,7 +670,58 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    if (m_page == Page::Farm) applyClock(ClockEvent::Save);
-    else if (m_page == Page::Pause) saveGame();
-    QMainWindow::closeEvent(event);
+    if (m_page == Page::Home || !m_saveEnabled || m_discardOnClose) {
+        m_discardOnClose = false;
+        QMainWindow::closeEvent(event);
+        return;
+    }
+    if (m_closePrompt) {
+        event->ignore();
+        m_closePrompt->raise();
+        return;
+    }
+
+    m_gameClock.pause();
+    m_tick->stop();
+    m_autosave->stop();
+    // Sample the frozen minute and settle any midnight before the single write attempt.
+    const bool saved = m_page == Page::Farm ? applyClock(ClockEvent::Save) : saveGame(false);
+    if (saved) {
+        QMainWindow::closeEvent(event);
+        return;
+    }
+
+    event->ignore();
+    m_music->pause();
+    const QPointer<QWidget> focus = QApplication::focusWidget();
+    auto *question = new QMessageBox(QMessageBox::Warning, QStringLiteral("退出前保存失败"),
+        QStringLiteral("农场未能保存。可以留下检查存档目录，也可以放弃上次保存之后的进度并退出。"),
+        QMessageBox::NoButton, this);
+    question->setObjectName(QStringLiteral("closeSaveFailure"));
+    question->setAttribute(Qt::WA_DeleteOnClose);
+    auto *stay = question->addButton(QStringLiteral("留在农场"), QMessageBox::RejectRole);
+    auto *discard = question->addButton(QStringLiteral("放弃未保存进度并退出"), QMessageBox::DestructiveRole);
+    stay->setObjectName(QStringLiteral("keepFarmOpen"));
+    discard->setObjectName(QStringLiteral("discardAndQuit"));
+    question->setDefaultButton(stay);
+    question->setEscapeButton(stay);
+    m_closePrompt = question;
+    refreshGameplayInput();
+    connect(question, &QDialog::finished, this, [this, question, discard, focus] {
+        m_closePrompt.clear();
+        if (question->clickedButton() == discard) {
+            m_discardOnClose = true;
+            close();
+            return;
+        }
+        if (m_page == Page::Farm) {
+            m_gameClock.resume();
+            m_tick->start();
+            m_autosave->start();
+            m_music->play();
+        }
+        refreshGameplayInput();
+        if (focus && focus->isVisible() && focus->isEnabled()) focus->setFocus(Qt::OtherFocusReason);
+    });
+    question->open();
 }
