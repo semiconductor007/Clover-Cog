@@ -39,7 +39,7 @@
 
 ## 已购 Premium UI 包与扩图准备 2026-11-08
 
-`Sprout Lands - UI Pack - Premium pack.zip` 已在同级解压为 `Sprout Lands - UI Pack - Premium pack/`，200 个文件逐一与 ZIP 校验一致，原包保留。内容包括 193 个 PNG、5 个 TTF、1 个 GIF 与 `read_me.txt`，展开约 1.17 MiB，当前尚未加入 QRC 或 UI 代码。
+本机 `local-assets/` 中的 `Sprout Lands - UI Pack - Premium pack.zip` 已在同级解压为 `Sprout Lands - UI Pack - Premium pack/`，200 个文件逐一与 ZIP 校验一致，原包保留。内容包括 193 个 PNG、5 个 TTF、1 个 GIF 与 `read_me.txt`，展开约 1.17 MiB，原始整包不加入 QRC；游戏使用的精选图片见[素材署名](ASSET_LICENSES.md)。
 
 - D 可使用 `emojis/emoji style ui/Inventory_Spritesheet.png` 和背包示例，C 使用按钮/工具栏资源，E 使用对话框/HUD/图标。A 按最终清单统一接资源。
 - 该包为 UI 资源，不增加地形；房屋墙壁、屋顶、基础家具与道路已在现有 Sprout Lands 地图资源中找到，可支撑扩图。

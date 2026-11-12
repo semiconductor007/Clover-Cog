@@ -2,7 +2,9 @@
 
 2026-11-06 本轮待开发要求增加四季与完整背包，并重划分工：B 作物/四季、C 操作/工具栏、D 背包/经济/存档、E 时间/昼夜/睡眠。以下分别记录 B 已执行的规则验证与尚未执行的集成场景，不把自动测试替代 GUI 验收。
 
-## B 当前验证（2026-11-08）
+当前复测入口是 [README 的构建说明](../README.md#打开构建与运行)，目录整理后的实际结果见[执行计划](IMPLEMENTATION_PLAN.md)。以下保留各阶段交接时的记录。
+
+## B 规则验证记录（2026-11-08）
 
 Apple 芯片 Mac / Qt 6.10.3 / Apple Clang 21 / qmake Release：主应用构建成功；核心测试 21 项通过、0 失败（19 个测试及初始化/清理）。新增七项覆盖日期/跨年、四品种配置、非适季不扣种与跨季存量、四品种经济循环、施肥有效浇水单次生效/重复操作/重置、非法快照以及 v2 作物字段保存恢复。测试用临时目录，不修改默认个人存档。
 
@@ -52,11 +54,8 @@ Windows 队友在独立目录用原 Qt Kit 构建 CHECK.pro 与 tests/tests.pro�
 ## 验证命令
 
 ```powershell
-qmake CHECK.pro CONFIG+=release
-mingw32-make -j2
-qmake tests/tests.pro CONFIG+=release
-mingw32-make -j2
-core_tests.exe -txt
+# 从仓库根目录，在 Windows 的 Qt / MinGW 命令行运行全部测试
+py -3 tests/run_all.py ../build-farm-tests
 ```
 
 命令中的 `qmake`、`mingw32-make` 和运行时 DLL 必须来自同一个 Qt Kit。未执行 GUI 人工流程时，不得在报告中写成已通过。

@@ -1,5 +1,5 @@
-#include "mainwindow.h"
-#include "scenetransition.h"
+#include "app/mainwindow.h"
+#include "ui/scenetransition.h"
 
 #include <QAudioDevice>
 #include <QAudioOutput>

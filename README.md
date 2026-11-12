@@ -26,7 +26,7 @@
 | 暂停、继续、保存回首页 | 在农场按 Esc，暂停页内可查看玩法或选择下一步 |
 | 关闭面板 | Esc，背包也可用 Tab 关闭 |
 
-储物箱和背包分开计数。收购点只收随身农产品，取回时仍受背包容量限制。暂停页会停住游戏时间，背包、交易和储物面板打开时照常走时。
+在收购摊按 E，在作物旁输入要卖的份数（最少 1 份），看清这笔收入后点「卖出」。例如 6 份小麦选卖 4 份，收入 20 金币，背包还剩 2 份。「出售全部农产品」会卖光背包里的收成。种子、肥料和箱内物品都会保留。从箱子取回农产品时仍受背包容量限制。暂停页会停住游戏时间，背包、交易和储物面板打开时照常走时。
 
 游戏在系统的应用数据目录中自动保存为 `farm-v4.json`，旁边的 `.bak` 用于恢复。有效的 v3 或 v2 农场可接续到新档，初次接续时箱子为空。旧文件保留在原位置。
 
@@ -49,6 +49,8 @@ py -3 tests/run_all.py ../build-farm-tests
 若 Apple Clang 21 搭配 Qt 6.10.3 提示缺少 ARM intrinsic 声明，在本机 Kit 的 qmake 参数加上 `QMAKE_CXXFLAGS+=-include arm_acle.h`。测试命令可追加 `--qmake-arg 'QMAKE_CXXFLAGS+=-include arm_acle.h'`。
 
 ## 开发资料
+
+- 想改某个功能，先看[源码与资源目录导航](docs/DIRECTORY_STRUCTURE.md)。Qt Creator 入口仍是根目录的 `CHECK.pro`。
 
 - 本轮已实现的玩法、收益、过渡时序、Mac 实测和 Windows 待验项见[执行计划](docs/IMPLEMENTATION_PLAN.md)。
 - 四种作物的成长阶段、种子及收获物图标见[作物映射](docs/CROP_CATALOG.md)，地图配色和装饰见[季节资源](docs/SEASON_ASSETS.md)。

@@ -1,5 +1,5 @@
-#include "seasonappearance.h"
-#include "worldstate.h"
+#include "map/seasonappearance.h"
+#include "farm/worldstate.h"
 
 #include <QPainter>
 #include <QtTest>

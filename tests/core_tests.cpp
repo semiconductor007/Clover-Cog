@@ -1,19 +1,19 @@
 #include <QtTest>
 
-#include "collisiondetector.h"
-#include "cropdefinition.h"
-#include "economyservice.h"
-#include "gameclock.h"
-#include "gameconstants.h"
-#include "mapdata.h"
-#include "savemanager.h"
-#include "worldstate.h"
+#include "player/collisiondetector.h"
+#include "farm/cropdefinition.h"
+#include "economy/economyservice.h"
+#include "core/gameclock.h"
+#include "core/gameconstants.h"
+#include "map/mapdata.h"
+#include "storage/savemanager.h"
+#include "farm/worldstate.h"
 
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include "seasoncalendar.h"
+#include "farm/seasoncalendar.h"
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 

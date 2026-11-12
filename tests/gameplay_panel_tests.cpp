@@ -12,15 +12,16 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStandardPaths>
+#include <QSpinBox>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QWheelEvent>
 #include <QTemporaryDir>
 #include <memory>
 
-#include "mainwindow.h"
-#include "mapdata.h"
-#include "savemanager.h"
+#include "app/mainwindow.h"
+#include "map/mapdata.h"
+#include "storage/savemanager.h"
 
 namespace {
 QByteArray readBytes(const QString &path) {
@@ -415,7 +416,11 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
 void GameplayPanelTests::sellAtMarket() {
     GameSaveData fixture = m_fixture;
     fixture.playerPosition = stationPosition(QPoint(28, 18));
-    fixture.economy.inventoryCounts[static_cast<int>(CropType::Wheat)] = 6;
+    const int wheat = static_cast<int>(CropType::Wheat);
+    const int beet = static_cast<int>(CropType::Beet);
+    fixture.economy.inventoryCounts[wheat] = 6;
+    fixture.economy.inventoryCounts[beet] = 1;
+    fixture.economy.storage.harvestCounts[beet] = 3;
     QVERIFY(SaveManager::save(path(), fixture));
     MainWindow game;
     showGame(game);
@@ -423,12 +428,45 @@ void GameplayPanelTests::sellAtMarket() {
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_E);
     QTRY_VERIFY(panel("marketDialog"));
     auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
-    QVERIFY(sell && sell->isEnabled());
-    QTest::mouseClick(sell, Qt::LeftButton);
+    auto *sellWheat = panel("marketDialog")->findChild<QPushButton *>("sell_wheat");
+    auto *sellBeet = panel("marketDialog")->findChild<QPushButton *>("sell_beet");
+    auto *quantity = panel("marketDialog")->findChild<QSpinBox *>("sellQuantity_wheat");
+    QVERIFY(sell && sellWheat && sellBeet && quantity);
     GameSaveData sold;
+    QCOMPARE(quantity->value(), 1);
+    QCOMPARE(quantity->maximum(), 6);
+    quantity->setFocus();
+    quantity->selectAll();
+    QTest::keyClicks(quantity, "4");
+    QTest::keyClick(quantity, Qt::Key_Return);
+    QCOMPARE(sellWheat->text(), QStringLiteral("卖出 · 20 金币"));
     QVERIFY(SaveManager::load(path(), &sold));
-    QCOMPARE(sold.economy.coins, fixture.economy.coins + 30);
-    QCOMPARE(sold.economy.inventoryCounts.value(static_cast<int>(CropType::Wheat)), 0);
+    QCOMPARE(sold.economy.coins, fixture.economy.coins);
+    QTest::mouseClick(sellWheat, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.inventoryCounts.value(wheat), 2);
+    QCOMPARE(sold.economy.inventoryCounts.value(beet), 1);
+    QCOMPARE(sold.economy.coins, fixture.economy.coins + 20);
+    QCOMPARE(quantity->maximum(), 2);
+    QCOMPARE(quantity->value(), 2);
+    QTest::mouseClick(sellBeet, Qt::LeftButton);
+    QVERIFY(!sellBeet->isEnabled());
+    QTest::mouseClick(sellBeet, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.inventoryCounts.value(wheat), 2);
+    QCOMPARE(sold.economy.inventoryCounts.value(beet), 0);
+    QCOMPARE(sold.economy.coins, fixture.economy.coins + 24);
+    QVERIFY(sell->isEnabled());
+    QTest::mouseClick(sell, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.coins, fixture.economy.coins + 34);
+    QCOMPARE(sold.economy.inventoryCounts.value(wheat), 0);
+    QCOMPARE(sold.economy.storage.harvestCounts.value(beet), 3);
+    for (CropType crop : CropCatalog::cropTypes()) {
+        const int id = static_cast<int>(crop);
+        QCOMPARE(sold.economy.seedCounts.value(id), fixture.economy.seedCounts.value(id));
+    }
+    QVERIFY(!sellWheat->isEnabled());
     QVERIFY(!sell->isEnabled());
 }
 

@@ -1,6 +1,6 @@
 # 工程架构与当前基线
 
-版本：v1.2 B 规则交接（2026-11-08，当前任务分支，未合入 main）。需求入口是 [DEVELOPMENT.md](DEVELOPMENT.md)，玩法规则入口是 [GAMEPLAY_DESIGN.md](GAMEPLAY_DESIGN.md)。代码和 `CHECK.pro` 是实现事实来源。
+以下是 2026-11-08 的 v1.2 B 规则交接记录。当前源码位置见[目录导航](DIRECTORY_STRUCTURE.md)，之后集成的玩法与验证见[执行计划](IMPLEMENTATION_PLAN.md)。需求入口是 [DEVELOPMENT.md](DEVELOPMENT.md)，玩法规则入口是 [GAMEPLAY_DESIGN.md](GAMEPLAY_DESIGN.md)。代码和 `CHECK.pro` 是实现事实来源。
 
 ## 1. 技术栈
 

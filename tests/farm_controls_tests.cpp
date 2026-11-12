@@ -1,7 +1,7 @@
-#include "economyservice.h"
-#include "itembar.h"
-#include "mapwidget.h"
-#include "rpg.h"
+#include "economy/economyservice.h"
+#include "ui/itembar.h"
+#include "map/mapwidget.h"
+#include "player/rpg.h"
 
 #include <QGraphicsProxyWidget>
 #include <QGraphicsView>

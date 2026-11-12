@@ -4,6 +4,6 @@ CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = scenetransition_tests
 
-INCLUDEPATH += ../..
-HEADERS += ../../scenetransition.h
-SOURCES += ../../scenetransition.cpp scenetransition_tests.cpp
+INCLUDEPATH += $$PWD/../../src
+HEADERS += $$PWD/../../src/ui/scenetransition.h
+SOURCES += $$PWD/../../src/ui/scenetransition.cpp scenetransition_tests.cpp

@@ -1,19 +1,19 @@
 # 文件所有权和修改权限
 
-2026-11-06 修订，配合 [开发文档](DEVELOPMENT.md#0-本轮任务分配2026-11-06)。新增文件名为建议，创建前先确认接口和构建登记，不代表已有实现。
+目录更新于 2026-11-12，职责沿用 [开发文档](DEVELOPMENT.md#0-本轮任务分配2026-11-06)。新文件放置方式见[工程目录](DIRECTORY_STRUCTURE.md)。下面按实际源码位置查找主责。
 
 | 文件范围 | 主责 | 直接消费者与交接 |
 | --- | --- | --- |
 | `map6.tmj`、`.tsx`、本轮素材、`character.qrc` | A，统一制图和资源登记 | B 给农田/作物/季节资源清单，C 给碰撞，D/E 给交互坐标 |
-| `worldstate.*`、`cropdefinition.*`、`seasoncalendar.*` | B，作物、品种、适季、阶段映射、施肥与农田日结算 | E 提供累计日期并调度；C/D 消费目录和规则 |
-| `mapdata.*`、`mapwidget.*`、`maprenderer.*`、`rpg.*`、`playercontroller.*`、`collisiondetector.*`、`tooltype.h`、`itembar.*` | C，输入/碰撞/镜头、工具栏和基础地图/作物绘制 | D 提供背包选择意图，E 使用环境覆盖层挂接点；C 不实现夜色算法 |
-| `inventory.*`、`economyservice.*`、`seedshopdialog.*`、拟新增 `inventorydialog.*` | D，库存和背包面板、商店/收购/肥料交易 | B 给物品及价格，C 接选择/输入屏蔽，E 只读 HUD |
-| `gameclock.*`、拟新增 `daynightoverlay.*` 等环境覆盖层 | E，连续时间、睡眠、完整昼夜绘制及季节色调呈现 | B 消费日期；C 只交付挂接点，不复制逻辑 |
-| `mainwindow.*` | D 先接背包/交易/存档，交可构建版本后 E 接时间/睡眠/HUD/音频 | B/C 交接口或小补丁，由当时主责接入，不能同时编辑 |
-| `savemanager.*` | D 汇总新档字段和异常恢复 | B 审作物/施肥与季节配置版本，E 审累计时间/已结算日期 |
-| `gameconstants.h` | 各域提出常量，A 在约定窗口统一登记 | B 审季长，D 审容量/初始资产，E 审时间，不同时改 |
+| `src/farm/` | B，作物、品种、适季、阶段映射、施肥与农田日结算 | E 提供累计日期并调度；C/D 消费目录和规则 |
+| `src/map/map{data,widget,renderer}.*`、`src/player/`、`src/ui/itembar.*` | C，输入/碰撞/镜头、工具栏和基础地图/作物绘制 | D 提供背包选择意图，E 使用环境覆盖层挂接点；C 不实现夜色算法 |
+| `src/economy/`、`src/ui/` 下的库存、储物与交易面板 | D，库存和背包面板、商店/收购/肥料交易 | B 给物品及价格，C 接选择/输入屏蔽，E 只读 HUD |
+| `src/core/gameclock.*`、`src/map/seasonappearance.*`、`src/ui/scenetransition.*` 和 `farmmenus.*` | E，连续时间、睡眠、完整昼夜绘制及季节色调呈现 | B 消费日期；C 只交付挂接点，不复制逻辑 |
+| `src/app/mainwindow.*` | D 先接背包/交易/存档，交可构建版本后 E 接时间/睡眠/HUD/音频 | B/C 交接口或小补丁，由当时主责接入，不能同时编辑 |
+| `src/storage/savemanager.*` | D 汇总新档字段和异常恢复 | B 审作物/施肥与季节配置版本，E 审累计时间/已结算日期 |
+| `src/core/gameconstants.h` | 各域提出常量，A 在约定窗口统一登记 | B 审季长，D 审容量/初始资产，E 审时间，不同时改 |
 | `tests/core_tests.cpp` | 各任务作者顺序交接相关测试 | B 四季/作物，C 输入/坐标，D 资产/存档，E 时间/睡眠 |
-| `CHECK.pro`、`tests/tests.pro` | A 统一集成 | 新文件主责提交清单和依赖，不升级构建系统 |
+| `CHECK.pro`、`src/game.pri`、各测试工程 | A 统一集成 | 新文件主责提交清单和依赖，不升级构建系统 |
 | `README*`、`docs/*` | 任务作者记录，A 汇总交接 | 相关消费者核对 |
 
 ## 修改边界

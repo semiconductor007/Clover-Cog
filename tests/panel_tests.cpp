@@ -1,10 +1,11 @@
-#include "inventorydialog.h"
-#include "marketdialog.h"
-#include "seedshopdialog.h"
-#include "storagedialog.h"
+#include "ui/inventorydialog.h"
+#include "ui/marketdialog.h"
+#include "ui/seedshopdialog.h"
+#include "ui/storagedialog.h"
 
 #include <QApplication>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -140,7 +141,13 @@ void PanelTests::marketQuoteAndSale() {
     auto *sell = market.findChild<QPushButton *>("sellAll");
     QVERIFY(total && sell);
     QVERIFY(total->text().contains(QStringLiteral("共 8 份    合计 28 金币")));
-    QCOMPARE(market.findChild<QLabel *>("subtotal_potato")->text(), QStringLiteral("9 金币"));
+    auto *quantity = market.findChild<QSpinBox *>("sellQuantity_potato");
+    auto *sellPotatoes = market.findChild<QPushButton *>("sell_potato");
+    QVERIFY(quantity && sellPotatoes);
+    quantity->stepUp();
+    market.setState(economy);
+    QCOMPARE(quantity->value(), 2);
+    QCOMPARE(sellPotatoes->text(), QStringLiteral("卖出 · 6 金币"));
     QSignalSpy sold(&market, &MarketDialog::saleRequested);
     connect(&market, &MarketDialog::saleRequested, &market, [&] {
         QVERIFY(economy.sellAll({1, 1}, {1, 1, 1, 1}).success);

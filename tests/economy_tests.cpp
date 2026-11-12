@@ -1,7 +1,7 @@
 #include <QtTest>
 #include <limits>
-#include "economyservice.h"
-#include "worldstate.h"
+#include "economy/economyservice.h"
+#include "farm/worldstate.h"
 
 namespace {
 const QRect market(28, 18, 2, 2);
@@ -19,6 +19,7 @@ private slots:
     void itemActionsCannotReenter();
     void invalidAndOverflowingPurchasesPreserveAssets();
     void saleOverflowPreservesWholeBag();
+    void selectedQuantityRequiresStockAtMarket();
     void harvestTransferRespectsFreeSpace();
     void suppliesInStorageStaySeparate();
     void invalidTransfersPreserveBalances();
@@ -162,14 +163,40 @@ void EconomyTests::saleOverflowPreservesWholeBag() {
     QCOMPARE(economy.inventory().count(CropType::Wheat), 1);
     QCOMPARE(economy.inventory().count(CropType::Beet), 1);
     QCOMPARE(economy.coins(), maxCount - 5);
+    QCOMPARE(economy.sellCrop(CropType::Wheat, 1, atMarket, market).coinsEarned, 5);
+    QVERIFY(!economy.sellCrop(CropType::Beet, 1, atMarket, market).success);
+    QCOMPARE(economy.inventory().count(CropType::Beet), 1);
+    QCOMPARE(economy.coins(), maxCount);
 
     state.coins = 0;
     state.inventoryCapacity = maxCount;
     state.inventoryCounts.insert(static_cast<int>(CropType::Wheat), maxCount);
     QVERIFY(economy.restore(state));
     QVERIFY(!economy.sellAll(atMarket, market).success);
+    QVERIFY(!economy.sellCrop(CropType::Wheat, maxCount, atMarket, market).success);
     QCOMPARE(economy.inventory().count(CropType::Wheat), maxCount);
     QCOMPARE(economy.coins(), 0);
+}
+
+void EconomyTests::selectedQuantityRequiresStockAtMarket() {
+    EconomyService economy;
+    QVERIFY(economy.collectHarvest(CropType::Potato, 5));
+    QVERIFY(!economy.sellCrop(CropType::Potato, 2, QPoint(0, 0), market).success);
+    QVERIFY(!economy.sellCrop(CropType::Wheat, 1, atMarket, market).success);
+    for (int invalid : {-1, 0, 6}) {
+        QVERIFY(!economy.sellCrop(CropType::Potato, invalid, atMarket, market).success);
+    }
+    QCOMPARE(economy.inventory().count(CropType::Potato), 5);
+    QCOMPARE(economy.coins(), 0);
+    for (int quantity : {4, 1}) {
+        const auto sale = economy.sellCrop(CropType::Potato, quantity, atMarket, market);
+        QVERIFY(sale.success);
+        QCOMPARE(sale.itemsSold, quantity);
+        QCOMPARE(sale.coinsEarned, 3 * quantity);
+    }
+    QCOMPARE(economy.inventory().count(CropType::Potato), 0);
+    QVERIFY(!economy.sellCrop(CropType::Potato, 1, atMarket, market).success);
+    QCOMPARE(economy.coins(), 15);
 }
 
 void EconomyTests::harvestTransferRespectsFreeSpace() {
