@@ -1,4 +1,5 @@
 #include "scenetransition.h"
+#include "farm/seasoncalendar.h"
 
 #include <QEvent>
 #include <QPainter>
@@ -19,17 +20,40 @@ struct LightStop {
 // Preserve over half the terrain contrast even at the darkest point.
 const QColor night(24, 36, 78, 124);
 const QColor sunlight(250, 203, 150, 0);
-const std::array<LightStop, 9> lightStops{{
-    {0, night},
-    {4 * 60, night},
-    {6 * 60, QColor(250, 203, 150, 48)},
-    {8 * 60, sunlight},
-    {16 * 60 + 30, sunlight},
-    {18 * 60 + 30, QColor(223, 139, 107, 58)},
-    {20 * 60, QColor(79, 69, 112, 94)},
-    {22 * 60, night},
-    {24 * 60, night}
-}};
+struct LightSchedule {
+    int dawnStart;
+    int sunrise;
+    int daylight;
+    int duskStart;
+};
+
+LightSchedule scheduleForSeason(Season season) {
+    // Trial timings: summer has the longest day. Keep winter's 06:00 wake-up
+    // as readable as the original spring morning, with a shorter dawn.
+    switch (season) {
+    case Season::Summer: return {3 * 60, 5 * 60, 7 * 60, 18 * 60};
+    case Season::Autumn: return {4 * 60 + 30, 6 * 60, 8 * 60, 16 * 60};
+    case Season::Winter: return {5 * 60, 6 * 60, 8 * 60, 15 * 60};
+    case Season::Spring: return {4 * 60, 6 * 60, 8 * 60, 16 * 60 + 30};
+    }
+    return {4 * 60, 6 * 60, 8 * 60, 16 * 60 + 30};
+}
+
+std::array<LightStop, 9> lightStopsForSeason(Season season) {
+    const LightSchedule schedule = scheduleForSeason(season);
+    // Retain the spring palette and the time between each evening colour.
+    // Every season reaches the same night tint before midnight, including
+    // the last day of a season/year, so the new date cannot flash brighter.
+    return {{{0, night},
+             {schedule.dawnStart, night},
+             {schedule.sunrise, QColor(250, 203, 150, 48)},
+             {schedule.daylight, sunlight},
+             {schedule.duskStart, sunlight},
+             {schedule.duskStart + 2 * 60, QColor(223, 139, 107, 58)},
+             {schedule.duskStart + 3 * 60 + 30, QColor(79, 69, 112, 94)},
+             {schedule.duskStart + 5 * 60 + 30, night},
+             {24 * 60, night}}};
+}
 
 } // namespace
 
@@ -51,7 +75,9 @@ DayNightOverlay::DayNightOverlay(QWidget *canvas) : CanvasOverlay(canvas) {
 }
 
 QColor DayNightOverlay::tintForMinutes(qint64 minutes) {
-    const int minuteOfDay = int(qMax<qint64>(0, minutes) % (24 * 60));
+    const qint64 elapsedMinutes = qMax<qint64>(0, minutes);
+    const auto lightStops = lightStopsForSeason(SeasonCalendar::dateForMinutes(elapsedMinutes).season);
+    const int minuteOfDay = int(elapsedMinutes % (24 * 60));
     for (size_t i = 1; i < lightStops.size(); ++i) {
         const LightStop &from = lightStops[i - 1];
         const LightStop &to = lightStops[i];

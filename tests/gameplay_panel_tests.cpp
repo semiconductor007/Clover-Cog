@@ -1,6 +1,10 @@
 #include <QtTest>
 #include <algorithm>
 #include <QAudioOutput>
+#include <QAudioDevice>
+#include <QAudioDecoder>
+#include <QMediaDevices>
+#include <QSoundEffect>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -17,6 +21,7 @@
 #include <QTabWidget>
 #include <QWheelEvent>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <memory>
 
 #include "app/mainwindow.h"
@@ -79,6 +84,12 @@ private slots:
     void initTestCase();
     void init();
     void cleanup();
+    void wakeSoundResource();
+    void wakeSoundDropsUnavailableCues_data();
+    void wakeSoundDropsUnavailableCues();
+    void wakeSoundPlaysOncePerNotification();
+    void wakeSoundWithoutOutput();
+    void wakeSoundIgnoresNaturalSeasonChange();
     void homeGuideLeavesFilesUntouched();
     void pauseSaveFailureStaysInFarm();
     void closeSaveFailure_data();
@@ -142,6 +153,155 @@ void GameplayPanelTests::init() {
 
 void GameplayPanelTests::cleanup() {
     m_directory.reset();
+}
+
+void GameplayPanelTests::wakeSoundResource() {
+    QFile wav(QStringLiteral(":/sounds/sleep_success.wav"));
+    QVERIFY(wav.open(QIODevice::ReadOnly));
+    bool decodedSamples = false;
+    bool nonSilent = false;
+    QAudioDecoder decoder;
+    decoder.setSourceDevice(&wav);
+    QSignalSpy finished(&decoder, &QAudioDecoder::finished);
+    connect(&decoder, &QAudioDecoder::bufferReady, &decoder, [&] {
+        const QAudioBuffer buffer = decoder.read();
+        if (!buffer.isValid()) return;
+        decodedSamples |= buffer.sampleCount() > 0;
+        const auto format = buffer.format();
+        const char *samples = buffer.constData<char>();
+        for (int i = 0; i < buffer.sampleCount(); ++i) {
+            nonSilent |= qAbs(format.normalizedSampleValue(
+                samples + i * format.bytesPerSample())) > 0.00001f;
+        }
+    });
+    decoder.start();
+    QTRY_VERIFY_WITH_TIMEOUT(finished.count() > 0 || decoder.error() != QAudioDecoder::NoError, 5000);
+    QVERIFY2(decoder.error() == QAudioDecoder::NoError, qPrintable(decoder.errorString()));
+    QVERIFY(decodedSamples);
+    QVERIFY(nonSilent);
+}
+
+void GameplayPanelTests::wakeSoundDropsUnavailableCues_data() {
+    QTest::addColumn<QString>("mode");
+    for (const char *mode : {"muted", "zero-volume", "empty-source", "missing-source"})
+        QTest::newRow(mode) << QString::fromLatin1(mode);
+}
+
+void GameplayPanelTests::wakeSoundDropsUnavailableCues() {
+    QFETCH(QString, mode);
+    MainWindow game;
+    auto *wake = game.findChild<QSoundEffect *>("wakeSound");
+    QVERIFY(wake);
+    QCOMPARE(game.findChildren<QSoundEffect *>("wakeSound").size(), 1);
+    QCOMPARE(wake->source(), QUrl(QStringLiteral("qrc:/sounds/sleep_success.wav")));
+    QCOMPARE(wake->volume(), 0.35f);
+    QCOMPARE(wake->loopCount(), 1);
+    QTRY_VERIFY(wake->status() != QSoundEffect::Loading);
+
+    const QUrl originalSource = wake->source();
+    if (mode == "muted") wake->setMuted(true);
+    else if (mode == "zero-volume") wake->setVolume(0);
+    else if (mode == "empty-source") wake->setSource(QUrl());
+    else wake->setSource(QUrl(QStringLiteral("qrc:/sounds/does-not-exist.wav")));
+    QSignalSpy changes(wake, &QSoundEffect::playingChanged);
+    // This is an injected notification, not a claim that the baseline save code emits it.
+    for (int i = 0; i < 20; ++i) game.wakeSaved();
+    QTimer heartbeat;
+    heartbeat.setSingleShot(true);
+    QSignalSpy heartbeats(&heartbeat, &QTimer::timeout);
+    heartbeat.start(0);
+    QTRY_COMPARE(heartbeats.count(), 1);
+    QTRY_VERIFY(wake->status() != QSoundEffect::Loading);
+    QVERIFY(!wake->isPlaying());
+    QCOMPARE(changes.count(), 0);
+
+    // Recovering sound later must not replay a stale successful save.
+    wake->setMuted(false);
+    wake->setVolume(0.0001f);
+    wake->setSource(originalSource);
+    QTRY_VERIFY(wake->status() != QSoundEffect::Loading);
+    QTest::qWait(450);
+    QCOMPARE(changes.count(), 0);
+    QVERIFY(!QFileInfo::exists(path()));
+}
+
+void GameplayPanelTests::wakeSoundPlaysOncePerNotification() {
+    if (QMediaDevices::defaultAudioOutput().isNull())
+        QSKIP("No output device: resource/failure tests still run; playback requires a device.");
+    MainWindow game;
+    auto *wake = game.findChild<QSoundEffect *>("wakeSound");
+    QVERIFY(wake);
+    QTRY_COMPARE(wake->status(), QSoundEffect::Ready);
+    wake->setVolume(0.0001f); // Machine playback assertion, not a listening test.
+    QSignalSpy changes(wake, &QSoundEffect::playingChanged);
+    auto starts = std::make_shared<int>(0);
+    connect(wake, &QSoundEffect::playingChanged, wake, [wake, starts] {
+        if (wake->isPlaying()) ++*starts;
+    });
+    // The upstream owner deduplicates each sleep; overlapping notifications are also ignored.
+    game.wakeSaved();
+    QVERIFY(wake->isPlaying());
+    for (int i = 0; i < 20; ++i) game.wakeSaved();
+    QCOMPARE(*starts, 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!wake->isPlaying(), 2000);
+    QTest::qWait(450);
+    QCOMPARE(*starts, 1);
+    QCOMPARE(changes.count(), 2);
+    // A later, distinct successful sleep must still be allowed to sound.
+    game.wakeSaved();
+    QCOMPARE(*starts, 2);
+    QTRY_VERIFY_WITH_TIMEOUT(!wake->isPlaying(), 2000);
+    QCOMPARE(changes.count(), 4);
+    QVERIFY(!QFileInfo::exists(path()));
+}
+
+void GameplayPanelTests::wakeSoundWithoutOutput() {
+    if (!QMediaDevices::defaultAudioOutput().isNull())
+        QSKIP("Requires a process without a default output device; normal playback is tested separately.");
+    GameSaveData before = m_fixture;
+    before.gameMinutes = 22 * 60;
+    before.playerPosition = stationPosition({25, 8});
+    QVERIFY(SaveManager::save(path(), before));
+    MainWindow game;
+    auto *wake = game.findChild<QSoundEffect *>("wakeSound");
+    QVERIFY(wake);
+    QTRY_VERIFY(wake->status() != QSoundEffect::Loading);
+    wake->setVolume(0.0001f);
+    QSignalSpy changes(wake, &QSoundEffect::playingChanged);
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    for (int i = 0; i < 20; ++i) game.wakeSaved();
+    QVERIFY(QMetaObject::invokeMethod(&game, "sleepUntilMorning", Qt::DirectConnection));
+    QTRY_COMPARE_WITH_TIMEOUT(game.currentGameDay(), 1, 4000);
+    QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
+    QCOMPARE(game.currentGameHour(), 6);
+    QCOMPARE(changes.count(), 0);
+    QVERIFY(!wake->isPlaying());
+    QVERIFY(game.close());
+}
+
+void GameplayPanelTests::wakeSoundIgnoresNaturalSeasonChange() {
+    GameSaveData before = m_fixture;
+    before.gameMinutes = 27 * 1440 + 1439; // Winter ends naturally at midnight.
+    before.lastProcessedDay = 27;
+    before.world.lastCompletedDay = 26;
+    QVERIFY(SaveManager::save(path(), before));
+    MainWindow game;
+    auto *wake = game.findChild<QSoundEffect *>("wakeSound");
+    QVERIFY(wake);
+    wake->setVolume(0.0001f);
+    QSignalSpy changes(wake, &QSoundEffect::playingChanged);
+    QSignalSpy notifications(&game, &MainWindow::wakeSaved);
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    QTRY_COMPARE_WITH_TIMEOUT(game.currentGameDay(), 28, 4000);
+    QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
+    QCOMPARE(notifications.count(), 0);
+    QCOMPARE(changes.count(), 0);
+    QVERIFY(!wake->isPlaying());
+    QVERIFY(game.close());
 }
 
 void GameplayPanelTests::homeGuideLeavesFilesUntouched() {
