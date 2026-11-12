@@ -29,3 +29,20 @@ UI 由 Cup Nooble 制作。Basic 素材沿用[随包说明](../sprout/Sprout%20L
 ## 本轮实际选用的界面素材
 
 物品格使用 Cup Nooble 的 Sprout Lands Premium UI Pack 中的 `Inventory_Blocks_Spritesheet.png`，仓库文件为 `resources/ui/inventory-slots.png`，QRC 路径为 `:/farm-ui/slots.png`。基础肥料图标取自已有 Sprout Lands 物品图集的首格土壤块。浇水与收获使用本项目新制作的两个短音效，随 `farm-sounds.qrc` 载入。
+
+## 睡醒成功提示音（2026-11-12）
+
+`resources/audio/sleep_success.wav` 原样取自 lxk 分支提交
+[`47eea510480ec88a50f71d7d68e2d10858c3c9ca`](https://github.com/semiconductor007/Clover-Cog/commit/47eea510480ec88a50f71d7d68e2d10858c3c9ca)
+的 `wav/sleep_success.wav`，提交作者为 SSkanger。原提交中的
+[`tools/generate_sleep_chime.ps1`](https://github.com/semiconductor007/Clover-Cog/blob/47eea510480ec88a50f71d7d68e2d10858c3c9ca/tools/generate_sleep_chime.ps1)
+使用两个正弦音及起音、衰减包络确定性合成，没有采样《星露谷物语》音效或下载第三方声音。
+这是项目成员原创合成的占位资源；来源分支未附独立音频许可声明，本次仅登记来源，不新增或改写音源许可。
+
+音频为 PCM16、单声道、22050 Hz、0.36 秒（7938 帧），Git blob 为
+`c6388e7d7ddbbc2ee24bcda943646c253f3f733c`。通过 `farm-sounds.qrc` 登记为
+`:/sounds/sleep_success.wav`，由现有 Qt 音效机制预加载，播放音量为 0.35、单次播放。
+仅消费 `MainWindow::wakeSaved()`；静音、零音量、资源未就绪、加载失败或无默认输出设备时丢弃通知，
+正在播放时不重启、不排队。不等待声音完成，也不阻塞游戏或保存。
+是否保存成功、何时天亮及一次睡眠只发一次通知由睡眠存档模块保证；自然跨日不触发该音效。
+机器测试中的资源校验和播放状态不代表实体扬声器听感已验收。

@@ -8,11 +8,13 @@
 #include "ui/storagedialog.h"
 
 #include <QAudioOutput>
+#include <QAudioDevice>
 #include <QCloseEvent>
 #include <QFrame>
 #include <QGraphicsProxyWidget>
 #include <QHBoxLayout>
 #include <QMediaPlayer>
+#include <QMediaDevices>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QApplication>
@@ -151,6 +153,18 @@ MainWindow::MainWindow(QWidget *parent)
     };
     auto *water = sound(QStringLiteral("wateringSound"), QStringLiteral("qrc:/sounds/water.wav"));
     auto *harvest = sound(QStringLiteral("harvestSound"), QStringLiteral("qrc:/sounds/harvest.wav"));
+    auto *wake = sound(QStringLiteral("wakeSound"), QStringLiteral("qrc:/sounds/sleep_success.wav"));
+    wake->setVolume(0.35f);
+    wake->setLoopCount(1);
+    connect(this, &MainWindow::wakeSaved, wake, [wake] {
+        // The sleep/save owner emits once after dawn and a successful save.
+        // Drop unavailable or silenced cues; never queue a late success sound.
+        if (wake->status() == QSoundEffect::Ready && !wake->isMuted()
+                && wake->volume() > 0 && !wake->isPlaying()
+                && !QMediaDevices::defaultAudioOutput().isNull()) {
+            wake->play();
+        }
+    });
     connect(mapWidget, &MapWidget::tileWatered, water, &QSoundEffect::play);
     connect(mapWidget, &MapWidget::cropHarvested, harvest, &QSoundEffect::play);
     connect(itemBar, &ItemBar::itemSelected, this, &MainWindow::updateHud);
