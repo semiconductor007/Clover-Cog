@@ -38,6 +38,10 @@ void showGame(MainWindow &game) {
     game.show();
     game.activateWindow();
     QCoreApplication::processEvents();
+    auto *enter = game.findChild<QPushButton *>("enterFarm");
+    QVERIFY(enter && enter->isVisible());
+    QTest::mouseClick(enter, Qt::LeftButton);
+    QCoreApplication::processEvents();
 }
 
 QDialog *panel(const QString &name) {
@@ -72,6 +76,8 @@ private slots:
     void initTestCase();
     void init();
     void cleanup();
+    void homeGuideLeavesFilesUntouched();
+    void pauseSaveFailureStaysInFarm();
     void unsupportedLegacyFilesRemainAlongsideNewGame();
     void migrateVersionTwo_data();
     void migrateVersionTwo();
@@ -129,6 +135,43 @@ void GameplayPanelTests::init() {
 
 void GameplayPanelTests::cleanup() {
     m_directory.reset();
+}
+
+void GameplayPanelTests::homeGuideLeavesFilesUntouched() {
+    QVERIFY(SaveManager::save(path(), m_fixture));
+    const QByteArray before = readBytes(path());
+    const QByteArray backup = readBytes(path() + ".bak");
+    MainWindow game;
+    game.show();
+    auto *enter = game.findChild<QPushButton *>("enterFarm");
+    auto *guide = game.findChild<QPushButton *>("homeGuide");
+    auto *back = game.findChild<QPushButton *>("guideBack");
+    QVERIFY(enter && guide && back);
+    QCOMPARE(enter->text(), QStringLiteral("继续农场"));
+    QTest::mouseClick(guide, Qt::LeftButton);
+    QVERIFY(back->isVisible());
+    QTest::keyClick(back, Qt::Key_Escape);
+    QVERIFY(enter->isVisible());
+    QTest::mouseClick(game.findChild<QPushButton *>("exitGame"), Qt::LeftButton);
+    QVERIFY(!game.isVisible());
+    QCOMPARE(readBytes(path()), before);
+    QCOMPARE(readBytes(path() + ".bak"), backup);
+}
+
+void GameplayPanelTests::pauseSaveFailureStaysInFarm() {
+    QVERIFY(writeBytes(path(), "{torn"));
+    MainWindow game;
+    auto *notice = game.findChild<QLabel *>("homeNotice");
+    QVERIFY(notice && notice->text().contains(QStringLiteral("无法保存")));
+    showGame(game);
+    auto *view = game.findChild<QGraphicsView *>();
+    QTest::keyClick(view, Qt::Key_Escape);
+    auto *leave = game.findChild<QPushButton *>("saveReturnHome");
+    QVERIFY(leave && leave->isVisible());
+    QTest::mouseClick(leave, Qt::LeftButton);
+    QVERIFY(leave->isVisible());
+    QVERIFY(game.findChild<QLabel *>("pauseNotice")->text().contains(QStringLiteral("未能保存")));
+    QCOMPARE(readBytes(path()), QByteArray("{torn"));
 }
 
 void GameplayPanelTests::unsupportedLegacyFilesRemainAlongsideNewGame() {

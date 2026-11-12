@@ -6,19 +6,32 @@ GameClock::GameClock(int millisecondsPerGameMinute)
     : m_millisecondsPerGameMinute(qMax(1, millisecondsPerGameMinute)) {}
 
 void GameClock::start() {
+    m_partialMinuteMs = 0;
     m_timer.start();
+}
+
+void GameClock::pause() {
+    if (!m_timer.isValid()) return;
+    const qint64 ms = m_partialMinuteMs + m_timer.elapsed();
+    m_gameMinuteOffset += ms / m_millisecondsPerGameMinute;
+    m_partialMinuteMs = int(ms % m_millisecondsPerGameMinute);
+    m_timer.invalidate();
+}
+
+void GameClock::resume() {
+    if (!m_timer.isValid()) m_timer.start();
 }
 
 void GameClock::setElapsedGameMinutes(qint64 gameMinutes) {
     m_gameMinuteOffset = qMax<qint64>(0, gameMinutes);
-    m_timer.restart();
+    start();
 }
 
 qint64 GameClock::rawElapsedGameMinutes() const {
     if (!m_timer.isValid()) {
         return 0;
     }
-    return m_timer.elapsed() / m_millisecondsPerGameMinute;
+    return (m_partialMinuteMs + m_timer.elapsed()) / m_millisecondsPerGameMinute;
 }
 
 qint64 GameClock::elapsedGameMinutes() const {

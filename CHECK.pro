@@ -69,3 +69,6 @@ HEADERS += seasoncalendar.h
 SOURCES += seasonappearance.cpp scenetransition.cpp
 HEADERS += seasonappearance.h scenetransition.h
 RESOURCES += farm-sounds.qrc
+
+SOURCES += farmmenus.cpp
+HEADERS += farmmenus.h
