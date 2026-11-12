@@ -6,6 +6,6 @@ TARGET = panel_tests
 INCLUDEPATH += ..
 SOURCES += panel_tests.cpp \
     ../cropdefinition.cpp ../seasoncalendar.cpp ../inventory.cpp ../economyservice.cpp \
-    ../inventorydialog.cpp ../seedshopdialog.cpp ../marketdialog.cpp
-HEADERS += ../farmpanel.h ../inventorydialog.h ../seedshopdialog.h ../marketdialog.h
+    ../inventorydialog.cpp ../seedshopdialog.cpp ../marketdialog.cpp ../storagedialog.cpp
+HEADERS += ../farmpanel.h ../inventorydialog.h ../seedshopdialog.h ../marketdialog.h ../storagedialog.h
 RESOURCES += ../character.qrc
