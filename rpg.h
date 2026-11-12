@@ -32,7 +32,8 @@ private:
      QPoint m_absolutePos; // 角色在地图中的绝对坐标（像素）
 public:
     explicit ImageMovementWidget(MapWidget *mapWidget, QWidget *parent = nullptr);
-    void setInitialPosition(const QPoint &pos); // 新增方法
+    void setInitialPosition(const QPoint &pos);
+    bool restorePosition(const QPoint &saved);
     void handleToolAction();
     void setInputBlocked(bool blocked);
     QPoint currentTilePosition() const;

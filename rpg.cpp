@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QMouseEvent>
 #include <QTransform>
+#include <limits>
 
 QPoint ImageMovementWidget::boundedPosition(QPoint pos) const {
     if (!m_mapWidget) return pos;
@@ -19,6 +20,42 @@ void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
                                        m_absolutePos.y() + height() / 2);
         move(m_absolutePos - QPoint(m_mapWidget->offsetX(), m_mapWidget->offsetY()));
     }
+}
+
+bool ImageMovementWidget::restorePosition(const QPoint &saved) {
+    if (!m_mapWidget || !m_collisionDetector || saved != boundedPosition(saved) ||
+        m_mapWidget->mapWidth() <= 0 || m_mapWidget->mapHeight() <= 0)
+        return false;
+
+    if (!m_collisionDetector->isColliding(m_collisionArea.translated(saved))) {
+        setInitialPosition(saved);
+        return true;
+    }
+
+    // A map edit may add a fence at an otherwise valid saved position.
+    const int tileWidth = m_mapWidget->tileWidth();
+    const int tileHeight = m_mapWidget->tileHeight();
+    const QPoint centerOffset(tileWidth / 2 - width() / 2, tileHeight / 2 - height() / 2);
+    QPoint nearest;
+    qint64 bestDistance = std::numeric_limits<qint64>::max();
+    for (int y = 0; y < m_mapWidget->mapHeight(); ++y) {
+        for (int x = 0; x < m_mapWidget->mapWidth(); ++x) {
+            const QPoint candidate = QPoint(x * tileWidth, y * tileHeight) + centerOffset;
+            if (boundedPosition(candidate) != candidate) continue;
+            const qint64 dx = qint64(candidate.x()) - saved.x();
+            const qint64 dy = qint64(candidate.y()) - saved.y();
+            const qint64 distance = dx * dx + dy * dy;
+            if (distance < bestDistance &&
+                !m_collisionDetector->isColliding(m_collisionArea.translated(candidate))) {
+                bestDistance = distance;
+                nearest = candidate;
+            }
+        }
+    }
+
+    if (bestDistance == std::numeric_limits<qint64>::max()) return false;
+    setInitialPosition(nearest);
+    return true;
 }
 
 QPoint ImageMovementWidget::currentTilePosition() const {
@@ -90,20 +127,6 @@ void ImageMovementWidget::initUI() {
     m_actionTimer = new QTimer(this);
     connect(m_actionTimer, &QTimer::timeout, this, &ImageMovementWidget::updateActionAnimation);
 
-
-    // 初始化斧子动画
-    ToolAnimation axeAnim;
-    for(int i=0; i<8; ++i){
-        // 向右砍伐
-        axeAnim.rightFrames.append(spriteSheet.copy(i*48, 18*48, 48, 48));
-        // 向左砍伐
-        axeAnim.leftFrames.append(axeAnim.rightFrames.last().transformed(QTransform().scale(-1, 1)));
-        // 向上砍伐
-        axeAnim.upFrames.append(spriteSheet.copy(i*48, 17*48, 48, 48));
-        // 向下砍伐
-        axeAnim.downFrames.append(spriteSheet.copy(i*48, 16*48, 48, 48));
-    }
-    m_toolAnimations[ToolType::Axe] = axeAnim;
 
     // 初始化锄头动画
     ToolAnimation hoeAnim;
@@ -386,9 +409,5 @@ void ImageMovementWidget::useCurrentToolAt(QPoint mapPos) {
         !m_mapWidget->isValidTile(m_mapWidget->mapPointToTile(mapPos)))
         return;
     handleToolAction();
-    if (m_controller->currentTool().type == ToolType::Axe && geometry().contains(mapPos)) {
-        m_controller->useAxeAt(m_absolutePos + QPoint(width() / 2, height() / 2), m_lastDirection);
-        return;
-    }
     m_controller->useToolAt(mapPos);
 }

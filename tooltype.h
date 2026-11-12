@@ -6,6 +6,7 @@
 #include <QString>
 #include <QPixmap>
 #include <QVector>
+#include <array>
 
 enum class ToolType {
     EmptyHand,  // 空手
@@ -39,7 +40,21 @@ inline constexpr ToolType toolForSeed(CropType crop) {
     }
 }
 
+// The IDs are stable across controls and inventory. Only these tools have player slots.
 inline constexpr int ToolCount = static_cast<int>(ToolType::Fertilizer) + 1;
+inline constexpr std::array PlayableTools{
+    ToolType::EmptyHand, ToolType::Hoe, ToolType::WateringCan, ToolType::Wheat,
+    ToolType::Potato, ToolType::Carrot, ToolType::Beet, ToolType::Fertilizer
+};
+inline constexpr int ToolbarSlotCount = static_cast<int>(PlayableTools.size());
+
+inline constexpr int toolSlot(ToolType tool) {
+    for (int i = 0; i < ToolbarSlotCount; ++i) {
+        if (PlayableTools[i] == tool)
+            return i;
+    }
+    return -1;
+}
 
 inline QString toolName(ToolType tool) {
     const CropType crop = seedCropForTool(tool);

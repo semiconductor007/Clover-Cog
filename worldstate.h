@@ -63,6 +63,7 @@ public:
 
     bool hasTreeAt(const QPoint &tilePos) const;
     bool damageTree(const QPoint &tilePos, int damage);
+    bool isPathTile(const QPoint &tilePos) const;
     bool isTileCultivatable(const QPoint &tilePos) const;
     bool cultivate(const QPoint &tilePos);
     bool isPlantable(const QPoint &tilePos) const;
@@ -97,6 +98,7 @@ private:
 
     int m_mapWidth = 0;
     int m_mapHeight = 0;
+    QVector<QVector<int>> m_pathLayer;
     QVector<QVector<int>> m_cultivatableLayer;
     QVector<QVector<int>> m_cultivatedLayer;
     QVector<QVector<int>> m_cropLayer;

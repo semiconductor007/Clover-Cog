@@ -29,9 +29,9 @@ class FarmControlsTests : public QObject {
         QTest::mouseClick(view.viewport(), button, Qt::NoModifier, view.mapFromScene(mapPoint));
     }
 
-    void scroll(QPoint mapPoint, int angle) {
+    void scroll(QPoint mapPoint, int angle, int pixels = 0) {
         const QPoint pos = view.mapFromScene(mapPoint);
-        QWheelEvent event(pos, view.viewport()->mapToGlobal(pos), {}, QPoint(0, angle),
+        QWheelEvent event(pos, view.viewport()->mapToGlobal(pos), QPoint(0, pixels), QPoint(0, angle),
                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         QApplication::sendEvent(view.viewport(), &event);
     }
@@ -73,15 +73,28 @@ private slots:
         QSignalSpy mapClicks(map, &MapWidget::mapClicked);
         QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
         const QPoint row = bar->pos() + QPoint(0, bar->height() - 12);
-        for (int i = 0; i < ToolCount; ++i) {
-            click(row + QPoint((2 * i + 1) * bar->width() / (2 * ToolCount), 0));
-            QCOMPARE(static_cast<int>(bar->selectedTool()), i);
-            QCOMPARE(player->getCurrentTool().type, bar->selectedTool());
+        const std::array expected{ToolType::EmptyHand, ToolType::Hoe, ToolType::WateringCan,
+                                  ToolType::Wheat, ToolType::Potato, ToolType::Carrot,
+                                  ToolType::Beet, ToolType::Fertilizer};
+        QCOMPARE(ToolbarSlotCount, int(expected.size()));
+        for (int i = 0; i < ToolbarSlotCount; ++i) {
+            click(row + QPoint((2 * i + 1) * bar->width() / (2 * ToolbarSlotCount), 0));
+            QCOMPARE(bar->selectedTool(), expected[i]);
+            QCOMPARE(player->getCurrentTool().type, expected[i]);
             QVERIFY(!bar->accessibleDescription().isEmpty());
         }
-        QCOMPARE(selected.count(), ToolCount - 1);
+        QCOMPARE(selected.count(), ToolbarSlotCount - 1);
         QCOMPARE(mapClicks.count(), 0);
-        scroll(tileCenter(plot), -120);  // anywhere on the map
+        for (const ToolType tool : expected) {
+            scroll(tileCenter(plot), -120);  // anywhere on the map
+            QCOMPARE(player->getCurrentTool().type, tool);
+        }
+        for (const ToolType tool : expected) {
+            scroll(tileCenter(plot), 0, -15);
+            scroll(tileCenter(plot), 0, -15); // two small touchpad deltas make one slot
+            QCOMPARE(player->getCurrentTool().type, tool);
+        }
+        scroll(tileCenter(plot), -120);
         QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
         scroll(row + QPoint(10, 0), 120);
         QCOMPARE(bar->selectedTool(), ToolType::Fertilizer);
@@ -94,6 +107,48 @@ private slots:
         bar->selectTool(ToolType::Carrot);
         bar->selectTool(static_cast<ToolType>(-1));
         QCOMPARE(selected.count(), count);
+    }
+
+    void hoeExplainsItsTarget() {
+        bar->selectTool(ToolType::Hoe);
+        QSignalSpy feedback(map, &MapWidget::farmingFeedback);
+        QSignalSpy changes(map, &MapWidget::worldChanged);
+        click(tileCenter(plot));
+        QCOMPARE(feedback.count(), 1);
+        QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("已翻土，可以播种"));
+        QVERIFY(map->isPlantable(plot));
+        QCOMPARE(changes.count(), 1);
+
+        const QPoint readyField(11, 8);
+        QVERIFY(map->isPlantable(readyField));
+        click(tileCenter(readyField));
+        QCOMPARE(feedback.count(), 1);
+        QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("这里可以直接播种"));
+
+        const QPoint road(26, 13);
+        click(tileCenter(road));
+        QCOMPARE(feedback.count(), 1);
+        QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("道路不能耕种，请选草地"));
+        QVERIFY(!map->isPlantable(road));
+        QCOMPARE(changes.count(), 1);
+
+        const QPoint besideChest(31, 21);
+        map->setViewportCenter(besideChest.x() * map->tileWidth(), besideChest.y() * map->tileHeight());
+        map->setStorageArea(QRect(besideChest, QSize(1, 1)));
+        click(tileCenter(besideChest));
+        QCOMPARE(feedback.count(), 1);
+        QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("互动区域不能耕种，请选草地"));
+        QVERIFY(!map->isPlantable(besideChest));
+        // A reserved interaction area also takes precedence over otherwise usable field soil.
+        map->setStorageArea(QRect(plot, QSize(1, 1)));
+        QVERIFY(!map->plantSeed(plot, CropType::Wheat));
+        QVERIFY(!map->waterTile(plot));
+        map->setStorageArea({});
+        QVERIFY(map->plantSeed(plot, CropType::Wheat));
+        click(tileCenter(plot));
+        QCOMPARE(feedback.count(), 1);
+        QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("这里已经种有作物"));
+        QCOMPARE(changes.count(), 2);
     }
 
     void scaledMapBoundaries_data() {
@@ -276,6 +331,7 @@ private slots:
         QVERIFY(feedback.last().first().toString().contains(QStringLiteral("作物")));
         QVERIFY(map->cultivateTile(plot));
         QVERIFY(map->plantSeed(plot, CropType::Wheat));
+        feedback.clear();
         stock = 0;
         click(tileCenter(plot));
         QVERIFY(feedback.last().first().toString().contains(QStringLiteral("不足")));
@@ -288,7 +344,7 @@ private slots:
         QCOMPARE(changes.count(), 1);
         QCOMPARE(stock, 1);
         QCOMPARE(effects, 3);
-        QCOMPARE(feedback.count(), 4);
+        QCOMPARE(feedback.count(), 3);
         QVERIFY(feedback.last().first().toString().contains(QStringLiteral("已经")));
         QVERIFY(map->worldSnapshot().crops.first().fertilizerBonusPending);
         bar->selectTool(ToolType::WateringCan);
@@ -359,21 +415,26 @@ private slots:
         QTest::keyRelease(&view, Qt::Key_A);
     }
 
-    void axeTargetsOneTreeInFacingDirection() {
+    void treesRemainScenery() {
         const QPoint tree(46, 21);
         const QPoint standing = tree - QPoint(0, 1);
         player->setInitialPosition(standing * 16 + QPoint(8, 8) -
                                    QPoint(player->width() / 2, player->height() / 2));
         QCOMPARE(player->currentTilePosition(), standing);
         QVERIFY(map->hasTreeAt(tree));
+        const int collision = map->collisionLayer().at(tree.y()).at(tree.x());
+        QVERIFY(collision != 0);
+        // Even a stale selection from a previous UI cannot equip the retired axe.
         bar->selectTool(ToolType::Axe);
-        const QPoint onPlayer = player->geometry().center();
-        click(onPlayer, Qt::RightButton);
-        for (int i = 0; i < 3; ++i)
-            click(onPlayer);  // 30 damage per click, this tree has 100 health
+        player->setCurrentTool(static_cast<int>(ToolType::Axe));
+        QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
+        QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+        for (int i = 0; i < 5; ++i) {
+            click(player->geometry().center());
+            click(tileCenter(tree));
+        }
         QVERIFY(map->hasTreeAt(tree));
-        click(onPlayer);
-        QVERIFY(!map->hasTreeAt(tree));
+        QCOMPARE(map->collisionLayer().at(tree.y()).at(tree.x()), collision);
     }
 
     void walkThroughDoorAndBack() {
@@ -388,6 +449,25 @@ private slots:
         QTest::keyPress(&view, Qt::Key_S);
         QTRY_VERIFY(player->currentTilePosition().y() >= 13);
         QTest::keyRelease(&view, Qt::Key_S);
+    }
+
+    void restorePlayerAroundNewObstacles() {
+        const QPoint spriteCenter(player->width() / 2, player->height() / 2);
+        const int tileWidth = map->tileWidth(), tileHeight = map->tileHeight();
+        const QPoint crateTopLeft(31 * tileWidth, 20 * tileHeight);
+        const QPoint leftCellCenter = crateTopLeft + QPoint(-tileWidth / 2, tileHeight / 2);
+
+        const QPoint clear = leftCellCenter - spriteCenter + QPoint(2, 1);
+        QVERIFY(player->restorePosition(clear));
+        QCOMPARE(player->absolutePosition(), clear); // saved sub-tile precision is preserved
+
+        // The player's center is left of the crate, but the right part of its body overlaps.
+        const QPoint intersecting = crateTopLeft + QPoint(-2, tileHeight / 2) - spriteCenter;
+        QVERIFY(player->restorePosition(intersecting));
+        QCOMPARE(player->absolutePosition(), leftCellCenter - spriteCenter);
+        QCOMPARE(player->currentTilePosition(), QPoint(30, 20));
+        QVERIFY(!player->restorePosition(QPoint(-1, -1)));
+        QCOMPARE(player->absolutePosition(), leftCellCenter - spriteCenter);
     }
 
     void collisionAndPlayerBounds() {

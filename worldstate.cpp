@@ -42,6 +42,7 @@ bool isPlantableSoilGid(int gid) {
 void WorldState::initialize(const MapData &mapData) {
     m_mapWidth = qMax(0, mapData.mapWidth);
     m_mapHeight = qMax(0, mapData.mapHeight);
+    m_pathLayer = normalizedLayer(mapData.pathLayer, m_mapWidth, m_mapHeight);
     m_cultivatableLayer = normalizedLayer(mapData.cultivatableLayer,
                                           m_mapWidth, m_mapHeight);
     m_cultivatedLayer = normalizedLayer(mapData.cultivatedLayer,
@@ -100,8 +101,12 @@ bool WorldState::damageTree(const QPoint &tilePos, int damage) {
     return true;
 }
 
+bool WorldState::isPathTile(const QPoint &tilePos) const {
+    return isValidTile(tilePos) && m_pathLayer.at(tilePos.y()).at(tilePos.x()) != 0;
+}
+
 bool WorldState::isTileCultivatable(const QPoint &tilePos) const {
-    return isValidTile(tilePos) &&
+    return isValidTile(tilePos) && !isPathTile(tilePos) &&
            m_collisionLayer.at(tilePos.y()).at(tilePos.x()) == 0 &&
            m_cultivatableLayer.at(tilePos.y()).at(tilePos.x()) ==
                GameConstants::CultivatableGrassGid &&

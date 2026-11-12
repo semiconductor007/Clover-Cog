@@ -7,7 +7,6 @@ ToolProperty propertyForTool(ToolType type) {
     ToolProperty tool{type, toolName(type), 0, {}};
     switch (type) {
     case ToolType::EmptyHand: break;
-    case ToolType::Axe: tool.damage = 30; break;
     case ToolType::Hoe: tool.damage = 15; break;
     case ToolType::WateringCan: tool.damage = 5; break;
     default: return tool;
@@ -24,9 +23,10 @@ PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
 }
 
 void PlayerController::setCurrentTool(int toolIndex) {
-    if (toolIndex < 0 || toolIndex >= ToolCount)
+    const ToolType tool = static_cast<ToolType>(toolIndex);
+    if (toolSlot(tool) < 0)
         return;
-    m_currentTool = propertyForTool(static_cast<ToolType>(toolIndex));
+    m_currentTool = propertyForTool(tool);
     emit toolChanged(m_currentTool.type);
 }
 
@@ -56,25 +56,5 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
         break;
     default:
         break;
-    }
-}
-
-void PlayerController::useAxeAt(const QPoint &playerCenter, PlayerDirection direction) {
-    if (!m_mapWidget || m_mapWidget->isInputBlocked() || m_currentTool.type != ToolType::Axe ||
-        m_mapWidget->tileWidth() <= 0 || m_mapWidget->tileHeight() <= 0) {
-        return;
-    }
-
-    QPoint target(playerCenter.x() / m_mapWidget->tileWidth(),
-                  playerCenter.y() / m_mapWidget->tileHeight());
-    switch (direction) {
-    case PlayerDirection::Up: target.ry()--; break;
-    case PlayerDirection::Down: target.ry()++; break;
-    case PlayerDirection::Left: target.rx()--; break;
-    case PlayerDirection::Right: target.rx()++; break;
-    }
-
-    if (m_mapWidget->hasTreeAt(target)) {
-        m_mapWidget->modifyTreeHealth(target, m_currentTool.damage);
     }
 }
