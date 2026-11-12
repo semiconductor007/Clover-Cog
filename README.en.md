@@ -2,6 +2,8 @@
 
 A pixel-art farming game built with C++17, Qt 6 Widgets, Qt Multimedia and qmake. Explore the 72×40 farm, grow wheat, potatoes, carrots and beets, sell the harvest at the market and buy seeds and fertilizer. Each season lasts seven days. Time passes through midnight, and sleeping at home between 20:00 and 05:59 skips to 06:00. Sleep and season changes share a short fade to black.
 
+Summer evenings stay light longer than winter evenings. A short chime marks a successful wake-up save. If saving fails, the game pauses at the settled morning. You can retry the save or continue playing with the farm as it is.
+
 | Action | Input |
 | --- | --- |
 | Move | W / A / S / D |
