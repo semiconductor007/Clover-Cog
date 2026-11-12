@@ -16,6 +16,7 @@ protected:
 class DayNightOverlay : public CanvasOverlay {
 public:
     explicit DayNightOverlay(QWidget *canvas);
+    // Total elapsed game minutes, including the date used by SeasonCalendar.
     void setGameMinutes(qint64 minutes);
     static QColor tintForMinutes(qint64 minutes);
 
