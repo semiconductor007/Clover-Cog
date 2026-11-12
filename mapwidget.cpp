@@ -26,11 +26,32 @@ bool MapWidget::loadMap(const QString &tmjPath) {
     m_mapHeight = data.mapHeight;
     m_worldState.initialize(data);
     m_tilesets = std::move(data.tilesets);
+    m_baseTilesets = m_tilesets;
+    m_seasonTextures.clear();
+    m_visualSeason = Season::Spring;
+    m_seasonTextureBuildCount = 0;
     m_renderLayers = std::move(data.renderLayers);
     m_offsetX = 0;
     m_offsetY = 0;
 
     updateGeometry();
+    update();
+    return true;
+}
+
+bool MapWidget::setSeasonVisuals(const SeasonVisualProfile &profile, QString *error) {
+    const QString key = profile.cacheKey();
+    if (const auto *cached = m_seasonTextures.object(key)) {
+        m_tilesets = *cached;
+    } else {
+        QVector<Tileset> candidate;
+        if (!SeasonVisuals::build(m_baseTilesets, profile, &candidate, error)) return false;
+        ++m_seasonTextureBuildCount;
+        m_tilesets = candidate;
+        m_seasonTextures.insert(key, new QVector<Tileset>(candidate));
+    }
+    m_visualSeason = profile.season;
+    if (error) error->clear();
     update();
     return true;
 }

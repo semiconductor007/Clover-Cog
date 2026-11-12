@@ -3,11 +3,13 @@
 
 #include "economyservice.h"
 #include "worldstate.h"
+#include "gamecalendar.h"
 
 #include <QPoint>
 #include <QString>
 
 struct GameSaveData {
+    CalendarRules calendarRules;
     qint64 gameMinutes = 0;
     int lastProcessedDay = 0;
     QPoint playerPosition;
@@ -17,7 +19,7 @@ struct GameSaveData {
 
 class SaveManager {
 public:
-    static constexpr int SchemaVersion = 1;
+    static constexpr int SchemaVersion = 2;
 
     static QString defaultSavePath();
     static bool save(const QString &path, const GameSaveData &data,

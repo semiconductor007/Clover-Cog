@@ -34,8 +34,10 @@ public:
     explicit ImageMovementWidget(MapWidget *mapWidget, QWidget *parent = nullptr);
     void setInitialPosition(const QPoint &pos); // 新增方法
     void handleToolAction();
+    void stopMovement();
     QPoint currentTilePosition() const;
     QPoint absolutePosition() const { return m_absolutePos; }
+    bool canStandAt(const QPoint &position) const;
     // 新增：获取当前工具属性
     const ToolProperty &getCurrentTool() const { return m_controller->currentTool(); }
 

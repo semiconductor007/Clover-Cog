@@ -124,6 +124,10 @@ QString SaveManager::defaultSavePath() {
 
 bool SaveManager::save(const QString &path, const GameSaveData &data,
                        QString *errorMessage) {
+    if (!data.calendarRules.isValid()) {
+        setError(errorMessage, QStringLiteral("Invalid calendar rules"));
+        return false;
+    }
     QJsonObject economy;
     economy.insert(QStringLiteral("coins"), data.economy.coins);
     economy.insert(QStringLiteral("inventoryCapacity"),
@@ -155,6 +159,7 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
 
     QJsonObject root;
     root.insert(QStringLiteral("schemaVersion"), SchemaVersion);
+    root.insert(QStringLiteral("calendarDaysPerSeason"), data.calendarRules.daysPerSeason);
     root.insert(QStringLiteral("gameMinutes"),
                 QString::number(data.gameMinutes));
     root.insert(QStringLiteral("lastProcessedDay"), data.lastProcessedDay);
@@ -173,10 +178,10 @@ bool SaveManager::save(const QString &path, const GameSaveData &data,
         if (existing.open(QIODevice::ReadOnly)) {
             const QJsonDocument existingDocument =
                 QJsonDocument::fromJson(existing.readAll());
+            const int existingVersion = existingDocument.object()
+                .value(QStringLiteral("schemaVersion")).toInt(-1);
             if (existingDocument.isObject() &&
-                existingDocument.object()
-                        .value(QStringLiteral("schemaVersion"))
-                        .toInt(-1) == SchemaVersion) {
+                (existingVersion == 1 || existingVersion == SchemaVersion)) {
                 const QString backupPath = path + QStringLiteral(".bak");
                 QFile::remove(backupPath);
                 QFile::copy(path, backupPath);
@@ -215,14 +220,26 @@ bool SaveManager::load(const QString &path, GameSaveData *data,
         return false;
     }
     const QJsonObject root = document.object();
-    if (root.value(QStringLiteral("schemaVersion")).toInt(-1) !=
-        SchemaVersion) {
+    const int version = root.value(QStringLiteral("schemaVersion")).toInt(-1);
+    if (version != 1 && version != SchemaVersion) {
         setError(errorMessage, QStringLiteral("Unsupported save version"));
         return false;
     }
 
     bool minutesOk = false;
     GameSaveData parsed;
+    if (version == 1) {
+        parsed.calendarRules.daysPerSeason = CalendarRules::LegacyDaysPerSeason;
+    } else {
+        const QJsonValue length = root.value(QStringLiteral("calendarDaysPerSeason"));
+        const int days = length.toInt(-1);
+        if (!length.isDouble() || length.toDouble() != days ||
+            !CalendarRules{days}.isValid()) {
+            setError(errorMessage, QStringLiteral("Invalid calendar rules"));
+            return false;
+        }
+        parsed.calendarRules.daysPerSeason = days;
+    }
     parsed.gameMinutes =
         root.value(QStringLiteral("gameMinutes")).toString().toLongLong(&minutesOk);
     parsed.lastProcessedDay =

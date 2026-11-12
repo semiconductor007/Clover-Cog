@@ -1,4 +1,7 @@
 <RCC>
+    <qresource prefix="/inventory">
+        <file alias="slots.png">sprout/Sprout Lands - UI Pack - Basic pack/emojis-free/emoji style ui/Inventory_Spritesheet.png</file>
+    </qresource>
     <qresource prefix="/character">
         <file>Walk.png</file>
         <file>Idle.png</file>
@@ -70,6 +73,7 @@
         <file>Premium Charakter Spritesheet.png</file>
     </qresource>
     <qresource prefix="/sounds">
+        <file>wav/sleep_success.wav</file>
         <file>wav/On_the_Farm.mp3</file>
         <file>wav/On_the_Farm.wav</file>
     </qresource>

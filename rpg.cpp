@@ -5,6 +5,13 @@
 #include <QMouseEvent>
 #include <QTransform>
 
+bool ImageMovementWidget::canStandAt(const QPoint &position) const {
+    if (!m_mapWidget || !m_collisionDetector || position.x() < 0 || position.y() < 0 ||
+        qint64(position.x()) + width() > qint64(m_mapWidget->mapWidth()) * m_mapWidget->tileWidth() ||
+        qint64(position.y()) + height() > qint64(m_mapWidget->mapHeight()) * m_mapWidget->tileHeight()) return false;
+    return !m_collisionDetector->isColliding(m_collisionArea.translated(position));
+}
+
 void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
     m_absolutePos = pos;
 
@@ -70,6 +77,12 @@ ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
 }
 
 //切换工具
+void ImageMovementWidget::stopMovement() {
+    isMovingRight = isMovingLeft = isMovingUp = isMovingDown = false;
+    isIdle = true;
+    currentIdleFrameIndex = 0;
+}
+
 void ImageMovementWidget::setCurrentTool(int toolIndex) {
     m_controller->setCurrentTool(toolIndex);
     qDebug() << "切换工具到:" << m_controller->currentTool().name;

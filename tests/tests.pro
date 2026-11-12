@@ -6,6 +6,9 @@ TARGET = core_tests
 INCLUDEPATH += ..
 
 SOURCES += \
+    ../seasonvisuals.cpp \
+    ../gamecalendar.cpp \
+    ../daynightenvironment.cpp \
     core_tests.cpp \
     ../collisiondetector.cpp \
     ../cropdefinition.cpp \
@@ -17,6 +20,9 @@ SOURCES += \
     ../worldstate.cpp
 
 HEADERS += \
+    ../seasonvisuals.h \
+    ../gamecalendar.h \
+    ../daynightenvironment.h \
     ../collisiondetector.h \
     ../cropdefinition.h \
     ../economyservice.h \

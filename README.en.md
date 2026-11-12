@@ -8,6 +8,11 @@ An incremental farming game project developed by a five-person team built on a C
 
 ## Current prototype
 
+Press `B` to inspect the backpack (crop/seed counts, capacity, coins and prices).
+Close with `B`, `Esc` or CLOSE. The panel blocks movement and map input while
+game time continues. Item slots currently use W/P/S letter markers. Sell crops
+at the market, not from the backpack panel.
+
 - WASD movement, character animations and tile collision detection.
 - Tiled JSON map loading, layered drawing and a following camera.
 - Tilling, planting, daily watering, day-based crop growth and harvesting.
@@ -15,7 +20,7 @@ An incremental farming game project developed by a five-person team built on a C
 - Initial seed stock, a seed shop, atomic JSON saves and backup recovery.
 - Six-slot tool selection, pixel UI, a custom cursor and background music logic.
 
-Wheat needs three watered days and potato needs five. Stand inside the purple bed marker and press `E` to sleep until 06:00 on the next day. Unwatered crops pause for that day, watered soil dries overnight, and empty tilled soil has a 20% daily chance to return to grass.
+Wheat needs three watered days and potato needs five. From 06:00 until 02:00 the following morning, press `E` at the bed marker and confirm to rest until that morning's 06:00. At 02:00, an awake player automatically passes out and recovers at a safe position in or near the bed. New games start at 06:00. The confirmation pauses time; Escape cancels. Unwatered crops pause for that day, watered soil dries overnight, and empty tilled soil has a 20% daily chance to return to grass.
 
 ## Build
 

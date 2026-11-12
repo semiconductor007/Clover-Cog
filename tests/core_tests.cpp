@@ -8,16 +8,31 @@
 #include "mapdata.h"
 #include "savemanager.h"
 #include "worldstate.h"
+#include "daynightenvironment.h"
+#include "gamecalendar.h"
+#include "seasonvisuals.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <limits>
 
 class CoreTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void passOutDeadlineHandlesCutoffAndDelayedTicks();
+    void seasonalLightingProfilesAreContinuous();
+    void calendarConvertsConfiguredDates();
+    void calendarRulesPersistAndLegacySavesRemainReadable();
+    void daylightProfileIsContinuousAndPeriodic();
     void gameClockConvertsElapsedTime();
+    void sleepTargetsRespectNightBoundaries_data();
+    void sleepTargetsRespectNightBoundaries();
+    void sleepRejectsInvalidInputsAndRepeats();
+    void sleepAndMidnightSettleEachDateOnce();
     void collisionDetectorHandlesBounds();
     void mapLoaderValidatesAndInitializesLayers();
     void mapLoaderPreservesDynamicLayerOrder();
@@ -30,6 +45,156 @@ private slots:
     void saveManagerRoundTripsGameStateAndKeepsBackup();
 };
 
+void CoreTests::passOutDeadlineHandlesCutoffAndDelayedTicks() {
+    QVERIFY(!GameClock::passOutDeadline(119, 119));
+    QCOMPARE(GameClock::passOutDeadline(119, 120).value(), 120LL);
+    QCOMPARE(GameClock::passOutDeadline(120, 120).value(), 120LL);
+    QCOMPARE(GameClock::passOutDeadline(180, 180).value(), 180LL); // Overdue save.
+    QVERIFY(!GameClock::passOutDeadline(360, 360));
+    QVERIFY(!GameClock::passOutDeadline(1439, 1440 + 119));
+    QCOMPARE(GameClock::passOutDeadline(1439, 1440 + 120).value(), 1560LL);
+    QCOMPARE(GameClock::passOutDeadline(360, 3 * 1440 + 600).value(), 1560LL);
+    QCOMPARE(GameClock::sleepTargetMinute(1560).value(), 1800LL);
+    QVERIFY(!GameClock::passOutDeadline(-1, 120));
+    QVERIFY(!GameClock::passOutDeadline(360, 120));
+    const qint64 maximum = std::numeric_limits<qint64>::max();
+    const auto deadline = GameClock::passOutDeadline(maximum - 1440, maximum);
+    QVERIFY(deadline);
+    QVERIFY(*deadline >= maximum - 1440 && *deadline <= maximum);
+}
+
+void CoreTests::seasonalLightingProfilesAreContinuous() {
+    for (Season season : {Season::Spring, Season::Summer, Season::Autumn, Season::Winter}) {
+        const auto settings = SeasonVisuals::profile(season);
+        QVERIFY(settings.isValid());
+        QCOMPARE(DayNightEnvironment::tintAt(720, true, season).alpha(), 0);
+        QCOMPARE(DayNightEnvironment::tintAt(1439, true, season),
+                 DayNightEnvironment::tintAt(1440, true, season));
+        for (int minute = 0; minute < 1440; ++minute) {
+            const QColor current = DayNightEnvironment::tintAt(minute, true, season);
+            const QColor next = DayNightEnvironment::tintAt(minute + 1, true, season);
+            QCOMPARE(current, DayNightEnvironment::tintAt(minute + 3LL * 1440, true, season));
+            QCOMPARE(DayNightEnvironment::tintAt(minute, false, season).alpha(), 0);
+            QVERIFY(current.alpha() <= 150);
+            QVERIFY(qAbs(current.alpha() - next.alpha()) <= 3);
+            QVERIFY(qAbs(current.red() - next.red()) <= 3);
+            QVERIFY(qAbs(current.green() - next.green()) <= 3);
+            QVERIFY(qAbs(current.blue() - next.blue()) <= 3);
+        }
+    }
+    QVERIFY(DayNightEnvironment::tintAt(17 * 60, true, Season::Winter).alpha() >
+            DayNightEnvironment::tintAt(17 * 60, true, Season::Summer).alpha());
+    QVERIFY(DayNightEnvironment::tintAt(6 * 60, true, Season::Winter).alpha() >
+            DayNightEnvironment::tintAt(6 * 60, true, Season::Summer).alpha());
+    auto invalid = SeasonVisuals::profile(Season::Spring);
+    invalid.dawnEnd = invalid.duskStart;
+    QVERIFY(!invalid.isValid());
+}
+
+void CoreTests::calendarConvertsConfiguredDates() {
+    for (int length : {1, 7, 28, 366}) {
+        const CalendarRules rules{length};
+        for (qint64 day = 0; day < 4LL * length * 3; ++day) {
+            const auto date = GameCalendar::forDay(day, rules);
+            QVERIFY(date);
+            QVERIFY(date->dayOfSeason >= 1 && date->dayOfSeason <= length);
+            QCOMPARE(((date->year - 1) * 4 + static_cast<int>(date->season)) * length
+                         + date->dayOfSeason - 1, day);
+        }
+        const auto nextYear = GameCalendar::forDay(4LL * length, rules);
+        QCOMPARE(nextYear->year, 2LL);
+        QCOMPARE(nextYear->season, Season::Spring);
+        QCOMPARE(nextYear->dayOfSeason, 1);
+    }
+    const auto first = GameCalendar::forDay(0);
+    QCOMPARE(first->year, 1LL);
+    QCOMPARE(first->season, Season::Spring);
+    QCOMPARE(first->dayOfSeason, 1);
+    QCOMPARE(GameCalendar::forDay(7)->season, Season::Summer);
+    QCOMPARE(GameCalendar::forDay(6)->dayOfSeason, 7);
+    QCOMPARE(GameCalendar::forDay(7)->dayOfSeason, 1);
+    QCOMPARE(GameCalendar::forDay(14)->season, Season::Autumn);
+    QCOMPARE(GameCalendar::forDay(21)->season, Season::Winter);
+    QVERIFY(GameCalendar::forDay(std::numeric_limits<qint64>::max(), {1}));
+    QVERIFY(!GameCalendar::forDay(-1));
+    for (int invalid : {-1, 0, 367, std::numeric_limits<int>::max()})
+        QVERIFY(!GameCalendar::forDay(0, {invalid}));
+}
+
+void CoreTests::calendarRulesPersistAndLegacySavesRemainReadable() {
+    QTemporaryDir dir;
+    const QString path = dir.filePath("calendar.json");
+    GameSaveData source;
+    source.calendarRules.daysPerSeason = 28;
+    source.world.cultivatedLayer = {{0}};
+    QVERIFY(SaveManager::save(path, source));
+    GameSaveData loaded;
+    QVERIFY(SaveManager::load(path, &loaded));
+    QCOMPARE(loaded.calendarRules.daysPerSeason, 28);
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray original = file.readAll();
+    file.close();
+    source.calendarRules.daysPerSeason = 0;
+    QVERIFY(!SaveManager::save(path, source));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), original);
+    file.close();
+    const QJsonObject root = QJsonDocument::fromJson(original).object();
+    for (const QJsonValue &bad : {QJsonValue(), QJsonValue(0), QJsonValue(-1),
+                                 QJsonValue(7.5), QJsonValue(367), QJsonValue(QStringLiteral("7"))}) {
+        auto corrupt = root;
+        corrupt.insert(QStringLiteral("calendarDaysPerSeason"), bad);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(corrupt).toJson());
+        file.close();
+        loaded.gameMinutes = 12345;
+        loaded.calendarRules.daysPerSeason = 28;
+        QVERIFY(!SaveManager::load(path, &loaded));
+        QCOMPARE(loaded.gameMinutes, 12345LL);
+        QCOMPARE(loaded.calendarRules.daysPerSeason, 28);
+    }
+    auto legacy = root;
+    legacy.insert(QStringLiteral("schemaVersion"), 1);
+    legacy.remove(QStringLiteral("calendarDaysPerSeason"));
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(legacy).toJson());
+    file.close();
+    QVERIFY(SaveManager::load(path, &loaded));
+    QCOMPARE(loaded.calendarRules.daysPerSeason, CalendarRules::LegacyDaysPerSeason);
+    QVERIFY(SaveManager::save(path, loaded));
+    GameSaveData backup;
+    QVERIFY(SaveManager::load(path + ".bak", &backup));
+    QCOMPARE(backup.calendarRules.daysPerSeason, CalendarRules::LegacyDaysPerSeason);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(QJsonDocument::fromJson(file.readAll()).object().value("schemaVersion").toInt(),
+             SaveManager::SchemaVersion);
+}
+
+void CoreTests::daylightProfileIsContinuousAndPeriodic() {
+    using Environment = DayNightEnvironment;
+    QCOMPARE(Environment::tintAt(12 * 60).alpha(), 0);
+    QVERIFY(Environment::tintAt(19 * 60).alpha() > 0);
+    QVERIFY(Environment::tintAt(23 * 60).alpha() > Environment::tintAt(19 * 60).alpha());
+    QCOMPARE(Environment::tintAt(1439), Environment::tintAt(1440));
+    QCOMPARE(Environment::tintAt(-1), Environment::tintAt(0));
+    QCOMPARE(Environment::tintAt(std::numeric_limits<qint64>::max()),
+             Environment::tintAt(std::numeric_limits<qint64>::max() % 1440));
+    for (int minute = 0; minute < 1440; ++minute) {
+        const QColor current = Environment::tintAt(minute);
+        const QColor next = Environment::tintAt(minute + 1);
+        QCOMPARE(current, Environment::tintAt(7LL * 1440 + minute));
+        QCOMPARE(Environment::tintAt(minute, false).alpha(), 0);
+        QVERIFY(current.alpha() >= 0 && current.alpha() <= 135);
+        QVERIFY(qAbs(current.alpha() - next.alpha()) <= 2);
+        QVERIFY(qAbs(current.red() - next.red()) <= 3);
+        QVERIFY(qAbs(current.green() - next.green()) <= 3);
+        QVERIFY(qAbs(current.blue() - next.blue()) <= 3);
+    }
+    QVERIFY(Environment::tintAt(330).alpha() > Environment::tintAt(360).alpha());
+    QVERIFY(Environment::tintAt(360).alpha() > Environment::tintAt(420).alpha());
+}
+
 void CoreTests::gameClockConvertsElapsedTime() {
     constexpr int speed = 1000;
     QCOMPARE(GameClock::minuteFromElapsed(90 * 1000, speed), 30);
@@ -38,13 +203,97 @@ void CoreTests::gameClockConvertsElapsedTime() {
 
     GameClock clock(1000000);
     clock.start();
-    clock.sleepToNextMorning(6);
-    QCOMPARE(clock.day(), 1);
+    QVERIFY(clock.sleepToNextMorning(6));
+    QCOMPARE(clock.day(), 0);
     QCOMPARE(clock.hour(), 6);
     clock.setElapsedGameMinutes(2 * 24 * 60 + 13 * 60 + 25);
     QCOMPARE(clock.day(), 2);
     QCOMPARE(clock.hour(), 13);
     QCOMPARE(clock.minute(), 25);
+}
+
+void CoreTests::sleepTargetsRespectNightBoundaries_data() {
+    QTest::addColumn<int>("minute");
+    QTest::addColumn<int>("target");
+    QTest::newRow("midnight") << 0 << 360;
+    QTest::newRow("02:00") << 120 << 360;
+    QTest::newRow("05:59") << 359 << 360;
+    QTest::newRow("06:00") << 360 << 1800;
+    QTest::newRow("noon") << 720 << 1800;
+    QTest::newRow("19:59") << 1199 << 1800;
+    QTest::newRow("20:00") << 1200 << 1800;
+    QTest::newRow("22:00") << 1320 << 1800;
+    QTest::newRow("23:59") << 1439 << 1800;
+}
+
+void CoreTests::sleepTargetsRespectNightBoundaries() {
+    QFETCH(int, minute);
+    QFETCH(int, target);
+    // Check both the first day and a later date; use no real-time waiting.
+    for (qint64 day : {0LL, 37LL}) {
+        const qint64 current = day * 1440 + minute;
+        const auto result = GameClock::sleepTargetMinute(current);
+        QCOMPARE(result.has_value(), target >= 0);
+        if (result) QCOMPARE(*result, day * 1440 + target);
+        GameClock clock(1000000);
+        clock.setElapsedGameMinutes(current);
+        QCOMPARE(clock.sleepToNextMorning(), target >= 0);
+        QCOMPARE(clock.elapsedGameMinutes(), result.value_or(current));
+    }
+}
+
+void CoreTests::sleepRejectsInvalidInputsAndRepeats() {
+    for (int minute = 0; minute < 1440; ++minute) {
+        const auto target = GameClock::sleepTargetMinute(minute);
+        QVERIFY(target);
+        QVERIFY(*target > minute);
+        QCOMPARE(*target % 1440, 360LL);
+        QVERIFY(*target - minute <= 1440);
+    }
+    QVERIFY(!GameClock::sleepTargetMinute(-1));
+    QVERIFY(!GameClock::sleepTargetMinute(0, 0));
+    QCOMPARE(GameClock::sleepTargetMinute(0, 20).value(), 1200LL);
+    QVERIFY(!GameClock::sleepTargetMinute(0, 24));
+    QVERIFY(!GameClock::sleepTargetMinute(std::numeric_limits<qint64>::max()));
+    GameClock clock(1000000);
+    clock.setElapsedGameMinutes(22 * 60);
+    QVERIFY(clock.sleepToNextMorning());
+    const qint64 morning = clock.elapsedGameMinutes();
+    // A deliberate new sleep at 06:00 now advances to the following morning.
+    // Duplicate input is guarded by the UI attempt, not a daytime prohibition.
+    for (int i = 0; i < 5; ++i) QVERIFY(clock.sleepToNextMorning());
+    QCOMPARE(clock.elapsedGameMinutes(), morning + 5 * 1440);
+    QVERIFY(!clock.sleepToNextMorning(24));
+    QCOMPARE(clock.elapsedGameMinutes(), morning + 5 * 1440);
+}
+
+void CoreTests::sleepAndMidnightSettleEachDateOnce() {
+    QTemporaryFile mapFile;
+    QVERIFY(mapFile.open());
+    mapFile.write(R"({"width":1,"height":1,"tilewidth":16,"tileheight":16,
+        "layers":[{"name":"cultivated","type":"tilelayer","width":1,"height":1,"data":[135]}],"tilesets":[]})");
+    mapFile.flush();
+    MapData map;
+    QString error;
+    QVERIFY2(MapLoader::load(mapFile.fileName(), &map, &error), qPrintable(error));
+    WorldState world;
+    world.initialize(map);
+    QVERIFY(world.plantSeed(QPoint(0, 0), CropType::Wheat, 0));
+    QVERIFY(world.waterTile(QPoint(0, 0)));
+    GameClock clock(1000000);
+    clock.setElapsedGameMinutes(22 * 60);
+    QVERIFY(clock.sleepToNextMorning());
+    QCOMPARE(clock.day(), 1);
+    QCOMPARE(world.advanceDay(0, [] { return 99; }).cropsAdvanced, 1);
+    QCOMPARE(world.advanceDay(0, [] { return 99; }).cropsAdvanced, 0);
+    QCOMPARE(world.snapshot().crops.first().growthDays, 1);
+    // Natural midnight was already settled: early-morning sleep adds no date.
+    clock.setElapsedGameMinutes(1440 + 120);
+    QVERIFY(clock.sleepToNextMorning());
+    QCOMPARE(clock.day(), 1);
+    QCOMPARE(clock.hour(), 6);
+    QCOMPARE(world.advanceDay(0, [] { return 99; }).cropsAdvanced, 0);
+    QCOMPARE(world.snapshot().crops.first().growthDays, 1);
 }
 
 void CoreTests::collisionDetectorHandlesBounds() {

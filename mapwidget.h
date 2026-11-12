@@ -4,6 +4,8 @@
 #include "mapdata.h"
 #include "maprenderer.h"
 #include "worldstate.h"
+#include "seasonvisuals.h"
+#include <QCache>
 
 #include <QPoint>
 #include <QPixmap>
@@ -20,6 +22,10 @@ public:
     explicit MapWidget(QWidget *parent = nullptr);
 
     bool loadMap(const QString &tmjPath);
+    bool setSeasonVisuals(const SeasonVisualProfile &profile, QString *error = nullptr);
+    Season visualSeason() const { return m_visualSeason; }
+    int seasonTextureBuildCount() const { return m_seasonTextureBuildCount; }
+    int cachedSeasonCount() const { return m_seasonTextures.size(); }
     int tileWidth() const { return m_tileWidth; }
     int tileHeight() const { return m_tileHeight; }
     int mapWidth() const { return m_mapWidth; }
@@ -97,6 +103,10 @@ private:
     int m_mapWidth = 0;
     int m_mapHeight = 0;
     QVector<Tileset> m_tilesets;
+    QVector<Tileset> m_baseTilesets;
+    QCache<QString, QVector<Tileset>> m_seasonTextures{4};
+    Season m_visualSeason = Season::Spring;
+    int m_seasonTextureBuildCount = 0;
     WorldState m_worldState;
     MapRenderer m_renderer;
     QRect m_marketArea;

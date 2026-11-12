@@ -12,12 +12,19 @@
 #include <QMediaPlayer>
 #include <QPixmap>
 #include <QRect>
+#include <QPointer>
+#include <QDialog>
 #include "economyservice.h"
+#include "inventorypanel.h"
 #include "gameclock.h"
 #include "itembar.h"
 #include "mapwidget.h"
 #include "rpg.h"
 #include "savemanager.h"
+#include "sleepoverlay.h"
+#include "daynightoverlay.h"
+#include "calendarpresentation.h"
+#include "sleepsoundcue.h"
 
 
 
@@ -37,11 +44,18 @@ private:
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    MainWindow(QWidget *parent = nullptr);
+    MainWindow(QWidget *parent = nullptr, const QString &savePath = QString(),
+               CalendarRules newGameCalendar = {});
     int currentGameHour() const { return m_gameClock.hour(); }
     int currentGameDay() const { return m_gameClock.day(); }
     int currentGameMinute() const { return m_gameClock.minute(); }
+    void setEffectsVolume(float volume) { m_sleepSound->setVolume(volume); }
+    void setEffectsMuted(bool muted) { m_sleepSound->setMuted(muted); }
 
+
+signals:
+    // Notification after a coherent day settlement; presentation only.
+    void seasonChanged(qint64 year, int season);
 
 private slots:
     void updateTime();
@@ -53,11 +67,44 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    friend class SleepFlowTests;
     bool eventFilter(QObject *watched, QEvent *event) override;
     GameClock m_gameClock;
+    CalendarRules m_calendarRules;
+    CalendarDate m_displayedDate;
+    bool m_hasDisplayedDate = false;
+    CalendarFont m_calendarFont;
+    void refreshCalendar();
     int m_lastProcessedDay = 0;
     bool m_saveEnabled = true;
     EconomyService m_economy;
+    QString m_savePath;
+    bool m_ready = false;
+    bool m_processingDays = false;
+    bool m_dayAdvanceFailed = false;
+    bool m_sleepBusy = false;
+    bool m_passedOut = false;
+    bool m_enforcingPassOut = false;
+    qint64 m_lastObservedGameMinutes = 360;
+    bool enforcePassOut();
+    void startSleep(bool passedOut);
+    std::optional<QPoint> bedWakePosition() const;
+    QPointer<QDialog> m_activeShop;
+    bool m_sleepConfirming = false;
+    bool m_confirmationWasPaused = false;
+    void requestSleep();
+    void confirmSleep();
+    void cancelSleepConfirmation();
+    SleepSoundCue *m_sleepSound = nullptr;
+    QLabel *m_bedHintLabel = nullptr;
+    bool m_sleepSaved = false;
+    bool m_sleepSettled = false;
+    qint64 m_sleepStartMinutes = 0;
+    qint64 m_sleepTarget = 0;
+    int m_sleepOldDay = 0;
+    SleepOverlay *m_sleepOverlay = nullptr;
+    DayNightOverlay *m_dayNightOverlay = nullptr;
+    void completeSleep();
     const QRect m_marketArea{19, 11, 2, 2};
     const QRect m_shopArea{22, 11, 2, 2};
     const QRect m_bedArea{16, 11, 2, 2};
@@ -77,9 +124,11 @@ private:
     void updateHud();
     void showStatus(const QString &message);
     void openSeedShop();
+    void toggleInventory();
+    InventoryPanel *m_inventoryPanel = nullptr;
     bool saveGame(bool showError = true);
     bool loadGame();
-    DayAdvanceResult processDayTransitions();
+    DayAdvanceResult processDayTransitions(bool saveAfter = true);
 
     ClockBgWidget *clockBgWidget;
     QPixmap background;
