@@ -6,6 +6,17 @@
 #include <QScopedValueRollback>
 #include <limits>
 
+namespace {
+bool validCropCounts(const QHash<int, int> &counts) {
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
+        if (CropCatalog::definition(static_cast<CropType>(it.key())).type == CropType::None ||
+            it.value() < 0)
+            return false;
+    }
+    return true;
+}
+}
+
 EconomyService::EconomyService(int inventoryCapacity)
     : m_inventory(inventoryCapacity) {
     m_seedCounts.insert(static_cast<int>(CropType::Wheat),
@@ -106,18 +117,63 @@ SaleResult EconomyService::sellAll(const QPoint &playerTile,
 
 EconomyState EconomyService::state() const {
     return {m_coins, m_inventory.capacity(), m_inventory.counts(),
-            m_seedCounts, m_fertilizerCount};
+            m_seedCounts, m_fertilizerCount, m_storage};
+}
+
+StorageTransferResult EconomyService::transfer(StorageItemKind kind, CropType crop,
+                                              StorageDirection direction, int quantity) {
+    const bool depositing = direction == StorageDirection::Deposit;
+    if (m_applyingItem || quantity <= 0 || (!depositing && direction != StorageDirection::Withdraw))
+        return {false, QStringLiteral("无法转移该数量")};
+
+    // Commit both balances together. A rejected transfer must preserve the entire stack.
+    auto candidate = state();
+    int *carried = nullptr;
+    int *stored = nullptr;
+    QString name;
+    const int id = static_cast<int>(crop);
+    if (kind == StorageItemKind::Fertilizer && crop == CropType::None) {
+        carried = &candidate.fertilizerCount;
+        stored = &candidate.storage.fertilizerCount;
+        name = QStringLiteral("基础肥料");
+    } else {
+        const auto &definition = CropCatalog::definition(crop);
+        if (definition.type == CropType::None)
+            return {false, QStringLiteral("未知的储物物品")};
+        name = definition.localizedName;
+        if (kind == StorageItemKind::Harvest) {
+            carried = &candidate.inventoryCounts[id];
+            stored = &candidate.storage.harvestCounts[id];
+        } else if (kind == StorageItemKind::Seed) {
+            carried = &candidate.seedCounts[id];
+            stored = &candidate.storage.seedCounts[id];
+            name += QStringLiteral("种子");
+        } else {
+            return {false, QStringLiteral("未知的储物类别")};
+        }
+    }
+    int &source = depositing ? *carried : *stored;
+    int &destination = depositing ? *stored : *carried;
+    if (quantity > source)
+        return {false, QStringLiteral("物品不足，只有 %1 份%2").arg(source).arg(name)};
+    if (!depositing && kind == StorageItemKind::Harvest && quantity > m_inventory.remainingCapacity())
+        return {false, QStringLiteral("背包只剩 %1 格，无法取出 %2 份").arg(m_inventory.remainingCapacity()).arg(quantity)};
+    if (quantity > std::numeric_limits<int>::max() - destination)
+        return {false, QStringLiteral("物品数量过大，无法转移")};
+    source -= quantity;
+    destination += quantity;
+    if (!restore(candidate))
+        return {false, QStringLiteral("无法转移物品，库存已保留")};
+    return {true, QStringLiteral("%1%2 × %3")
+                      .arg(depositing ? QStringLiteral("已存入") : QStringLiteral("已取出"), name)
+                      .arg(quantity)};
 }
 
 bool EconomyService::restore(const EconomyState &state) {
-    if (m_applyingItem || state.coins < 0 || state.fertilizerCount < 0) {
+    if (m_applyingItem || state.coins < 0 || state.fertilizerCount < 0 ||
+        state.storage.fertilizerCount < 0 || !validCropCounts(state.seedCounts) ||
+        !validCropCounts(state.storage.harvestCounts) || !validCropCounts(state.storage.seedCounts)) {
         return false;
-    }
-    for (auto it = state.seedCounts.cbegin(); it != state.seedCounts.cend(); ++it) {
-        const CropType type = static_cast<CropType>(it.key());
-        if (CropCatalog::definition(type).type == CropType::None || it.value() < 0) {
-            return false;
-        }
     }
 
     Inventory restoredInventory;
@@ -129,6 +185,7 @@ bool EconomyService::restore(const EconomyState &state) {
     m_fertilizerCount = state.fertilizerCount;
     m_inventory = restoredInventory;
     m_seedCounts = state.seedCounts;
+    m_storage = state.storage;
     for (CropType type : CropCatalog::cropTypes()) {
         if (!m_seedCounts.contains(static_cast<int>(type))) {
             m_seedCounts.insert(static_cast<int>(type), 0);

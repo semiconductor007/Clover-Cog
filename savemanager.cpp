@@ -168,6 +168,12 @@ QByteArray encodeSave(const GameSaveData &data) {
                    countsToJson(data.economy.seedCounts));
 
     economy.insert(QStringLiteral("fertilizerCount"), data.economy.fertilizerCount);
+    const StorageStock &storage = data.economy.storage;
+    economy.insert(QStringLiteral("storage"), QJsonObject{
+        {QStringLiteral("harvest"), countsToJson(storage.harvestCounts)},
+        {QStringLiteral("seeds"), countsToJson(storage.seedCounts)},
+        {QStringLiteral("fertilizerCount"), storage.fertilizerCount}
+    });
 
     QJsonArray crops;
     for (const SavedCropState &crop : data.world.crops) {
@@ -214,7 +220,7 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
     }
     const QJsonObject root = document.object();
     const int version = root.value(QStringLiteral("schemaVersion")).toInt(-1);
-    if (version != 2 && version != SaveManager::SchemaVersion) {
+    if (version != 2 && version != 3 && version != SaveManager::SchemaVersion) {
         setError(errorMessage, QStringLiteral("不支持的存档版本"));
         return false;
     }
@@ -247,6 +253,18 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
                         &parsed.economy.seedCounts)) {
         setError(errorMessage, QStringLiteral("存档中的库存或金币无效"));
         return false;
+    }
+
+    if (version >= 4) {
+        const QJsonObject storage = economy.value(QStringLiteral("storage")).toObject();
+        auto &stock = parsed.economy.storage;
+        stock.fertilizerCount = storage.value(QStringLiteral("fertilizerCount")).toInt(-1);
+        if (storage.size() != 3 || stock.fertilizerCount < 0 ||
+            !countsFromJson(storage.value(QStringLiteral("harvest")), &stock.harvestCounts) ||
+            !countsFromJson(storage.value(QStringLiteral("seeds")), &stock.seedCounts)) {
+            setError(errorMessage, QStringLiteral("储物箱库存无效"));
+            return false;
+        }
     }
 
     const QJsonObject world = root.value(QStringLiteral("world")).toObject();
@@ -339,12 +357,25 @@ bool writeAtomically(const QString &path, const QByteArray &contents, QString *e
 
 QString SaveManager::defaultSavePath() {
     const QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    return dir.filePath(QStringLiteral("farm-v4.json"));
+}
+
+QString SaveManager::previousSavePath() {
+    const QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
     return dir.filePath(QStringLiteral("farm-v3.json"));
 }
 
 QString SaveManager::legacySavePath() {
     const QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
     return dir.filePath(QStringLiteral("savegame.json"));
+}
+
+QString SaveManager::preferredSavePath() {
+    for (const QString &path : {defaultSavePath(), previousSavePath(), legacySavePath()}) {
+        if (QFileInfo::exists(path) || QFileInfo::exists(path + QStringLiteral(".bak")))
+            return path;
+    }
+    return {};
 }
 
 bool SaveManager::save(const QString &path, const GameSaveData &data,

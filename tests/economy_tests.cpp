@@ -19,6 +19,9 @@ private slots:
     void itemActionsCannotReenter();
     void invalidAndOverflowingPurchasesPreserveAssets();
     void saleOverflowPreservesWholeBag();
+    void harvestTransferRespectsFreeSpace();
+    void suppliesInStorageStaySeparate();
+    void invalidTransfersPreserveBalances();
 };
 
 void EconomyTests::approvedPricesAndRevenue() {
@@ -167,6 +170,87 @@ void EconomyTests::saleOverflowPreservesWholeBag() {
     QVERIFY(!economy.sellAll(atMarket, market).success);
     QCOMPARE(economy.inventory().count(CropType::Wheat), maxCount);
     QCOMPARE(economy.coins(), 0);
+}
+
+void EconomyTests::harvestTransferRespectsFreeSpace() {
+    EconomyService economy;
+    const int wheat = static_cast<int>(CropType::Wheat);
+    auto state = economy.state();
+    state.inventoryCounts[wheat] = 11;
+    state.storage.harvestCounts[wheat] = 2;
+    QVERIFY(economy.restore(state));
+
+    const auto withdraw = [&](int quantity) {
+        return economy.transfer(StorageItemKind::Harvest, CropType::Wheat, StorageDirection::Withdraw, quantity);
+    };
+    const auto rejected = withdraw(2);
+    QVERIFY(!rejected.success);
+    QVERIFY(rejected.message.contains(QStringLiteral("只剩 1 格")));
+    QCOMPARE(economy.inventory().count(CropType::Wheat), 11);
+    QCOMPARE(economy.storage().harvestCounts.value(wheat), 2);
+    QVERIFY(withdraw(1).success);
+    QVERIFY(!withdraw(1).success);
+    QCOMPARE(economy.sellAll(atMarket, market).coinsEarned, 60);
+    QCOMPARE(economy.inventory().usedCapacity(), 0);
+    QCOMPARE(economy.storage().harvestCounts.value(wheat), 1);
+    QVERIFY(withdraw(1).success);
+    QVERIFY(!withdraw(1).success);
+    QVERIFY(economy.transfer(StorageItemKind::Harvest, CropType::Wheat, StorageDirection::Deposit, 1).success);
+    QVERIFY(!economy.transfer(StorageItemKind::Harvest, CropType::Wheat, StorageDirection::Deposit, 1).success);
+    QCOMPARE(economy.storage().harvestCounts.value(wheat), 1);
+}
+
+void EconomyTests::suppliesInStorageStaySeparate() {
+    EconomyService economy;
+    auto state = economy.state();
+    state.coins = 20;
+    state.fertilizerCount = 2;
+    QVERIFY(economy.restore(state));
+    QVERIFY(economy.collectHarvest(CropType::Wheat, 12));
+    QVERIFY(economy.transfer(StorageItemKind::Seed, CropType::Wheat, StorageDirection::Deposit, 6).success);
+    QVERIFY(economy.transfer(StorageItemKind::Fertilizer, CropType::None, StorageDirection::Deposit, 2).success);
+    QVERIFY(!economy.plantWithSeed(CropType::Wheat, [] { return true; }));
+    QVERIFY(!economy.fertilizeWithItem([] { return true; }));
+    QVERIFY(economy.buySeeds(CropType::Wheat, 1).success);
+    QVERIFY(economy.buyFertilizer(1).success);
+    QCOMPARE(economy.storage().seedCounts.value(static_cast<int>(CropType::Wheat)), 6);
+    QCOMPARE(economy.storage().fertilizerCount, 2);
+    QVERIFY(economy.plantWithSeed(CropType::Wheat, [&] {
+        return !economy.transfer(StorageItemKind::Seed, CropType::Wheat, StorageDirection::Deposit, 1).success;
+    }));
+    QVERIFY(economy.transfer(StorageItemKind::Seed, CropType::Wheat, StorageDirection::Withdraw, 6).success);
+    QVERIFY(economy.transfer(StorageItemKind::Fertilizer, CropType::None, StorageDirection::Withdraw, 2).success);
+    QCOMPARE(economy.seedCount(CropType::Wheat), 6);
+    QCOMPARE(economy.fertilizerCount(), 3);
+    QCOMPARE(economy.inventory().usedCapacity(), 12);
+    QCOMPARE(economy.coins(), 17);
+}
+
+void EconomyTests::invalidTransfersPreserveBalances() {
+    EconomyService economy;
+    const int wheat = static_cast<int>(CropType::Wheat);
+    auto state = economy.state();
+    state.storage.harvestCounts[wheat] = maxCount;
+    state.storage.seedCounts[wheat] = maxCount;
+    state.storage.fertilizerCount = maxCount;
+    state.fertilizerCount = 1;
+    state.inventoryCounts[wheat] = 1;
+    QVERIFY(economy.restore(state));
+    QVERIFY(!economy.transfer(StorageItemKind::Harvest, CropType::Wheat, StorageDirection::Deposit, 1).success);
+    QVERIFY(!economy.transfer(StorageItemKind::Seed, CropType::Wheat, StorageDirection::Withdraw, maxCount).success);
+    QVERIFY(!economy.transfer(StorageItemKind::Fertilizer, CropType::None, StorageDirection::Deposit, 1).success);
+    QVERIFY(!economy.transfer(StorageItemKind::Seed, CropType::Wheat, StorageDirection::Deposit, 0).success);
+    QVERIFY(!economy.transfer(StorageItemKind::Harvest, CropType::None, StorageDirection::Deposit, 1).success);
+    QVERIFY(!economy.transfer(StorageItemKind::Fertilizer, CropType::Wheat, StorageDirection::Deposit, 1).success);
+    auto invalid = state;
+    invalid.storage.seedCounts.insert(999, 1);
+    QVERIFY(!economy.restore(invalid));
+    QCOMPARE(economy.storage().harvestCounts, state.storage.harvestCounts);
+    QCOMPARE(economy.storage().seedCounts, state.storage.seedCounts);
+    QCOMPARE(economy.storage().fertilizerCount, maxCount);
+    QCOMPARE(economy.inventory().counts(), state.inventoryCounts);
+    QCOMPARE(economy.seedCount(CropType::Wheat), 6);
+    QCOMPARE(economy.fertilizerCount(), 1);
 }
 
 QTEST_APPLESS_MAIN(EconomyTests)

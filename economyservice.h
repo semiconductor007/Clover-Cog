@@ -28,12 +28,27 @@ struct SeedPurchaseResult {
     SeedPurchaseFailure failure = SeedPurchaseFailure::None;
 };
 
+enum class StorageItemKind { Harvest, Seed, Fertilizer };
+enum class StorageDirection { Deposit, Withdraw };
+
+struct StorageStock {
+    QHash<int, int> harvestCounts;
+    QHash<int, int> seedCounts;
+    int fertilizerCount = 0;
+};
+
+struct StorageTransferResult {
+    bool success = false;
+    QString message;
+};
+
 struct EconomyState {
     int coins = 0;
     int inventoryCapacity = 0;
     QHash<int, int> inventoryCounts;
     QHash<int, int> seedCounts;
     int fertilizerCount = 0;
+    StorageStock storage;
 };
 
 class EconomyService {
@@ -46,6 +61,9 @@ public:
     int coins() const { return m_coins; }
     int seedCount(CropType type) const;
     int fertilizerCount() const { return m_fertilizerCount; }
+    const StorageStock &storage() const { return m_storage; }
+    StorageTransferResult transfer(StorageItemKind kind, CropType crop,
+                                   StorageDirection direction, int quantity);
 
     bool collectHarvest(CropType type, int quantity);
     bool plantWithSeed(CropType type, const std::function<bool()> &plantAction);
@@ -63,6 +81,7 @@ private:
     int m_coins = 0;
     QHash<int, int> m_seedCounts;
     int m_fertilizerCount = 0;
+    StorageStock m_storage;
     bool m_applyingItem = false;
 };
 
