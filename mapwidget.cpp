@@ -74,7 +74,7 @@ void MapWidget::paintEvent(QPaintEvent *event) {
 
     const auto drawInteractionArea =
         [this, &painter](const QRect &tileArea, const QColor &tint,
-                         const QString &text) {
+                         const QString &text, bool labelBelow = false) {
         if (tileArea.isEmpty() || m_tileWidth <= 0 || m_tileHeight <= 0) {
             return;
         }
@@ -91,8 +91,9 @@ void MapWidget::paintEvent(QPaintEvent *event) {
         QFont labelFont = painter.font();
         labelFont.setPixelSize(8);
         painter.setFont(labelFont);
-        const QRect labelRect(screenRect.center().x() - 36,
-                              screenRect.top() - 12, 72, 12);
+        const int labelWidth = painter.fontMetrics().horizontalAdvance(text) + 8;
+        const int labelTop = labelBelow ? screenRect.bottom() + 1 : screenRect.top() - 12;
+        const QRect labelRect(screenRect.center().x() - labelWidth / 2, labelTop, labelWidth, 12);
         painter.fillRect(labelRect, QColor(76, 48, 30, 220));
         painter.setPen(Qt::white);
         painter.drawText(labelRect, Qt::AlignCenter, text);
@@ -103,7 +104,7 @@ void MapWidget::paintEvent(QPaintEvent *event) {
     drawInteractionArea(m_shopArea, QColor(114, 190, 255, 45),
                         QStringLiteral("商店 [E]"));
     drawInteractionArea(m_storageArea, QColor(135, 211, 173, 45),
-                        QStringLiteral("储物 [E]"));
+                        QStringLiteral("储物 [E]"), true);
     drawInteractionArea(m_bedArea, QColor(180, 130, 220, 45),
                         QStringLiteral("床铺 [E]"));
 }

@@ -156,7 +156,7 @@ FarmMenus::FarmMenus(const QPixmap &farm, QWidget *parent)
     auto *samples = new QHBoxLayout;
     samples->addWidget(sample(QStringLiteral("草地可翻"), ":/tilesets/sprout/Grass.png", {0,0,48,48}));
     samples->addWidget(sample(QStringLiteral("耕地可种"), ":/tilesets/sprout/Tilled_Dirt_Wide_v2.png", {0,0,48,48}, true));
-    samples->addWidget(sample(QStringLiteral("石路通行"), ":/tilesets/sprout/Stone_Path.png", {0,0,16,16}, true));
+    samples->addWidget(sample(QStringLiteral("石路通行"), ":/tilesets/sprout/Stone_Ground_Tiles.png", {0,0,48,48}, true));
     body->addLayout(samples);
     auto *tools = new QHBoxLayout;
     const QString icons = QStringLiteral(":/tilesets/sprout/Basic_tools_and_meterials.png");

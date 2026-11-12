@@ -61,6 +61,7 @@ private:
     void openInventory();
     void openSeedShop();
     void openMarket();
+    void openStorage();
     void showFarmPanel(QDialog *dialog);
     void refreshOpenPanel();
     void refreshGameplayInput();
@@ -87,6 +88,7 @@ private:
     QPointer<QWidget> m_panelFocusBeforeFade;
     bool m_transitionActive = false;
     const QRect m_marketArea{28, 18, 2, 2};
+    const QRect m_storageArea{31, 21, 1, 1};
     const QRect m_shopArea{33, 18, 2, 2};
     const QRect m_bedArea{25, 8, 2, 2};
     QWidget *m_gameCanvas;

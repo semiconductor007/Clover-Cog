@@ -448,7 +448,7 @@ void ClockUiTests::onlySuccessfulActionsPlaySounds() {
     QSignalSpy blocked(m_map, &MapWidget::harvestBlocked);
 
     const QPoint centre = bar->rect().center();
-    for (int i = 0; i < ToolCount && bar->selectedTool() != ToolType::WateringCan; ++i) {
+    for (int i = 0; i < ToolbarSlotCount && bar->selectedTool() != ToolType::WateringCan; ++i) {
         QWheelEvent wheel(centre, bar->mapToGlobal(centre), {}, QPoint(0, -120),
                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         QApplication::sendEvent(bar, &wheel);

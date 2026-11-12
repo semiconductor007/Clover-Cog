@@ -26,6 +26,7 @@ SOURCES += \
     rpg.cpp \
     savemanager.cpp \
     seedshopdialog.cpp \
+    storagedialog.cpp \
     worldstate.cpp
 
 HEADERS += \
@@ -48,6 +49,7 @@ HEADERS += \
     rpg.h \
     savemanager.h \
     seedshopdialog.h \
+    storagedialog.h \
     tooltype.h \
     worldstate.h
 

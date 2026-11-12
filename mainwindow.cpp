@@ -5,10 +5,10 @@
 #include "marketdialog.h"
 #include "scenetransition.h"
 #include "seedshopdialog.h"
+#include "storagedialog.h"
 
 #include <QAudioOutput>
 #include <QCloseEvent>
-#include <QFileInfo>
 #include <QFrame>
 #include <QGraphicsProxyWidget>
 #include <QHBoxLayout>
@@ -30,13 +30,6 @@ constexpr int MapHeight = 320;
 constexpr int FooterHeight = 68;
 constexpr int CanvasHeight = HeaderHeight + MapHeight + FooterHeight;
 
-QString preferredFarmPath() {
-    for (const auto &path : {SaveManager::defaultSavePath(), SaveManager::legacySavePath()}) {
-        if (QFileInfo::exists(path) || QFileInfo::exists(path + QStringLiteral(".bak")))
-            return path;
-    }
-    return {};
-}
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -80,6 +73,7 @@ MainWindow::MainWindow(QWidget *parent)
         qCritical() << "Unable to initialize the game map";
     }
     mapWidget->setMarketArea(m_marketArea);
+    mapWidget->setStorageArea(m_storageArea);
     mapWidget->setShopArea(m_shopArea);
     mapWidget->setBedArea(m_bedArea);
     m_seasons.load(mapWidget->originalTilesets());
@@ -197,10 +191,12 @@ MainWindow::MainWindow(QWidget *parent)
             openSeedShop();
         } else if (m_marketArea.contains(playerTile)) {
             openMarket();
+        } else if (m_storageArea.contains(playerTile)) {
+            openStorage();
         } else if (m_bedArea.contains(playerTile)) {
             sleepUntilMorning();
         } else {
-            showStatus(QStringLiteral("站在商店、收购点或床边按 E"));
+            showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 E"));
         }
     });
     // MapWidget emits this only after both the world action and the inventory action commit.
@@ -243,7 +239,7 @@ void MainWindow::showHome() {
     refreshGameplayInput();
     m_music->stop();
     m_pages->setCurrentWidget(m_menus);
-    const QString source = preferredFarmPath();
+    const QString source = SaveManager::preferredSavePath();
     GameSaveData preview;
     QString used;
     const bool canContinue = readFarmSave(source, &preview, &used);
@@ -507,6 +503,23 @@ void MainWindow::openMarket() {
     showFarmPanel(dialog);
 }
 
+void MainWindow::openStorage() {
+    auto *dialog = new StorageDialog(this);
+    connect(dialog, &StorageDialog::transferRequested, this,
+            [this, dialog](StorageItemKind kind, CropType crop, StorageDirection direction, int quantity) {
+        if (!m_storageArea.contains(character->currentTilePosition())) {
+            dialog->setMessage(QStringLiteral("请到储物箱前存取"));
+            return;
+        }
+        const auto result = m_economy.transfer(kind, crop, direction, quantity);
+        if (result.success)
+            finishTrade(dialog, result.message);
+        else
+            dialog->setMessage(result.message);
+    });
+    showFarmPanel(dialog);
+}
+
 void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
     updateHud();
     refreshOpenPanel();
@@ -545,6 +558,8 @@ void MainWindow::refreshOpenPanel() {
         shop->setState(m_economy);
     } else if (auto *market = qobject_cast<MarketDialog *>(m_panelOpen.data())) {
         market->setState(m_economy);
+    } else if (auto *storage = qobject_cast<StorageDialog *>(m_panelOpen.data())) {
+        storage->setState(m_economy);
     }
 }
 
@@ -601,7 +616,7 @@ bool MainWindow::readFarmSave(const QString &source, GameSaveData *data, QString
 }
 
 void MainWindow::loadGame() {
-    const QString source = preferredFarmPath();
+    const QString source = SaveManager::preferredSavePath();
     if (source.isEmpty()) {
         showStatus(QStringLiteral("WASD 移动，滚轮选工具。Tab 背包，Esc 暂停。"));
         return;
@@ -637,13 +652,13 @@ bool MainWindow::restoreGame(const GameSaveData &data) {
         return false;
     }
     EconomyService candidate;
-    if (!candidate.restore(data.economy) || !mapWidget->restoreWorld(data.world)) {
+    if (!candidate.restore(data.economy) || !mapWidget->restoreWorld(data.world) ||
+        !character->restorePosition(data.playerPosition)) {
         return false;
     }
     m_economy = std::move(candidate);
     m_gameClock.setElapsedGameMinutes(data.gameMinutes);
     m_lastProcessedDay = data.lastProcessedDay;
-    character->setInitialPosition(data.playerPosition);
     return true;
 }
 
