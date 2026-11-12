@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QTabBar>
@@ -79,6 +80,8 @@ private slots:
     void cleanup();
     void homeGuideLeavesFilesUntouched();
     void pauseSaveFailureStaysInFarm();
+    void closeSaveFailure_data();
+    void closeSaveFailure();
     void unsupportedLegacyFilesRemainAlongsideNewGame();
     void migrateVersionTwo_data();
     void migrateVersionTwo();
@@ -175,6 +178,68 @@ void GameplayPanelTests::pauseSaveFailureStaysInFarm() {
     QVERIFY(leave->isVisible());
     QVERIFY(game.findChild<QLabel *>("pauseNotice")->text().contains(QStringLiteral("未能保存")));
     QCOMPARE(readBytes(path()), QByteArray("{torn"));
+}
+
+void GameplayPanelTests::closeSaveFailure_data() {
+    QTest::addColumn<bool>("paused");
+    QTest::addColumn<bool>("discard");
+    QTest::newRow("stay-playing") << false << false;
+    QTest::newRow("stay-paused") << true << false;
+    QTest::newRow("discard-playing") << false << true;
+    QTest::newRow("discard-paused") << true << true;
+}
+
+void GameplayPanelTests::closeSaveFailure() {
+    QFETCH(bool, paused);
+    QFETCH(bool, discard);
+    QVERIFY(SaveManager::save(path(), m_fixture));
+    const QByteArray original = readBytes(path());
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    auto *view = game.findChild<QGraphicsView *>();
+    auto *resume = game.findChild<QPushButton *>("resumeFarm");
+    QVERIFY(map && view && resume);
+
+    if (paused) QTest::keyClick(view, Qt::Key_Escape);
+    QCOMPARE(resume->isVisible(), paused);
+    const QString backup = path() + ".bak";
+    QVERIFY(QFile::remove(backup));
+    // A directory in place of the backup makes the atomic write fail even as an administrator.
+    QVERIFY(QDir().mkdir(backup));
+    QVERIFY(!game.close());
+    auto *question = game.findChild<QMessageBox *>("closeSaveFailure");
+    QVERIFY(question && question->isVisible());
+    QVERIFY(map->isInputBlocked());
+    QVERIFY(!game.close());
+    QCOMPARE(game.findChildren<QMessageBox *>("closeSaveFailure").size(), 1);
+    const int minuteAtPrompt = game.currentGameMinute();
+    QTest::qWait(1100);
+    QCOMPARE(game.currentGameMinute(), minuteAtPrompt);
+
+    QVERIFY(QDir().rmdir(backup));
+    auto *choice = question->findChild<QPushButton *>(discard ? "discardAndQuit" : "keepFarmOpen");
+    QVERIFY(choice);
+    QTest::mouseClick(choice, Qt::LeftButton);
+    QTRY_VERIFY(!QApplication::activeModalWidget());
+    QCOMPARE(game.isVisible(), !discard);
+    QVERIFY(!QFileInfo::exists(backup)); // Neither decision performs an extra save.
+    QCOMPARE(readBytes(path()), original);
+    if (discard) return;
+    QCOMPARE(resume->isVisible(), paused);
+    QCOMPARE(map->isInputBlocked(), paused);
+    if (paused) {
+        QTest::qWait(1100);
+        QCOMPARE(game.currentGameMinute(), minuteAtPrompt);
+        QTest::keyClick(resume, Qt::Key_Escape);
+        QVERIFY(!map->isInputBlocked());
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(game.currentGameMinute() != minuteAtPrompt, 2000);
+    QVERIFY(game.close());
+    GameSaveData last;
+    QVERIFY(SaveManager::load(path(), &last));
+    QCOMPARE(last.gameMinutes % 60, game.currentGameMinute());
+    QVERIFY(SaveManager::load(backup, &last));
 }
 
 void GameplayPanelTests::unsupportedLegacyFilesRemainAlongsideNewGame() {

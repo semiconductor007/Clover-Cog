@@ -22,6 +22,7 @@ class QDialog;
 class FarmMenus;
 class QStackedWidget;
 class QMediaPlayer;
+class QMessageBox;
 class QTimer;
 class SceneTransition;
 
@@ -52,7 +53,7 @@ private:
     void resumeFarm();
     void showHome();
     bool readFarmSave(const QString &source, GameSaveData *data, QString *loadedPath) const;
-    void applyClock(ClockEvent event);
+    bool applyClock(ClockEvent event);
     DayAdvanceResult processDayTransitions();
     void presentTime();
     void updateGameScale();
@@ -85,6 +86,8 @@ private:
     bool m_saveEnabled = true;
     EconomyService m_economy;
     QPointer<QDialog> m_panelOpen;
+    QPointer<QMessageBox> m_closePrompt;
+    bool m_discardOnClose = false;
     QPointer<QWidget> m_panelFocusBeforeFade;
     bool m_transitionActive = false;
     const QRect m_marketArea{28, 18, 2, 2};
