@@ -34,6 +34,9 @@ public:
     int currentGameDay() const { return int(m_committedMinutes / (24 * 60)); }
     int currentGameMinute() const { return int(m_committedMinutes % 60); }
 
+signals:
+    void wakeSaved();
+
 private slots:
     void updateTime();
     void sleepUntilMorning();
