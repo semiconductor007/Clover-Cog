@@ -10,6 +10,8 @@
 
 季节资源用到的七张原图见 [SEASON_ASSETS](SEASON_ASSETS.md)。新增加的是颜色映射及少量矩形像素装饰，没有复制整套图包。`resources/seasons/NOTICE.txt` 保留署名：Assets -From : Sprout Lands -By : Cup Nooble。来源文件与完整说明继续保留；原 Premium 地图包的购买凭证应由持有人保存，本次没有核验或代替其购买记录。
 
+11 月 12 日修改了广场和道路。石质铺面取自同包的 `Stone_Ground_Tiles.png`，林间踏石取自 `Stone_Path.png`，围栏沿用 `Fences.png`。三者均出自 Cup Nooble，沿用上面的地图素材许可。
+
 ## Sprout Lands UI
 
 UI 由 Cup Nooble 制作。Basic 素材沿用[随包说明](../sprout/Sprout%20Lands%20-%20UI%20Pack%20-%20Basic%20pack/read_me.txt)。项目负责人已确认购买 Premium UI，本轮工具栏选用了其中一张物品格图集，原始压缩包与其解压目录保存在本机。[作者页面](https://cupnooble.itch.io/sprout-lands-ui-pack) · [随选用图集保留的署名及许可](../resources/ui/NOTICE.txt)
