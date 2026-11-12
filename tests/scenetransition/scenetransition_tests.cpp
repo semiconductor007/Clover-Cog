@@ -1,4 +1,4 @@
-#include "scenetransition.h"
+#include "ui/scenetransition.h"
 
 #include <QtTest>
 #include <QTimer>

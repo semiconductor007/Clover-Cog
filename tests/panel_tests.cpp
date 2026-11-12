@@ -1,11 +1,14 @@
-#include "inventorydialog.h"
-#include "marketdialog.h"
-#include "seedshopdialog.h"
+#include "ui/inventorydialog.h"
+#include "ui/marketdialog.h"
+#include "ui/seedshopdialog.h"
+#include "ui/storagedialog.h"
 
 #include <QApplication>
 #include <QListWidget>
+#include <QSpinBox>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QtTest>
 
 class PanelTests : public QObject {
@@ -15,6 +18,7 @@ private slots:
     void bagMouseAndCloseKeys();
     void shopOrders();
     void marketQuoteAndSale();
+    void storageTransfersAndFailureFeedback();
 };
 
 void PanelTests::bagSelectionAndRefresh() {
@@ -137,7 +141,13 @@ void PanelTests::marketQuoteAndSale() {
     auto *sell = market.findChild<QPushButton *>("sellAll");
     QVERIFY(total && sell);
     QVERIFY(total->text().contains(QStringLiteral("共 8 份    合计 28 金币")));
-    QCOMPARE(market.findChild<QLabel *>("subtotal_potato")->text(), QStringLiteral("9 金币"));
+    auto *quantity = market.findChild<QSpinBox *>("sellQuantity_potato");
+    auto *sellPotatoes = market.findChild<QPushButton *>("sell_potato");
+    QVERIFY(quantity && sellPotatoes);
+    quantity->stepUp();
+    market.setState(economy);
+    QCOMPARE(quantity->value(), 2);
+    QCOMPARE(sellPotatoes->text(), QStringLiteral("卖出 · 6 金币"));
     QSignalSpy sold(&market, &MarketDialog::saleRequested);
     connect(&market, &MarketDialog::saleRequested, &market, [&] {
         QVERIFY(economy.sellAll({1, 1}, {1, 1, 1, 1}).success);
@@ -152,6 +162,58 @@ void PanelTests::marketQuoteAndSale() {
     QCOMPARE(economy.coins(), 28);
     QVERIFY(!sell->isEnabled());
     QVERIFY(total->text().contains(QStringLiteral("合计 0 金币")));
+}
+
+void PanelTests::storageTransfersAndFailureFeedback() {
+    EconomyService economy;
+    auto state = economy.state();
+    const int wheat = static_cast<int>(CropType::Wheat);
+    state.inventoryCounts[wheat] = 11;
+    state.storage.harvestCounts[wheat] = 2;
+    QVERIFY(economy.restore(state));
+    StorageDialog storage;
+    storage.setState(economy);
+    auto *rows = storage.findChild<QTableWidget *>("storageRows");
+    auto *one = storage.findChild<QPushButton *>("withdrawOne");
+    auto *all = storage.findChild<QPushButton *>("withdrawAll");
+    auto *depositOne = storage.findChild<QPushButton *>("depositOne");
+    auto *depositAll = storage.findChild<QPushButton *>("depositAll");
+    auto *message = storage.findChild<QLabel *>("panelMessage");
+    QVERIFY(rows && one && all && depositOne && depositAll && message);
+    connect(&storage, &StorageDialog::transferRequested, &storage,
+            [&](StorageItemKind kind, CropType crop, StorageDirection direction, int quantity) {
+        const auto result = economy.transfer(kind, crop, direction, quantity);
+        storage.setState(economy);
+        storage.setMessage(result.message);
+    });
+    QSignalSpy transfers(&storage, &StorageDialog::transferRequested);
+    storage.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&storage));
+    QTest::mouseClick(all, Qt::LeftButton);
+    QVERIFY(message->text().contains(QStringLiteral("只剩 1 格")));
+    QCOMPARE(rows->item(0, 1)->text(), QStringLiteral("11"));
+    QCOMPARE(rows->item(0, 2)->text(), QStringLiteral("2"));
+    QTest::mouseClick(one, Qt::LeftButton);
+    QCOMPARE(rows->item(0, 1)->text(), QStringLiteral("12"));
+    QCOMPARE(rows->item(0, 2)->text(), QStringLiteral("1"));
+    QTest::keyClick(depositAll, Qt::Key_Return);
+    QCOMPARE(rows->item(0, 2)->text(), QStringLiteral("13"));
+    QVERIFY(!depositAll->isEnabled());
+    QCOMPARE(transfers.count(), 3);
+    QTest::mouseClick(depositAll, Qt::LeftButton);
+    QCOMPARE(transfers.count(), 3);
+
+    const auto seeds = rows->findItems(QStringLiteral("小麦种子"), Qt::MatchExactly);
+    QCOMPARE(seeds.size(), 1);
+    QTest::mouseClick(rows->viewport(), Qt::LeftButton, Qt::NoModifier, rows->visualItemRect(seeds.first()).center());
+    QTest::mouseClick(depositOne, Qt::LeftButton);
+    QCOMPARE(economy.seedCount(CropType::Wheat), 5);
+    QCOMPARE(economy.storage().seedCounts.value(wheat), 1);
+    QKeyEvent repeated(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, QString(), true);
+    QApplication::sendEvent(depositOne, &repeated);
+    QCOMPARE(transfers.count(), 4);
+    QTest::keyClick(depositOne, Qt::Key_Escape);
+    QVERIFY(!storage.isVisible());
 }
 
 QTEST_MAIN(PanelTests)

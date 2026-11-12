@@ -1,7 +1,7 @@
-#include "cropdefinition.h"
-#include "mapdata.h"
-#include "maprenderer.h"
-#include "worldstate.h"
+#include "farm/cropdefinition.h"
+#include "map/mapdata.h"
+#include "map/maprenderer.h"
+#include "farm/worldstate.h"
 
 #include <QCommandLineParser>
 #include <QCryptographicHash>

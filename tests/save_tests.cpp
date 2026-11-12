@@ -1,9 +1,10 @@
-#include "savemanager.h"
+#include "storage/savemanager.h"
 
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -51,6 +52,10 @@ class SaveTests : public QObject {
 private slots:
     void fertilizerRoundTrip();
     void missingV2StockMigratesWithoutWritingLegacy();
+    void migrateV3AndRoundTripStorage();
+    void newestGenerationWithEitherCopyTakesPriority();
+    void invalidStorageIsRejected_data();
+    void invalidStorageIsRejected();
     void invalidV3StockRejected_data();
     void invalidV3StockRejected();
     void backupSurvivesUnreadablePrimary();
@@ -93,7 +98,8 @@ void SaveTests::missingV2StockMigratesWithoutWritingLegacy() {
     QVERIFY(dir.isValid());
     const QFileInfo current(SaveManager::defaultSavePath());
     const QFileInfo legacy(SaveManager::legacySavePath());
-    QCOMPARE(current.fileName(), QStringLiteral("farm-v3.json"));
+    QCOMPARE(current.fileName(), QStringLiteral("farm-v4.json"));
+    QCOMPARE(QFileInfo(SaveManager::previousSavePath()).fileName(), QStringLiteral("farm-v3.json"));
     QCOMPARE(legacy.fileName(), QStringLiteral("savegame.json"));
     QCOMPARE(current.absolutePath(), legacy.absolutePath());
     const QString currentPath = dir.filePath(current.fileName());
@@ -105,12 +111,15 @@ void SaveTests::missingV2StockMigratesWithoutWritingLegacy() {
     v2.insert("schemaVersion", 2);
     auto economy = v2.value("economy").toObject();
     economy.remove("fertilizerCount");
+    economy.remove("storage");
     v2.insert("economy", economy);
     const QByteArray previous = QJsonDocument(v2).toJson();
     QVERIFY(writeFile(legacyPath, previous));
     GameSaveData loaded;
     QVERIFY(SaveManager::load(legacyPath, &loaded));
     QCOMPARE(loaded.economy.fertilizerCount, 0);
+    QCOMPARE(loaded.economy.storage.fertilizerCount, 0);
+    QVERIFY(loaded.economy.storage.harvestCounts.isEmpty());
     QVERIFY(loaded.world.crops.first().fertilizerBonusPending);
     QVERIFY(SaveManager::save(currentPath, loaded));
     QCOMPARE(readFile(legacyPath), previous);
@@ -123,6 +132,120 @@ void SaveTests::missingV2StockMigratesWithoutWritingLegacy() {
     QVERIFY(!SaveManager::load(legacyPath, &loaded));
     QVERIFY(SaveManager::save(currentPath, newFarm()));
     QCOMPARE(readFile(legacyPath), v1);
+}
+
+void SaveTests::migrateV3AndRoundTripStorage() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString current = dir.filePath("farm-v4.json");
+    const QString old = dir.filePath("farm-v3.json");
+    const QString fixture = dir.filePath("sample.json");
+    QVERIFY(SaveManager::save(fixture, newFarm()));
+    auto root = QJsonDocument::fromJson(readFile(fixture)).object();
+    root["schemaVersion"] = 3;
+    auto economy = root["economy"].toObject();
+    economy.remove("storage");
+    root["economy"] = economy;
+    const QByteArray v3 = QJsonDocument(root).toJson();
+    QVERIFY(writeFile(old, v3));
+    QVERIFY(writeFile(old + ".bak", v3));
+    GameSaveData loaded;
+    QVERIFY(SaveManager::load(old, &loaded));
+    QCOMPARE(loaded.economy.fertilizerCount, 7);
+    QVERIFY(loaded.economy.storage.harvestCounts.isEmpty());
+    QVERIFY(loaded.economy.storage.seedCounts.isEmpty());
+    QCOMPARE(loaded.economy.storage.fertilizerCount, 0);
+
+    loaded.economy.storage.seedCounts.insert(static_cast<int>(CropType::Wheat), 3);
+    loaded.economy.storage.harvestCounts.insert(static_cast<int>(CropType::Carrot), 120);
+    loaded.economy.storage.fertilizerCount = 5;
+    QVERIFY(SaveManager::save(current, loaded));
+    QCOMPARE(readFile(old), v3);
+    QCOMPARE(readFile(old + ".bak"), v3);
+    GameSaveData restored;
+    QVERIFY(SaveManager::load(current, &restored));
+    QCOMPARE(restored.economy.storage.harvestCounts, loaded.economy.storage.harvestCounts);
+    QCOMPARE(restored.economy.storage.seedCounts, loaded.economy.storage.seedCounts);
+    QCOMPARE(restored.economy.storage.fertilizerCount, 5);
+    QCOMPARE(restored.economy.inventoryCapacity, 12);
+}
+
+void SaveTests::newestGenerationWithEitherCopyTakesPriority() {
+    const QString previousName = QCoreApplication::applicationName();
+    const auto resetName = qScopeGuard([previousName] { QCoreApplication::setApplicationName(previousName); });
+    QCoreApplication::setApplicationName(QStringLiteral("CloverCog-storage-location-test"));
+    const QDir parent = QFileInfo(QFileInfo(SaveManager::defaultSavePath()).absolutePath()).dir();
+    QVERIFY(parent.mkpath(QStringLiteral(".")));
+    QTemporaryDir dir(parent.filePath(QStringLiteral("CloverCog-storage-test-XXXXXX")));
+    QVERIFY(dir.isValid());
+    QCoreApplication::setApplicationName(QFileInfo(dir.path()).fileName());
+    const QString current = SaveManager::defaultSavePath();
+    const QString previous = SaveManager::previousSavePath();
+    const QString legacy = SaveManager::legacySavePath();
+    for (const QString &path : {current, previous, legacy})
+        QCOMPARE(QFileInfo(path).absolutePath(), dir.path());
+    QVERIFY(SaveManager::preferredSavePath().isEmpty());
+    QVERIFY(writeFile(legacy + ".bak", "validity checked after selection"));
+    QCOMPARE(SaveManager::preferredSavePath(), legacy);
+    QVERIFY(writeFile(previous, "v3"));
+    QCOMPARE(SaveManager::preferredSavePath(), previous);
+    QVERIFY(writeFile(current + ".bak", "damaged"));
+    QCOMPARE(SaveManager::preferredSavePath(), current);
+    QVERIFY(writeFile(current, "damaged"));
+    QVERIFY(QFile::remove(current + ".bak"));
+    QCOMPARE(SaveManager::preferredSavePath(), current);
+}
+
+void SaveTests::invalidStorageIsRejected_data() {
+    QTest::addColumn<QJsonValue>("badStorage");
+    const QJsonObject valid{{"harvest", QJsonObject()}, {"seeds", QJsonObject()}, {"fertilizerCount", 0}};
+    QTest::newRow("missing") << QJsonValue(QJsonValue::Undefined);
+    QTest::newRow("not-an-object") << QJsonValue("wheat");
+    auto bad = valid;
+    bad.remove("seeds");
+    QTest::newRow("missing-seeds") << QJsonValue(bad);
+    bad = valid;
+    bad.insert("harvest", QJsonObject{{"unknown", 3}});
+    QTest::newRow("unknown-crop") << QJsonValue(bad);
+    bad = valid;
+    bad.insert("seeds", QJsonObject{{"potato", -1}});
+    QTest::newRow("negative") << QJsonValue(bad);
+    bad = valid;
+    bad.insert("fertilizerCount", 2147483648.0);
+    QTest::newRow("overflow") << QJsonValue(bad);
+    bad.insert("fertilizerCount", 1.5);
+    QTest::newRow("fractional") << QJsonValue(bad);
+    bad = valid;
+    bad.insert("unknown-category", QJsonObject{{"wheat", 5}});
+    QTest::newRow("unknown-category") << QJsonValue(bad);
+}
+
+void SaveTests::invalidStorageIsRejected() {
+    QFETCH(QJsonValue, badStorage);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("farm-v4.json");
+    GameSaveData original = newFarm();
+    original.economy.storage.fertilizerCount = 43;
+    QVERIFY(SaveManager::save(path, original));
+    const QByteArray valid = readFile(path + ".bak");
+    auto broken = QJsonDocument::fromJson(valid).object();
+    auto economy = broken["economy"].toObject();
+    economy.insert("storage", badStorage);
+    broken["economy"] = economy;
+    const auto invalid = QJsonDocument(broken).toJson();
+    QVERIFY(writeFile(path, invalid));
+    auto loaded = original;
+    QVERIFY(!SaveManager::load(path, &loaded));
+    QCOMPARE(loaded.economy.storage.fertilizerCount, 43);
+    QVERIFY(SaveManager::load(path + ".bak", &loaded));
+    QVERIFY(SaveManager::save(path, loaded));
+    QCOMPARE(readFile(path + ".bak"), valid);
+    QVERIFY(writeFile(path, invalid));
+    QVERIFY(writeFile(path + ".bak", invalid));
+    QVERIFY(!SaveManager::save(path, loaded));
+    QCOMPARE(readFile(path), invalid);
+    QCOMPARE(readFile(path + ".bak"), invalid);
 }
 
 void SaveTests::invalidV3StockRejected_data() {
@@ -141,7 +264,9 @@ void SaveTests::invalidV3StockRejected() {
     const QString path = dir.filePath("farm.json");
     QVERIFY(SaveManager::save(path, newFarm()));
     auto root = QJsonDocument::fromJson(readFile(path)).object();
+    root.insert("schemaVersion", 3);
     auto economy = root.value("economy").toObject();
+    economy.remove("storage");
     economy.insert("fertilizerCount", stock);
     root.insert("economy", economy);
     QVERIFY(writeFile(path, QJsonDocument(root).toJson()));
@@ -258,5 +383,5 @@ void SaveTests::rejectedSnapshotAndFailedBackupLeavePrimaryAlone() {
     QCOMPARE(readFile(path), original);
 }
 
-QTEST_APPLESS_MAIN(SaveTests)
+QTEST_GUILESS_MAIN(SaveTests)
 #include "save_tests.moc"

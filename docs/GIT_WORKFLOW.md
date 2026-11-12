@@ -49,7 +49,7 @@ main 保护建议：禁止强推、至少一名非作者批准、Windows 应用+
 
 | 文件 | 谁实际编辑 | 其他成员提供什么 | 合并检查 |
 | --- | --- | --- | --- |
-| CHECK.pro、tests/tests.pro | A | 新源文件/模块 .pri、需要的 Qt 模块、测试目标命令 | 既有目标不漏编、新文件不重复、测试 exe 都执行 |
+| CHECK.pro、src/game.pri、测试 .pro | A | 新源文件/模块 .pri、需要的 Qt 模块、测试目标命令 | 既有目标不漏编、新文件不重复、测试 exe 都执行 |
 | 公共业务头/接口文档 | 对应文件主责 | 字段/签名 diff、消费者和存档影响、最小测试 | 消费方确认同一接口版本 |
 | MainWindow 组装 | D 完成背包/交易/保存后交 E 编辑时间/睡眠/HUD | B 提供作物/施肥规则；C 提供输入/缩放需求 | 生命周期、只连一次信号、无资产副本 |
 | character.qrc/资源 | A | 实体路径、稳定 alias、用途、切图坐标/来源 | rcc 和运行 URL、旧素材不丢 |
@@ -63,10 +63,10 @@ main 保护建议：禁止强推、至少一名非作者批准、Windows 应用+
 
 导致 main 集成失败时由 A 用新的 revert 提交回退问题合并，修复分支重新验证后再合；不 reset/force-push main。含存档版本变化的 PR 先确认旧程序能否读取新档；不能读则保留存档备份，优先兼容修复或明确阻止旧版本覆盖，不以删用户存档解决。
 
-## 已追踪本机文件与安全清理建议
+## 本机文件与版本管理
 
-Git 当前已经追踪 `CHECK.pro.user`、`map.tiled-session`、`map7.tiled-session`、`build/` 下 Qt 6.8.2 的缓存/对象/生成物，以及 `wav/Audacity_Installer_via_MuseHub.exe`。详见 DIRECTORY_STRUCTURE 的真实清单。.gitignore 已忽略 *.pro.user、*.tiled-session、build/、build_*/、*.exe，但忽略规则不会取消已有追踪。`build-readme-check/` 使用连字符，不匹配 build_*/，当前仍是未追踪目录。
+已将旧 Windows `build/` 的 538 个生成文件、`CHECK.pro.user`、两个 Tiled 会话和 `wav/Audacity_Installer_via_MuseHub.exe` 从共享文件中移出。整理时只取消 Git 追踪，本机原件保留，Git 历史未改写。Qt Creator 与 Tiled 各用各自的本机配置；共享 Tiled 工程 `.tiled-project` 继续追踪，游戏使用的音频也继续追踪。
 
-本轮全部保留。未来单独清理 PR：A 先列出 git ls-files 命中清单，C 查明资源是否引用安装程序或输出；保存本机配置/所需文件，再仅从索引取消指定缓存/配置/构建产物追踪，完善忽略规则。取消追踪不会自动清理历史 Git 体积，不为此重写远程历史；绝不把 wav/ 或全部 *.exe 一概当作可删素材。Tiled 工程 `.tiled-project` 与会话文件不同，保留项目配置。
+切换到整理版前，有自定义 Kit、会话或需保留的旧构建时，先自行备份。之后从仓库外的构建目录重新运行 qmake，不要复用指向旧源码位置的 Makefile。购买包原件放在已忽略的 `local-assets/`。新增源码进 [src](../src)，在 [共享构建清单](../src/game.pri) 登记。
 
 每个 Codex 在提交前比对 `git diff --name-only`、所有权、契约版本和 `git diff --check`；只显式 stage 本任务文件，不 `git add .` 把本地缓存混进去。

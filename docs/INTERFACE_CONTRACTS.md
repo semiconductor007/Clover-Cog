@@ -39,7 +39,7 @@
 
 - `Inventory` 负责容量、增加、扣除和恢复。
 - `EconomyService::collectHarvest()` 先检查容量，再一次性入包。
-- `EconomyService::sellAll()` 先检查收购点范围，再扣背包并增加金币。
+- `EconomyService::sellCrop(crop, quantity, playerTile, marketArea)` 按品种和数量卖出随身农产品，数量必须在 1 到背包实有份数之间；`sellAll()` 卖出全部随身农产品。两者均校验站点、库存与金币余额上限，成功后才扣货加钱，不动箱内物品。
 - `EconomyService::buySeeds()` 先检查金币和数量，失败时状态不变。
 - 工具、金币、种子和肥料不计入农产品背包容量。
 - D 背包面板读取同一库存，分类展示农产品/种子/肥料，选中只发选择意图，由 C 同步当前工具并在有效目标施用。面板不扣数量，不提供随地出售。

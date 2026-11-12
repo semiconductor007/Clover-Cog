@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <algorithm>
 #include <QAudioOutput>
 #include <QDialog>
 #include <QDir>
@@ -8,17 +9,19 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QStandardPaths>
+#include <QSpinBox>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QWheelEvent>
 #include <QTemporaryDir>
 #include <memory>
 
-#include "mainwindow.h"
-#include "mapdata.h"
-#include "savemanager.h"
+#include "app/mainwindow.h"
+#include "map/mapdata.h"
+#include "storage/savemanager.h"
 
 namespace {
 QByteArray readBytes(const QString &path) {
@@ -37,6 +40,10 @@ void showGame(MainWindow &game) {
     }
     game.show();
     game.activateWindow();
+    QCoreApplication::processEvents();
+    auto *enter = game.findChild<QPushButton *>("enterFarm");
+    QVERIFY(enter && enter->isVisible());
+    QTest::mouseClick(enter, Qt::LeftButton);
     QCoreApplication::processEvents();
 }
 
@@ -72,6 +79,10 @@ private slots:
     void initTestCase();
     void init();
     void cleanup();
+    void homeGuideLeavesFilesUntouched();
+    void pauseSaveFailureStaysInFarm();
+    void closeSaveFailure_data();
+    void closeSaveFailure();
     void unsupportedLegacyFilesRemainAlongsideNewGame();
     void migrateVersionTwo_data();
     void migrateVersionTwo();
@@ -79,6 +90,8 @@ private slots:
     void damagedCurrentFilesRemainUntouched();
     void buySelectAndUseFertilizer();
     void sellAtMarket();
+    void continueVersionThreeNextToNewFence();
+    void fullBackpackAtStorage();
     void newFarmFinancesItsNextCrop();
 
 private:
@@ -129,6 +142,105 @@ void GameplayPanelTests::init() {
 
 void GameplayPanelTests::cleanup() {
     m_directory.reset();
+}
+
+void GameplayPanelTests::homeGuideLeavesFilesUntouched() {
+    QVERIFY(SaveManager::save(path(), m_fixture));
+    const QByteArray before = readBytes(path());
+    const QByteArray backup = readBytes(path() + ".bak");
+    MainWindow game;
+    game.show();
+    auto *enter = game.findChild<QPushButton *>("enterFarm");
+    auto *guide = game.findChild<QPushButton *>("homeGuide");
+    auto *back = game.findChild<QPushButton *>("guideBack");
+    QVERIFY(enter && guide && back);
+    QCOMPARE(enter->text(), QStringLiteral("继续农场"));
+    QTest::mouseClick(guide, Qt::LeftButton);
+    QVERIFY(back->isVisible());
+    QTest::keyClick(back, Qt::Key_Escape);
+    QVERIFY(enter->isVisible());
+    QTest::mouseClick(game.findChild<QPushButton *>("exitGame"), Qt::LeftButton);
+    QVERIFY(!game.isVisible());
+    QCOMPARE(readBytes(path()), before);
+    QCOMPARE(readBytes(path() + ".bak"), backup);
+}
+
+void GameplayPanelTests::pauseSaveFailureStaysInFarm() {
+    QVERIFY(writeBytes(path(), "{torn"));
+    MainWindow game;
+    auto *notice = game.findChild<QLabel *>("homeNotice");
+    QVERIFY(notice && notice->text().contains(QStringLiteral("无法保存")));
+    showGame(game);
+    auto *view = game.findChild<QGraphicsView *>();
+    QTest::keyClick(view, Qt::Key_Escape);
+    auto *leave = game.findChild<QPushButton *>("saveReturnHome");
+    QVERIFY(leave && leave->isVisible());
+    QTest::mouseClick(leave, Qt::LeftButton);
+    QVERIFY(leave->isVisible());
+    QVERIFY(game.findChild<QLabel *>("pauseNotice")->text().contains(QStringLiteral("未能保存")));
+    QCOMPARE(readBytes(path()), QByteArray("{torn"));
+}
+
+void GameplayPanelTests::closeSaveFailure_data() {
+    QTest::addColumn<bool>("paused");
+    QTest::addColumn<bool>("discard");
+    QTest::newRow("stay-playing") << false << false;
+    QTest::newRow("stay-paused") << true << false;
+    QTest::newRow("discard-playing") << false << true;
+    QTest::newRow("discard-paused") << true << true;
+}
+
+void GameplayPanelTests::closeSaveFailure() {
+    QFETCH(bool, paused);
+    QFETCH(bool, discard);
+    QVERIFY(SaveManager::save(path(), m_fixture));
+    const QByteArray original = readBytes(path());
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    auto *view = game.findChild<QGraphicsView *>();
+    auto *resume = game.findChild<QPushButton *>("resumeFarm");
+    QVERIFY(map && view && resume);
+
+    if (paused) QTest::keyClick(view, Qt::Key_Escape);
+    QCOMPARE(resume->isVisible(), paused);
+    const QString backup = path() + ".bak";
+    QVERIFY(QFile::remove(backup));
+    // A directory in place of the backup makes the atomic write fail even as an administrator.
+    QVERIFY(QDir().mkdir(backup));
+    QVERIFY(!game.close());
+    auto *question = game.findChild<QMessageBox *>("closeSaveFailure");
+    QVERIFY(question && question->isVisible());
+    QVERIFY(map->isInputBlocked());
+    QVERIFY(!game.close());
+    QCOMPARE(game.findChildren<QMessageBox *>("closeSaveFailure").size(), 1);
+    const int minuteAtPrompt = game.currentGameMinute();
+    QTest::qWait(1100);
+    QCOMPARE(game.currentGameMinute(), minuteAtPrompt);
+
+    QVERIFY(QDir().rmdir(backup));
+    auto *choice = question->findChild<QPushButton *>(discard ? "discardAndQuit" : "keepFarmOpen");
+    QVERIFY(choice);
+    QTest::mouseClick(choice, Qt::LeftButton);
+    QTRY_VERIFY(!QApplication::activeModalWidget());
+    QCOMPARE(game.isVisible(), !discard);
+    QVERIFY(!QFileInfo::exists(backup)); // Neither decision performs an extra save.
+    QCOMPARE(readBytes(path()), original);
+    if (discard) return;
+    QCOMPARE(resume->isVisible(), paused);
+    QCOMPARE(map->isInputBlocked(), paused);
+    if (paused) {
+        QTest::qWait(1100);
+        QCOMPARE(game.currentGameMinute(), minuteAtPrompt);
+        QTest::keyClick(resume, Qt::Key_Escape);
+        QVERIFY(!map->isInputBlocked());
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(game.currentGameMinute() != minuteAtPrompt, 2000);
+    QVERIFY(game.close());
+    GameSaveData last;
+    QVERIFY(SaveManager::load(path(), &last));
+    QCOMPARE(last.gameMinutes % 60, game.currentGameMinute());
+    QVERIFY(SaveManager::load(backup, &last));
 }
 
 void GameplayPanelTests::unsupportedLegacyFilesRemainAlongsideNewGame() {
@@ -304,7 +416,11 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
 void GameplayPanelTests::sellAtMarket() {
     GameSaveData fixture = m_fixture;
     fixture.playerPosition = stationPosition(QPoint(28, 18));
-    fixture.economy.inventoryCounts[static_cast<int>(CropType::Wheat)] = 6;
+    const int wheat = static_cast<int>(CropType::Wheat);
+    const int beet = static_cast<int>(CropType::Beet);
+    fixture.economy.inventoryCounts[wheat] = 6;
+    fixture.economy.inventoryCounts[beet] = 1;
+    fixture.economy.storage.harvestCounts[beet] = 3;
     QVERIFY(SaveManager::save(path(), fixture));
     MainWindow game;
     showGame(game);
@@ -312,13 +428,132 @@ void GameplayPanelTests::sellAtMarket() {
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_E);
     QTRY_VERIFY(panel("marketDialog"));
     auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
+    auto *sellWheat = panel("marketDialog")->findChild<QPushButton *>("sell_wheat");
+    auto *sellBeet = panel("marketDialog")->findChild<QPushButton *>("sell_beet");
+    auto *quantity = panel("marketDialog")->findChild<QSpinBox *>("sellQuantity_wheat");
+    QVERIFY(sell && sellWheat && sellBeet && quantity);
+    GameSaveData sold;
+    QCOMPARE(quantity->value(), 1);
+    QCOMPARE(quantity->maximum(), 6);
+    quantity->setFocus();
+    quantity->selectAll();
+    QTest::keyClicks(quantity, "4");
+    QTest::keyClick(quantity, Qt::Key_Return);
+    QCOMPARE(sellWheat->text(), QStringLiteral("卖出 · 20 金币"));
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.coins, fixture.economy.coins);
+    QTest::mouseClick(sellWheat, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.inventoryCounts.value(wheat), 2);
+    QCOMPARE(sold.economy.inventoryCounts.value(beet), 1);
+    QCOMPARE(sold.economy.coins, fixture.economy.coins + 20);
+    QCOMPARE(quantity->maximum(), 2);
+    QCOMPARE(quantity->value(), 2);
+    QTest::mouseClick(sellBeet, Qt::LeftButton);
+    QVERIFY(!sellBeet->isEnabled());
+    QTest::mouseClick(sellBeet, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.inventoryCounts.value(wheat), 2);
+    QCOMPARE(sold.economy.inventoryCounts.value(beet), 0);
+    QCOMPARE(sold.economy.coins, fixture.economy.coins + 24);
+    QVERIFY(sell->isEnabled());
+    QTest::mouseClick(sell, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &sold));
+    QCOMPARE(sold.economy.coins, fixture.economy.coins + 34);
+    QCOMPARE(sold.economy.inventoryCounts.value(wheat), 0);
+    QCOMPARE(sold.economy.storage.harvestCounts.value(beet), 3);
+    for (CropType crop : CropCatalog::cropTypes()) {
+        const int id = static_cast<int>(crop);
+        QCOMPARE(sold.economy.seedCounts.value(id), fixture.economy.seedCounts.value(id));
+    }
+    QVERIFY(!sellWheat->isEnabled());
+    QVERIFY(!sell->isEnabled());
+}
+
+void GameplayPanelTests::continueVersionThreeNextToNewFence() {
+    GameSaveData before = m_fixture;
+    before.playerPosition = stationPosition({28, 14});
+    const QString sample = m_directory->filePath("old-fixture.json");
+    QVERIFY(SaveManager::save(sample, before));
+    QJsonObject legacy = QJsonDocument::fromJson(readBytes(sample)).object();
+    legacy["schemaVersion"] = 3;
+    QJsonObject assets = legacy["economy"].toObject();
+    assets.remove("storage");
+    legacy["economy"] = assets;
+    const QByteArray bytes = QJsonDocument(legacy).toJson();
+    QVERIFY(writeBytes(SaveManager::previousSavePath(), bytes));
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    auto *player = map->findChild<ImageMovementWidget *>();
+    QVERIFY(player);
+    const QPoint tile = player->currentTilePosition();
+    QVERIFY(tile != QPoint(28, 14));
+    QCOMPARE((tile - QPoint(28, 14)).manhattanLength(), 1);
+    QCOMPARE(map->collisionLayer().at(tile.y()).at(tile.x()), 0);
+    QVERIFY(game.close());
+    GameSaveData after;
+    QVERIFY(SaveManager::load(path(), &after));
+    QCOMPARE(after.playerPosition, player->absolutePosition());
+    QCOMPARE(after.economy.coins, before.economy.coins);
+    QCOMPARE(after.economy.storage.fertilizerCount, 0);
+    QCOMPARE(readBytes(SaveManager::previousSavePath()), bytes);
+}
+
+void GameplayPanelTests::fullBackpackAtStorage() {
+    const int wheat = static_cast<int>(CropType::Wheat);
+    GameSaveData before = m_fixture;
+    before.playerPosition = stationPosition({31, 21});
+    before.economy.inventoryCounts[wheat] = 11;
+    before.economy.storage.harvestCounts[wheat] = 2;
+    QVERIFY(SaveManager::save(path(), before));
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    auto *player = map->findChild<ImageMovementWidget *>();
+    QVERIFY(player);
+    QTest::keyClick(player, Qt::Key_E);
+    QTRY_VERIFY(panel("storageDialog"));
+    auto *dialog = panel("storageDialog");
+    auto *all = dialog->findChild<QPushButton *>("withdrawAll");
+    auto *one = dialog->findChild<QPushButton *>("withdrawOne");
+    QVERIFY(all && one && all->isEnabled() && one->isEnabled());
+    QTest::mouseClick(all, Qt::LeftButton);
+    const auto labels = dialog->findChildren<QLabel *>();
+    QVERIFY(std::any_of(labels.cbegin(), labels.cend(),
+                        [](QLabel *label) { return label->text().contains(QStringLiteral("只剩 1 格")); }));
+    GameSaveData after;
+    QVERIFY(SaveManager::load(path(), &after));
+    QCOMPARE(after.economy.inventoryCounts.value(wheat), 11);
+    QCOMPARE(after.economy.storage.harvestCounts.value(wheat), 2);
+    QTest::mouseClick(one, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &after));
+    QCOMPARE(after.economy.inventoryCounts.value(wheat), 12);
+    QCOMPARE(after.economy.storage.harvestCounts.value(wheat), 1);
+    dialog->close();
+    QVERIFY(game.close());
+
+    // The market sells only what the player carries, even after a reload.
+    after.playerPosition = stationPosition({28,18});
+    QVERIFY(SaveManager::save(path(), after));
+    MainWindow reopened;
+    showGame(reopened);
+    auto *marketMap = gameMap(reopened);
+    QVERIFY(marketMap);
+    auto *seller = marketMap->findChild<ImageMovementWidget *>();
+    QVERIFY(seller);
+    QTest::keyClick(seller, Qt::Key_E);
+    QTRY_VERIFY(panel("marketDialog"));
+    auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
     QVERIFY(sell && sell->isEnabled());
     QTest::mouseClick(sell, Qt::LeftButton);
-    GameSaveData sold;
-    QVERIFY(SaveManager::load(path(), &sold));
-    QCOMPARE(sold.economy.coins, fixture.economy.coins + 30);
-    QCOMPARE(sold.economy.inventoryCounts.value(static_cast<int>(CropType::Wheat)), 0);
-    QVERIFY(!sell->isEnabled());
+    QVERIFY(reopened.close());
+    QVERIFY(SaveManager::load(path(), &after));
+    QCOMPARE(after.economy.inventoryCounts.value(wheat), 0);
+    QCOMPARE(after.economy.storage.harvestCounts.value(wheat), 1);
+    QCOMPARE(after.economy.coins, before.economy.coins + 60);
 }
 
 void GameplayPanelTests::newFarmFinancesItsNextCrop() {
@@ -348,7 +583,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         return SaveManager::save(path(), state) && openFarm();
     };
     const auto wheelTo = [&](ToolType tool) {
-        for (int i = 0; i < 9 && bar->selectedTool() != tool; ++i) {
+        for (int i = 0; i < ToolbarSlotCount && bar->selectedTool() != tool; ++i) {
             const QPoint pos = bar->rect().center();
             QWheelEvent wheel(pos, bar->mapToGlobal(pos), {}, {0,-120},
                               Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
@@ -438,7 +673,43 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QCOMPARE(state.economy.inventoryCounts.value(static_cast<int>(CropType::Wheat)), 6);
     QCOMPARE(state.world.crops.size(), 0);
     QVERIFY(walkTo(Qt::Key_S, 18));
-    QVERIFY(walkTo(Qt::Key_D, 28));
+    // Visit the real chest from the farm, then return through the home screen.
+    QVERIFY(walkTo(Qt::Key_D, 30));
+    QVERIFY(walkTo(Qt::Key_S, 21));
+    QVERIFY(walkTo(Qt::Key_D, 31));
+    QVERIFY(pressGameKey(Qt::Key_E));
+    QTRY_VERIFY(panel("storageDialog"));
+    auto *deposit = panel("storageDialog")->findChild<QPushButton *>("depositAll");
+    QVERIFY(deposit && deposit->isEnabled());
+    QTest::mouseClick(deposit, Qt::LeftButton);
+    const int wheat = static_cast<int>(CropType::Wheat);
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.storage.harvestCounts.value(wheat), 6);
+    QCOMPARE(state.economy.inventoryCounts.value(wheat), 0);
+    QVERIFY(pressGameKey(Qt::Key_Escape));
+    QTRY_VERIFY(!panel("storageDialog") && !map->isInputBlocked());
+    QVERIFY(pressGameKey(Qt::Key_Escape));
+    auto *saveHome = game->findChild<QPushButton *>("saveReturnHome");
+    QTRY_VERIFY(saveHome && saveHome->isVisible());
+    QTest::mouseClick(saveHome, Qt::LeftButton);
+    auto *enter = game->findChild<QPushButton *>("enterFarm");
+    QTRY_VERIFY(enter && enter->isVisible());
+    QTest::mouseClick(enter, Qt::LeftButton);
+    QTRY_VERIFY(!map->isInputBlocked());
+    QCOMPARE(player->currentTilePosition(), QPoint(31,21));
+    QVERIFY(pressGameKey(Qt::Key_E));
+    QTRY_VERIFY(panel("storageDialog"));
+    auto *withdraw = panel("storageDialog")->findChild<QPushButton *>("withdrawAll");
+    QVERIFY(withdraw && withdraw->isEnabled());
+    QTest::mouseClick(withdraw, Qt::LeftButton);
+    QVERIFY(SaveManager::load(path(), &state));
+    QCOMPARE(state.economy.storage.harvestCounts.value(wheat), 0);
+    QCOMPARE(state.economy.inventoryCounts.value(wheat), 6);
+    QVERIFY(pressGameKey(Qt::Key_Escape));
+    QTRY_VERIFY(!panel("storageDialog"));
+    QVERIFY(walkTo(Qt::Key_A, 29)); // Leave enough space for the player's feet to clear the chest.
+    QVERIFY(walkTo(Qt::Key_W, 18));
+    QVERIFY(walkTo(Qt::Key_A, 28));
     QVERIFY(pressGameKey(Qt::Key_E));
     QTRY_VERIFY(panel("marketDialog"));
     auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");

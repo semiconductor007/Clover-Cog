@@ -61,7 +61,7 @@ A 地图初版提交为 ee0be11，已随 B 的 feature/b/crops-and-seasons 分�
 | Chest | 695 | 现有 `sprout/Chest.png` |
 | Water_Well | 785 | 现有 Premium 地图包的 Water well |
 
-保留素材原目录中的 Cup Nooble 署名和许可说明。已购 UI 包仍在仓库根目录 `Sprout Lands - UI Pack - Premium pack/`，200 个文件已完整解压；此次不把整个 UI 包加入 QRC，也未上传原始整包。D/C/E 可按 [素材盘点](ASSET_AUDIT.md) 继续选用。包内 5 个字体不含常用汉字区间，中文字体仍需另配。
+保留素材原目录中的 Cup Nooble 署名和许可说明。已购 UI 包保存在本机 `local-assets/Sprout Lands - UI Pack - Premium pack/`，200 个文件已完整解压；此次不把整个 UI 包加入 QRC，也未上传原始整包。D/C/E 可按 [素材盘点](ASSET_AUDIT.md) 继续选用。包内 5 个字体不含常用汉字区间，中文字体仍需另配。
 
 继续使用 [Tiled 1.11.2](https://github.com/mapeditor/tiled/releases/tag/v1.11.2)，直接打开 `map6.tmj`，也可先开 `map7.tiled-project` 再选择该地图。原地图和本轮前已有文档改动已保存到本机备份目录；个人设置及构建缓存均在仓库外。
 

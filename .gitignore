@@ -8,9 +8,11 @@
 # Build outputs
 build/
 build_*/
+build-*/
 debug/
 release/
 .qtc_clangd/
+.qmake.stash
 Makefile
 Makefile.*
 *.o
@@ -20,3 +22,8 @@ Makefile.*
 # Platform/editor noise
 .DS_Store
 Thumbs.db
+
+# Licensed source bundles kept on a developer's machine (game assets are explicit in QRC).
+/local-assets/
+/Sprout Lands - UI Pack - Premium pack/
+/Sprout Lands - UI Pack - Premium pack.zip

@@ -4,13 +4,13 @@ CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = season_preview
 
-INCLUDEPATH += ../..
+INCLUDEPATH += $$PWD/../../src
 SOURCES += main.cpp \
-    ../../mapdata.cpp \
-    ../../maprenderer.cpp \
-    ../../worldstate.cpp \
-    ../../cropdefinition.cpp \
-    ../../seasoncalendar.cpp
-HEADERS += ../../mapdata.h ../../maprenderer.h ../../worldstate.h \
-    ../../cropdefinition.h ../../seasoncalendar.h ../../gameconstants.h
+    $$PWD/../../src/map/mapdata.cpp \
+    $$PWD/../../src/map/maprenderer.cpp \
+    $$PWD/../../src/farm/worldstate.cpp \
+    $$PWD/../../src/farm/cropdefinition.cpp \
+    $$PWD/../../src/farm/seasoncalendar.cpp
+HEADERS += $$PWD/../../src/map/mapdata.h $$PWD/../../src/map/maprenderer.h $$PWD/../../src/farm/worldstate.h \
+    $$PWD/../../src/farm/cropdefinition.h $$PWD/../../src/farm/seasoncalendar.h $$PWD/../../src/core/gameconstants.h
 RESOURCES += ../../character.qrc
