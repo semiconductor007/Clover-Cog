@@ -10,6 +10,8 @@ public:
     explicit GameClock(int millisecondsPerGameMinute = 1000);
 
     void start();
+    void pause();
+    void resume();
     void setElapsedGameMinutes(qint64 gameMinutes);
     bool canSleep(int sleepStartHour = GameConstants::SleepStartHour,
                   int wakeHour = GameConstants::WakeUpHour) const;
@@ -32,6 +34,7 @@ private:
     QElapsedTimer m_timer;
     int m_millisecondsPerGameMinute;
     qint64 m_gameMinuteOffset = 0;
+    int m_partialMinuteMs = 0;
 };
 
 #endif // GAMECLOCK_H

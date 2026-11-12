@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "farmmenus.h"
 #include "gameconstants.h"
 #include "inventorydialog.h"
 #include "marketdialog.h"
@@ -12,6 +13,7 @@
 #include <QGraphicsProxyWidget>
 #include <QHBoxLayout>
 #include <QMediaPlayer>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QScreen>
 #include <QSoundEffect>
@@ -27,6 +29,14 @@ constexpr int HeaderHeight = 34;
 constexpr int MapHeight = 320;
 constexpr int FooterHeight = 68;
 constexpr int CanvasHeight = HeaderHeight + MapHeight + FooterHeight;
+
+QString preferredFarmPath() {
+    for (const auto &path : {SaveManager::defaultSavePath(), SaveManager::legacySavePath()}) {
+        if (QFileInfo::exists(path) || QFileInfo::exists(path + QStringLiteral(".bak")))
+            return path;
+    }
+    return {};
+}
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -42,7 +52,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setWindowTitle(QStringLiteral("四季农场"));
     setCursor(customCursor);
-    m_gameClock.setElapsedGameMinutes(m_committedMinutes);
+
 
     m_gameCanvas->setFixedSize(CanvasWidth, CanvasHeight);
     QPalette canvasPalette = m_gameCanvas->palette();
@@ -58,7 +68,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_gameView->setRenderHint(QPainter::SmoothPixmapTransform, false);
     m_gameView->setTransformationAnchor(QGraphicsView::NoAnchor);
     m_gameView->setResizeAnchor(QGraphicsView::NoAnchor);
-    setCentralWidget(m_gameView);
+    m_pages = new QStackedWidget(this);
+    m_pages->addWidget(m_gameView);
+    setCentralWidget(m_pages);
+    m_gameView->installEventFilter(this);
     m_gameView->viewport()->installEventFilter(this);
 
     // Reserve separate strips for the HUD and toolbar so both map edges stay playable.
@@ -124,13 +137,13 @@ MainWindow::MainWindow(QWidget *parent)
         m_panelFocusBeforeFade.clear();
     });
 
-    auto *music = new QMediaPlayer(this);
-    auto *output = new QAudioOutput(music);
+    m_music = new QMediaPlayer(this);
+    auto *output = new QAudioOutput(m_music);
     output->setVolume(0.28f);
-    music->setAudioOutput(output);
-    music->setLoops(QMediaPlayer::Infinite);
-    music->setSource(QUrl(QStringLiteral("qrc:/sounds/wav/On_the_Farm.wav")));
-    music->play();
+    m_music->setAudioOutput(output);
+    m_music->setLoops(QMediaPlayer::Infinite);
+    m_music->setSource(QUrl(QStringLiteral("qrc:/sounds/wav/On_the_Farm.wav")));
+
     const auto sound = [this](const QString &name, const QString &url) {
         auto *effect = new QSoundEffect(this);
         effect->setObjectName(name);
@@ -177,7 +190,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(character, &ImageMovementWidget::interactionRequested, this, [this](QPoint playerTile) {
-        if (m_panelOpen || m_transitionActive) {
+        if (m_page != Page::Farm || m_panelOpen || m_transitionActive) {
             return;
         }
         if (m_shopArea.contains(playerTile)) {
@@ -196,18 +209,28 @@ MainWindow::MainWindow(QWidget *parent)
         saveGame();
     });
 
-    loadGame();
-    applyClock(ClockEvent::Load);
-    updateHud();
+    m_tick = new QTimer(this);
+    m_tick->setInterval(100);
+    connect(m_tick, &QTimer::timeout, this, &MainWindow::updateTime);
+    m_autosave = new QTimer(this);
+    m_autosave->setInterval(60000);
+    connect(m_autosave, &QTimer::timeout, this, [this] { applyClock(ClockEvent::Save); });
 
-    auto *timeUpdateTimer = new QTimer(this);
-    connect(timeUpdateTimer, &QTimer::timeout, this, &MainWindow::updateTime);
-    timeUpdateTimer->start(100);
-    auto *autosaveTimer = new QTimer(this);
-    connect(autosaveTimer, &QTimer::timeout, this, [this] { applyClock(ClockEvent::Save); });
-    autosaveTimer->start(60000);
-
+    character->installEventFilter(this);
     m_gameScene->addWidget(m_gameCanvas)->setCacheMode(QGraphicsItem::NoCache);
+    m_menus = new FarmMenus(mapWidget->grab(), m_pages);
+    m_pages->addWidget(m_menus);
+    connect(m_menus, &FarmMenus::enterRequested, this, &MainWindow::enterFarm);
+    connect(m_menus, &FarmMenus::resumeRequested, this, &MainWindow::resumeFarm);
+    connect(m_menus, &FarmMenus::saveAndLeaveRequested, this, [this] {
+        if (m_page != Page::Pause) return;
+        if (saveGame(false)) showHome();
+        else m_menus->showPause(m_saveEnabled
+            ? QStringLiteral("未能保存，农场仍暂停。请检查存档目录的空间和写入权限。")
+            : QStringLiteral("未能保存：原档及备份无法恢复，已保留文件。可继续体验或关闭窗口。"));
+    });
+    connect(m_menus, &FarmMenus::exitRequested, this, &QWidget::close);
+    showHome();
     const QSize available = screen()->availableGeometry().size();
     const bool fitsDouble = available.width() >= CanvasWidth * 2 &&
                             available.height() >= CanvasHeight * 2 + 36;
@@ -215,11 +238,76 @@ MainWindow::MainWindow(QWidget *parent)
     updateGameScale();
 }
 
+void MainWindow::showHome() {
+    m_page = Page::Home;
+    refreshGameplayInput();
+    m_music->stop();
+    m_pages->setCurrentWidget(m_menus);
+    const QString source = preferredFarmPath();
+    GameSaveData preview;
+    QString used;
+    const bool canContinue = readFarmSave(source, &preview, &used);
+    QString notice;
+    if (canContinue && used != source)
+        notice = QStringLiteral("可从备份恢复农场。");
+    else if (!canContinue && !source.isEmpty())
+        notice = source == SaveManager::defaultSavePath()
+            ? QStringLiteral("存档和备份无法恢复。可进入农场体验，本次无法保存。")
+            : QStringLiteral("旧存档已保留，开始种田将使用新档。");
+    m_menus->showHome(canContinue, notice);
+}
+
+void MainWindow::enterFarm() {
+    if (m_page != Page::Home) return;
+    m_page = Page::Farm;
+    m_saveEnabled = true;
+    m_gameClock.setElapsedGameMinutes(m_committedMinutes);
+    loadGame();
+    applyClock(ClockEvent::Load);
+    updateHud();
+    m_pages->setCurrentWidget(m_gameView);
+    updateGameScale();
+    refreshGameplayInput();
+    m_tick->start();
+    m_autosave->start();
+    m_music->play();
+}
+
+void MainWindow::pauseFarm() {
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive) return;
+    m_gameClock.pause();
+    applyClock(ClockEvent::Tick);
+    // A key at the first instant of a new season must let its single transition finish.
+    if (m_transitionActive) {
+        m_gameClock.resume();
+        return;
+    }
+    m_page = Page::Pause;
+    m_tick->stop();
+    m_autosave->stop();
+    m_music->pause();
+    refreshGameplayInput();
+    m_pages->setCurrentWidget(m_menus);
+    m_menus->showPause();
+}
+
+void MainWindow::resumeFarm() {
+    if (m_page != Page::Pause) return;
+    m_page = Page::Farm;
+    m_gameClock.resume();
+    m_tick->start();
+    m_autosave->start();
+    m_pages->setCurrentWidget(m_gameView);
+    refreshGameplayInput();
+    m_music->play();
+}
+
 void MainWindow::updateTime() {
     applyClock(ClockEvent::Tick);
 }
 
 void MainWindow::applyClock(ClockEvent event) {
+    if (m_page != Page::Farm) return;
     const qint64 minutes = m_gameClock.elapsedGameMinutes();
     if (event == ClockEvent::Tick && minutes == m_committedMinutes) return;
     const int day = int(minutes / (24 * 60));
@@ -282,7 +370,7 @@ void MainWindow::presentTime() {
 }
 
 void MainWindow::sleepUntilMorning() {
-    if (m_transitionActive || m_panelOpen || !m_bedArea.contains(character->currentTilePosition()))
+    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || !m_bedArea.contains(character->currentTilePosition()))
         return;
     if (!m_gameClock.sleepToNextMorning()) {
         showStatus(QStringLiteral("可在 20:00 至次日 06:00 前到床边睡觉。"));
@@ -292,6 +380,13 @@ void MainWindow::sleepUntilMorning() {
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (m_page == Page::Farm && !m_panelOpen && event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Escape && key->modifiers() == Qt::NoModifier) {
+            if (!key->isAutoRepeat()) pauseFarm();
+            return true;
+        }
+    }
     if (watched == m_gameView->viewport() && event->type() == QEvent::Resize) {
         updateGameScale();
     }
@@ -357,7 +452,7 @@ void MainWindow::showStatus(const QString &message) {
 }
 
 void MainWindow::openInventory() {
-    if (m_panelOpen || m_transitionActive) {
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive) {
         return;
     }
     auto *dialog = new InventoryDialog(this);
@@ -432,7 +527,7 @@ void MainWindow::showFarmPanel(QDialog *dialog) {
         refreshGameplayInput();
         // Reactivate the game after Qt has finished dismissing the modal window.
         QTimer::singleShot(0, this, [this] {
-            if (isVisible() && !m_panelOpen && !m_transitionActive) {
+            if (isVisible() && m_page == Page::Farm && !m_panelOpen && !m_transitionActive) {
                 activateWindow();
                 refreshGameplayInput();
             }
@@ -454,7 +549,7 @@ void MainWindow::refreshOpenPanel() {
 }
 
 void MainWindow::refreshGameplayInput() {
-    const bool blocked = m_panelOpen || m_transitionActive;
+    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
     itemBar->setEnabled(!blocked);
@@ -494,29 +589,31 @@ bool MainWindow::saveGame(bool showError) {
     return true;
 }
 
+bool MainWindow::readFarmSave(const QString &source, GameSaveData *data, QString *loadedPath) const {
+    if (source.isEmpty()) return false;
+    for (const QString &path : {source, source + QStringLiteral(".bak")}) {
+        if (SaveManager::load(path, data) && isCompatibleSave(*data)) {
+            *loadedPath = path;
+            return true;
+        }
+    }
+    return false;
+}
+
 void MainWindow::loadGame() {
-    const QString current = SaveManager::defaultSavePath();
-    const QString legacy = SaveManager::legacySavePath();
-    const auto hasSave = [](const QString &path) {
-        return QFileInfo::exists(path) || QFileInfo::exists(path + QStringLiteral(".bak"));
-    };
-    const bool hasCurrent = hasSave(current);
-    const QString source = hasCurrent ? current : legacy;
-    if (!hasSave(source)) {
-        showStatus(QStringLiteral("WASD 移动，滚轮选工具。Tab 背包，E 互动。"));
+    const QString source = preferredFarmPath();
+    if (source.isEmpty()) {
+        showStatus(QStringLiteral("WASD 移动，滚轮选工具。Tab 背包，Esc 暂停。"));
         return;
     }
-
-    for (const QString &path : {source, source + QStringLiteral(".bak")}) {
-        GameSaveData data;
-        if (!SaveManager::load(path, &data) || !restoreGame(data)) {
-            continue;
-        }
+    GameSaveData data;
+    QString path;
+    if (readFarmSave(source, &data, &path) && restoreGame(data)) {
         showStatus(path == source ? QStringLiteral("已读取农场存档")
                                   : QStringLiteral("已从备份恢复农场"));
         return;
     }
-    if (hasCurrent) {
+    if (source == SaveManager::defaultSavePath()) {
         m_saveEnabled = false;
         showStatus(QStringLiteral("农场存档无法恢复，已保留文件并暂停保存"));
     } else {
@@ -569,6 +666,7 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    applyClock(ClockEvent::Save);
+    if (m_page == Page::Farm) applyClock(ClockEvent::Save);
+    else if (m_page == Page::Pause) saveGame();
     QMainWindow::closeEvent(event);
 }

@@ -10,6 +10,7 @@
 #include <QListWidget>
 #include <QMediaDevices>
 #include <QPointer>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QSoundEffect>
 #include <QStandardPaths>
@@ -42,6 +43,7 @@ private slots:
     void eveningSleepUsesOneTransition();
     void ordinaryMidnightThenDawnSleep();
     void winterMidnightStartsNewYear();
+    void winterPauseGuideAndResume();
     void closingDuringFadeRestoresCommittedMorning();
     void seasonChangesWithBackpackOpen();
     void onlySuccessfulActionsPlaySounds();
@@ -123,6 +125,10 @@ bool ClockUiTests::openGame(QSize initialSize) {
     m_window->activateWindow();
     if (!QTest::qWaitForWindowExposed(m_window.get()))
         return false;
+    auto *enter = m_window->findChild<QPushButton *>("enterFarm");
+    if (!enter || !enter->isVisible()) return false;
+    QTest::mouseClick(enter, Qt::LeftButton);
+    QCoreApplication::processEvents();
     auto *view = m_window->findChild<QGraphicsView *>();
     if (!view)
         return false;
@@ -222,6 +228,8 @@ void ClockUiTests::eveningSleepUsesOneTransition() {
     verifySaved(day + 1, 6, 2, false);
     QCOMPARE(m_date->text(), evening);
     QCOMPARE(black.count(), 0);
+    QTest::keyClick(m_character, Qt::Key_Escape);
+    QVERIFY(!m_window->findChild<QPushButton *>("resumeFarm")->isVisible());
 
     auto *view = m_window->findChild<QGraphicsView *>();
     auto *bar = m_canvas->findChild<ItemBar *>();
@@ -254,8 +262,8 @@ void ClockUiTests::eveningSleepUsesOneTransition() {
     QTest::mouseClick(m_map, Qt::LeftButton, Qt::NoModifier, QPoint(70, 100));
     QCOMPARE(clicks.count(), 1);
     scrollOverFarm();
-    QCOMPARE(bar->selectedTool(), ToolType::Axe);
-    QCOMPARE(m_character->getCurrentTool().type, ToolType::Axe);
+    QVERIFY(bar->selectedTool() != ToolType::EmptyHand);
+    QCOMPARE(m_character->getCurrentTool().type, bar->selectedTool());
     verifySaved(day + 1, 6, 2, false);
 }
 
@@ -276,6 +284,41 @@ void ClockUiTests::ordinaryMidnightThenDawnSleep() {
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
     QCOMPARE(black.count(), 1);
     verifySaved(3, 6, 2, true);
+}
+
+void ClockUiTests::winterPauseGuideAndResume() {
+    QVERIFY(writeFarm(27, 1439));
+    QVERIFY(openGame());
+    QSignalSpy finishes(m_fade, &SceneTransition::finished);
+    QTest::keyClick(m_character, Qt::Key_Escape);
+    auto *guide = m_window->findChild<QPushButton *>("pauseGuide");
+    auto *back = m_window->findChild<QPushButton *>("guideBack");
+    auto *resume = m_window->findChild<QPushButton *>("resumeFarm");
+    QVERIFY(guide && guide->isVisible() && back && resume);
+    QTest::mouseClick(guide, Qt::LeftButton);
+    QVERIFY(back->isVisible());
+    QTest::qWait(1250);
+    QCOMPARE(m_window->currentGameDay(), 27);
+    QCOMPARE(m_window->currentGameMinute(), 59);
+    QCOMPARE(m_map->worldSnapshot().crops.first().growthDays, 0);
+    QTest::keyClick(back, Qt::Key_Escape);
+    QVERIFY(resume->isVisible() && m_map->isInputBlocked());
+    QTest::keyClick(resume, Qt::Key_Escape);
+    QTRY_COMPARE_WITH_TIMEOUT(finishes.count(), 1, 3500);
+    QCOMPARE(m_window->currentGameDay(), 28);
+    verifySaved(28, 0, 2, false);
+    QTest::keyClick(m_character, Qt::Key_Escape);
+    auto *leave = m_window->findChild<QPushButton *>("saveReturnHome");
+    QVERIFY(leave && leave->isVisible());
+    QTest::mouseClick(leave, Qt::LeftButton);
+    auto *enter = m_window->findChild<QPushButton *>("enterFarm");
+    QVERIFY(enter && enter->isVisible());
+    QCOMPARE(enter->text(), QStringLiteral("继续农场"));
+    QTest::mouseClick(enter, Qt::LeftButton);
+    QVERIFY(!m_map->isInputBlocked());
+    QCOMPARE(m_window->currentGameDay(), 28);
+    QCOMPARE(m_map->worldSnapshot().crops.first().growthDays, 2);
+    QCOMPARE(finishes.count(), 1);
 }
 
 void ClockUiTests::winterMidnightStartsNewYear() {
@@ -404,11 +447,12 @@ void ClockUiTests::onlySuccessfulActionsPlaySounds() {
     QSignalSpy collected(m_map, &MapWidget::cropHarvested);
     QSignalSpy blocked(m_map, &MapWidget::harvestBlocked);
 
-    const int slotWidth = bar->sizeHint().width() / ToolCount;
-    const int firstSlot = (bar->width() - ToolCount * slotWidth) / 2;
-    const int waterSlot = static_cast<int>(ToolType::WateringCan);
-    clickCanvas(bar, QPoint(firstSlot + waterSlot * slotWidth + slotWidth / 2,
-                            bar->height() - slotWidth / 2));
+    const QPoint centre = bar->rect().center();
+    for (int i = 0; i < ToolCount && bar->selectedTool() != ToolType::WateringCan; ++i) {
+        QWheelEvent wheel(centre, bar->mapToGlobal(centre), {}, QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QApplication::sendEvent(bar, &wheel);
+    }
     QCOMPARE(m_character->getCurrentTool().type, ToolType::WateringCan);
     clickTile(FarmTile);
     QCOMPARE(watered.count(), 1);

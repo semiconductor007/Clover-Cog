@@ -19,6 +19,10 @@
 class DayNightOverlay;
 class FarmPanel;
 class QDialog;
+class FarmMenus;
+class QStackedWidget;
+class QMediaPlayer;
+class QTimer;
 class SceneTransition;
 
 class MainWindow : public QMainWindow {
@@ -42,6 +46,12 @@ protected:
 private:
     enum class ClockEvent { Tick, WakeUp, Load, Save };
 
+    enum class Page { Home, Farm, Pause };
+    void enterFarm();
+    void pauseFarm();
+    void resumeFarm();
+    void showHome();
+    bool readFarmSave(const QString &source, GameSaveData *data, QString *loadedPath) const;
     void applyClock(ClockEvent event);
     DayAdvanceResult processDayTransitions();
     void presentTime();
@@ -60,6 +70,12 @@ private:
     bool restoreGame(const GameSaveData &data);
     bool isCompatibleSave(const GameSaveData &data) const;
 
+    QStackedWidget *m_pages;
+    FarmMenus *m_menus;
+    QTimer *m_tick;
+    QTimer *m_autosave;
+    QMediaPlayer *m_music;
+    Page m_page = Page::Home;
     GameClock m_gameClock;
     // Map actions and saves use the last sampled time whose days have been settled.
     qint64 m_committedMinutes = GameConstants::WakeUpHour * 60;
