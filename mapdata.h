@@ -43,6 +43,7 @@ struct MapData {
     QVector<Tileset> tilesets;
     QVector<MapRenderLayer> renderLayers;
     QVector<QVector<int>> collisionLayer;
+    QVector<QVector<int>> pathLayer;
     QVector<QVector<int>> cultivatableLayer;
     QVector<QVector<int>> cultivatedLayer;
     QVector<QVector<int>> cropLayer;

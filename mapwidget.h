@@ -61,6 +61,10 @@ public:
         m_shopArea = shopArea;
         update();
     }
+    void setStorageArea(const QRect &storageArea) {
+        m_storageArea = storageArea;
+        update();
+    }
     void setBedArea(const QRect &bedArea) {
         m_bedArea = bedArea;
         update();
@@ -103,6 +107,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
 
 private:
+    bool isInteractionTile(const QPoint &tilePos) const;
     QPointer<PlayerController> m_playerController;
     std::function<qint64()> m_getGameMinutes;
     std::function<bool(CropType, int)> m_harvestHandler;
@@ -123,6 +128,7 @@ private:
     MapRenderer m_renderer;
     QRect m_marketArea;
     QRect m_shopArea;
+    QRect m_storageArea;
     QRect m_bedArea;
 };
 

@@ -102,6 +102,8 @@ void MapWidget::paintEvent(QPaintEvent *event) {
                         QStringLiteral("收购 [E]"));
     drawInteractionArea(m_shopArea, QColor(114, 190, 255, 45),
                         QStringLiteral("商店 [E]"));
+    drawInteractionArea(m_storageArea, QColor(135, 211, 173, 45),
+                        QStringLiteral("储物 [E]"));
     drawInteractionArea(m_bedArea, QColor(180, 130, 220, 45),
                         QStringLiteral("床铺 [E]"));
 }
@@ -176,25 +178,40 @@ int MapWidget::tileAt(int x, int y) const {
     return layer.at(y).at(x);
 }
 
+bool MapWidget::isInteractionTile(const QPoint &tilePos) const {
+    return m_marketArea.contains(tilePos) || m_shopArea.contains(tilePos) ||
+           m_bedArea.contains(tilePos) || m_storageArea.contains(tilePos);
+}
+
 bool MapWidget::cultivateTile(const QPoint &tilePos) {
-    if (!isTileCultivatable(tilePos) || !m_worldState.cultivate(tilePos)) {
+    if (isInteractionTile(tilePos)) {
+        emit farmingFeedback(QStringLiteral("互动区域不能耕种，请选草地"));
         return false;
     }
-    update();
-    emit worldChanged();
-    return true;
+    if (m_worldState.cultivate(tilePos)) {
+        update();
+        emit farmingFeedback(QStringLiteral("已翻土，可以播种"));
+        emit worldChanged();
+        return true;
+    }
+
+    if (m_worldState.isPlantable(tilePos))
+        emit farmingFeedback(QStringLiteral("这里可以直接播种"));
+    else if (m_worldState.isPathTile(tilePos))
+        emit farmingFeedback(QStringLiteral("道路不能耕种，请选草地"));
+    else if (m_worldState.cropGidAt(tilePos) != 0)
+        emit farmingFeedback(QStringLiteral("这里已经种有作物"));
+    else
+        emit farmingFeedback(QStringLiteral("这里不能耕种，请选草地"));
+    return false;
 }
 
 bool MapWidget::isTileCultivatable(const QPoint &tilePos) const {
-    return !m_marketArea.contains(tilePos) && !m_shopArea.contains(tilePos) &&
-           !m_bedArea.contains(tilePos) &&
-           m_worldState.isTileCultivatable(tilePos);
+    return !isInteractionTile(tilePos) && m_worldState.isTileCultivatable(tilePos);
 }
 
 bool MapWidget::isPlantable(const QPoint &tilePos) const {
-    return !m_marketArea.contains(tilePos) && !m_shopArea.contains(tilePos) &&
-           !m_bedArea.contains(tilePos) &&
-           m_worldState.isPlantable(tilePos);
+    return !isInteractionTile(tilePos) && m_worldState.isPlantable(tilePos);
 }
 
 bool MapWidget::plantSeed(const QPoint &tilePos, CropType cropType) {
@@ -259,8 +276,7 @@ bool MapWidget::fertilizeTile(const QPoint &tilePos) {
 }
 
 bool MapWidget::waterTile(const QPoint &tilePos) {
-    if (m_marketArea.contains(tilePos) || m_shopArea.contains(tilePos) ||
-        m_bedArea.contains(tilePos) || m_worldState.isWatered(tilePos) ||
+    if (isInteractionTile(tilePos) || m_worldState.isWatered(tilePos) ||
         !m_worldState.waterTile(tilePos)) {
         return false;
     }

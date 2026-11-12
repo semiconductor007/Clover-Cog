@@ -19,7 +19,6 @@ ItemBar::ItemBar(QWidget *parent)
     setAccessibleDescription(toolName(m_selected));
     const QPixmap tools(QStringLiteral(":/tilesets/sprout/Basic_tools_and_meterials.png"));
     m_icons[static_cast<int>(ToolType::EmptyHand)] = QPixmap(QStringLiteral(":/ui/sprout/Catpaw Mouse icon.png"));
-    m_icons[static_cast<int>(ToolType::Axe)] = tools.copy(16, 0, 16, 16);
     m_icons[static_cast<int>(ToolType::Hoe)] = tools.copy(32, 0, 16, 16);
     m_icons[static_cast<int>(ToolType::WateringCan)] = tools.copy(0, 0, 16, 16);
     for (CropType crop : CropCatalog::cropTypes())
@@ -31,23 +30,22 @@ ItemBar::ItemBar(QWidget *parent)
 }
 
 QSize ItemBar::sizeHint() const {
-    return QSize(ToolCount * SlotSize, SlotSize + CaptionHeight);
+    return QSize(ToolbarSlotCount * SlotSize, SlotSize + CaptionHeight);
 }
 
 QRect ItemBar::slotRect(int index) const {
-    const int side = qMin(SlotSize, qMin(width() / ToolCount, qMax(0, height() - CaptionHeight)));
-    const int left = (width() - ToolCount * side) / 2;
+    const int side = qMin(SlotSize, qMin(width() / ToolbarSlotCount, qMax(0, height() - CaptionHeight)));
+    const int left = (width() - ToolbarSlotCount * side) / 2;
     return QRect(left + side * index, height() - side, side, side);
 }
 
 void ItemBar::selectTool(ToolType tool) {
-    const int index = static_cast<int>(tool);
-    if (index < 0 || index >= ToolCount || m_selected == tool)
+    if (toolSlot(tool) < 0 || m_selected == tool)
         return;
     m_selected = tool;
     setAccessibleDescription(toolName(tool));
     update();
-    emit itemSelected(index);
+    emit itemSelected(static_cast<int>(tool));
 }
 
 bool ItemBar::acceptsPlayerInput() const {
@@ -77,8 +75,8 @@ void ItemBar::wheelEvent(QWheelEvent *event) {
     const int steps = m_wheelRemainder / 120;
     m_wheelRemainder %= 120;
     if (steps) {
-        const int next = (static_cast<int>(m_selected) - steps % ToolCount + ToolCount) % ToolCount;
-        selectTool(static_cast<ToolType>(next));
+        const int next = (toolSlot(m_selected) - steps % ToolbarSlotCount + ToolbarSlotCount) % ToolbarSlotCount;
+        selectTool(PlayableTools[next]);
     }
     if (event->phase() == Qt::ScrollEnd)
         m_wheelRemainder = 0;
@@ -89,9 +87,9 @@ void ItemBar::mousePressEvent(QMouseEvent *event) {
     if (!acceptsPlayerInput() || event->button() != Qt::LeftButton)
         return;
     const QPoint pos(qFloor(event->position().x()), qFloor(event->position().y()));
-    for (int i = 0; i < ToolCount; ++i) {
+    for (int i = 0; i < ToolbarSlotCount; ++i) {
         if (slotRect(i).contains(pos)) {
-            selectTool(static_cast<ToolType>(i));
+            selectTool(PlayableTools[i]);
             return;
         }
     }
@@ -100,9 +98,10 @@ void ItemBar::mousePressEvent(QMouseEvent *event) {
 void ItemBar::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    for (int i = 0; i < ToolCount; ++i) {
+    for (int i = 0; i < ToolbarSlotCount; ++i) {
         const QRect slot = slotRect(i);
-        const bool selected = i == static_cast<int>(m_selected);
+        const ToolType tool = PlayableTools[i];
+        const bool selected = m_selected == tool;
         const QRect source(selected ? 57 : 9, 57, 30, 32);
         painter.drawPixmap(slot.adjusted(1, 1, -1, 0), m_slots, source);
         if (selected) {
@@ -111,7 +110,7 @@ void ItemBar::paintEvent(QPaintEvent *) {
             painter.setPen(QColor(255, 229, 148));
             painter.drawRect(slot.adjusted(1, 1, -2, -2));
         }
-        const QPixmap &icon = m_icons[i];
+        const QPixmap &icon = m_icons[static_cast<int>(tool)];
         painter.drawPixmap(slot.x() + (slot.width() - icon.width()) / 2,
                            slot.y() + (slot.height() - icon.height()) / 2, icon);
     }

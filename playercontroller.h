@@ -25,7 +25,6 @@ public:
     const ToolProperty &currentTool() const { return m_currentTool; }
     void setCurrentTool(int toolIndex);
     void useToolAt(const QPoint &mapPoint);
-    void useAxeAt(const QPoint &playerCenter, PlayerDirection direction);
 
 signals:
     void toolChanged(ToolType type);

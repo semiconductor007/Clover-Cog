@@ -160,6 +160,8 @@ bool MapLoader::load(const QString &tmjPath, MapData *result, QString *errorMess
             loaded.treeLayer = layerData;
             appendRenderLayer(&loaded, MapLayerRole::Tree, layerData);
         } else {
+            if (lowerName == QStringLiteral("paths"))
+                loaded.pathLayer = layerData;
             appendRenderLayer(&loaded, MapLayerRole::Static, layerData);
         }
     }
