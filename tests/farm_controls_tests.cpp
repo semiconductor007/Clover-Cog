@@ -6,6 +6,8 @@
 #include <QGraphicsProxyWidget>
 #include <QGraphicsView>
 #include <QPainter>
+#include <QDir>
+#include <QFontDatabase>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -42,6 +44,15 @@ class FarmControlsTests : public QObject {
     }
 
 private slots:
+    void initTestCase() {
+#ifdef Q_OS_WIN
+        if (qEnvironmentVariable("QT_QPA_PLATFORM") == QStringLiteral("offscreen")) {
+            const int id = QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/segoeui.ttf"));
+            const auto families = QFontDatabase::applicationFontFamilies(id);
+            if (!families.isEmpty()) QApplication::setFont(QFont(families.first(),10));
+        }
+#endif
+    }
     void init() {
         auto *canvas = new QWidget;
         canvas->setFixedSize(520, 320);
@@ -210,6 +221,114 @@ private slots:
         bar->selectTool(ToolType::Hoe);
         QTest::keyClick(&view, Qt::Key_0);
         QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+    }
+
+    void soilAutotileMasks_data() {
+        QTest::addColumn<int>("mask");
+        QTest::addColumn<bool>("wet");
+        for (int mask = 0; mask < 16; ++mask) for (bool wet : {false,true})
+            QTest::newRow(qPrintable(QStringLiteral("mask%1_%2").arg(mask).arg(wet))) << mask << wet;
+    }
+
+    void soilAutotileMasks() {
+        QFETCH(int, mask); QFETCH(bool, wet);
+        MapData data; QString error;
+        QVERIFY(MapLoader::load(QStringLiteral(":/map/map6.tmj"), &data, &error));
+        WorldState world; world.initialize(data);
+        auto state = world.snapshot();
+        for (auto &row : state.cultivatedLayer) row.fill(0);
+        state.crops.clear(); state.wateredTiles.clear();
+        const QPoint center(5,5);
+        state.cultivatedLayer[5][5] = 135;
+        const QPoint directions[] = {{0,-1},{1,0},{0,1},{-1,0}};
+        for (int i=0; i<4; ++i) if (mask & (1<<i)) {
+            const QPoint at = center + directions[i];
+            state.cultivatedLayer[at.y()][at.x()] = 135;
+        }
+        if (wet) state.wateredTiles.insert(center);
+        QVERIFY(world.restore(state));
+        auto tilesets = map->originalTilesets();
+        for (auto &tileset : tilesets) if (tileset.firstGid == 123) {
+            QPixmap texture(176,112); texture.fill(Qt::transparent);
+            QPainter painter(&texture);
+            for (int id=0; id<77; ++id)
+                painter.fillRect((id%11)*16, (id/11)*16,16,16, QColor(10+id*3,40,60));
+            painter.end(); tileset.texture = texture;
+        }
+        MapRenderLayer layer; layer.role = MapLayerRole::Cultivated;
+        QPixmap output(16,16); output.fill(Qt::transparent);
+        MapRenderer renderer;
+        { QPainter painter(&output); renderer.paint(painter, output.rect(), center*16,
+            data.mapWidth,data.mapHeight,16,16,tilesets,{layer},world); }
+        // Independently enumerated expected 3x3 atlas cells for TL/TR/BL/BR.
+        const int expected[16][4] = {
+            {0,2,22,24},{11,13,22,24},{0,1,22,23},{11,12,22,23},
+            {0,2,11,13},{11,13,11,13},{0,1,11,12},{11,12,11,12},
+            {1,2,23,24},{12,13,23,24},{1,1,23,23},{12,12,23,23},
+            {1,2,12,13},{12,13,12,13},{1,1,12,12},{12,12,12,12}};
+        for (int q=0; q<4; ++q) {
+            QPixmap reference(1,1); reference.fill(QColor(10+expected[mask][q]*3,40,60));
+            if (wet) { QPainter tint(&reference); tint.fillRect(reference.rect(), QColor(64,92,112,105)); }
+            QCOMPARE(output.toImage().pixelColor((q%2)*8+4,(q/2)*8+4),reference.toImage().pixelColor(0,0));
+        }
+        QCOMPARE(world.snapshot().cultivatedLayer, state.cultivatedLayer);
+        QCOMPARE(world.snapshot().wateredTiles, state.wateredTiles);
+        QCOMPARE(world.snapshot().lastCompletedDay, state.lastCompletedDay);
+    }
+
+    void soilAutotilePreviewAndRemoval() {
+        MapData data; QString error;
+        QVERIFY(MapLoader::load(QStringLiteral(":/map/map6.tmj"), &data, &error));
+        WorldState world; world.initialize(data);
+        auto empty = world.snapshot();
+        for (auto &row : empty.cultivatedLayer) row.fill(0);
+        empty.crops.clear(); empty.wateredTiles.clear();
+        MapRenderer renderer; MapRenderLayer layer; layer.role = MapLayerRole::Cultivated;
+        const auto render = [&] {
+            QPixmap image(80,80); image.fill(QColor("#a7bf70"));
+            QPainter p(&image); renderer.paint(p,image.rect(),QPoint(3,3)*16,
+                data.mapWidth,data.mapHeight,16,16,map->originalTilesets(),{layer},world);
+            return image;
+        };
+        const QVector<QVector<QPoint>> shapes = {
+            {{0,0}}, {{-1,0},{0,0},{1,0}}, {{0,-1},{0,0},{0,1}},
+            {{0,0},{1,0},{0,1},{1,1}}, {{0,-1},{0,0},{1,0}},
+            {{-1,0},{0,0},{1,0},{0,1}}, {{0,-1},{-1,0},{0,0},{1,0},{0,1}},
+            {{-1,0},{0,0},{1,0},{0,1}}};
+        const QStringList names{"Single","Horizontal","Vertical","Block","Corner","T junction","Cross","Mixed watering"};
+        QPixmap sheet(960,520); sheet.fill(QColor("#26392f"));
+        QPainter sheetPainter(&sheet);
+        for (int i=0; i<shapes.size(); ++i) {
+            auto state = empty;
+            for (QPoint offset : shapes[i]) {
+                const QPoint at = QPoint(5,5)+offset;
+                state.cultivatedLayer[at.y()][at.x()] = 135;
+                if (i==7 && offset.x()<=0) state.wateredTiles.insert(at);
+            }
+            QVERIFY(world.restore(state));
+            const QPixmap image = render();
+            const QRect tile((i%4)*240,(i/4)*260,240,240);
+            sheetPainter.drawPixmap(tile,image);
+            sheetPainter.setPen(Qt::white);
+            sheetPainter.drawText(tile.translated(0,240).adjusted(0,0,0,-220),Qt::AlignCenter,names[i]);
+        }
+        sheetPainter.end(); QDir().mkpath(QStringLiteral("captures"));
+        QVERIFY(sheet.save(QStringLiteral("captures/soil-autotile.png")));
+        auto state = empty; state.cultivatedLayer[5][5] = 135;
+        QVERIFY(world.restore(state)); const QImage single = render().toImage();
+        state.cultivatedLayer[5][6] = 135;
+        QVERIFY(world.restore(state)); QVERIFY(render().toImage() != single);
+        state.cultivatedLayer[5][6] = 0;
+        QVERIFY(world.restore(state)); QCOMPARE(render().toImage(),single);
+        // Watering must preserve the rounded tile's transparent outer corner.
+        QPixmap dry(16,16); dry.fill(Qt::transparent);
+        { QPainter p(&dry); renderer.paint(p,dry.rect(),QPoint(5,5)*16,data.mapWidth,data.mapHeight,16,16,map->originalTilesets(),{layer},world); }
+        state.wateredTiles.insert(QPoint(5,5)); QVERIFY(world.restore(state));
+        QPixmap wet(16,16); wet.fill(Qt::transparent);
+        { QPainter p(&wet); renderer.paint(p,wet.rect(),QPoint(5,5)*16,data.mapWidth,data.mapHeight,16,16,map->originalTilesets(),{layer},world); }
+        for (int y=0; y<16; ++y) for (int x=0; x<16; ++x)
+            QCOMPARE(wet.toImage().pixelColor(x,y).alpha(),dry.toImage().pixelColor(x,y).alpha());
+        QVERIFY(dry.toImage() != wet.toImage());
     }
 
     void hoeExplainsItsTarget() {

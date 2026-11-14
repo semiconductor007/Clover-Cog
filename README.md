@@ -55,6 +55,8 @@ py -3 tests/run_all.py ../build-farm-tests
 
 ## 开发资料
 
+- 耕地现支持按四向邻格自动显示边角，干湿轮廓与移除邻格后的回退见[耕地自动拼接](docs/SOIL_AUTOTILING.md)。该项作为后续增量交付到 `lxk` 分支。
+
 - 背包现支持 E / Tab 开关和图标网格，站点互动改为 F；素材核对、星露谷参考与差异见[背包交互说明](docs/INVENTORY_INTERACTION.md)。
 
 - `lxk` 当前功能、测试与历史整合说明见[本轮交付](docs/LXK_DELIVERY_2026-11-14.md)。新版保留主线 `src/` 结构、v4存档与四季资源；未迁移旧 `lxk` 地图存档。背包拖拽、拆堆仍待实现。

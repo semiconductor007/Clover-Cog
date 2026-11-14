@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <QtGlobal>
+#include <QFileInfo>
 
 void MapRenderer::paint(QPainter &painter, const QRect &viewport,
                         const QPoint &offset, int mapWidth, int mapHeight,
@@ -22,16 +23,79 @@ void MapRenderer::paint(QPainter &painter, const QRect &viewport,
     const QRect visibleTiles(QPoint(startX, startY), QPoint(endX - 1, endY - 1));
 
     for (const MapRenderLayer &renderLayer : renderLayers) {
-        drawLayer(painter, resolveLayer(renderLayer, worldState), visibleTiles,
-                  offset, tileWidth, tileHeight, tilesets);
         if (renderLayer.role == MapLayerRole::Cultivated) {
-            drawWateredSoil(painter, visibleTiles, offset, tileWidth,
-                            tileHeight, worldState);
+            drawCultivatedLayer(painter, visibleTiles, offset, tileWidth, tileHeight, tilesets, worldState);
+        } else {
+            drawLayer(painter, resolveLayer(renderLayer, worldState), visibleTiles,
+                      offset, tileWidth, tileHeight, tilesets);
         }
     }
 
     drawLayer(painter, worldState.cropLayer(), visibleTiles, offset,
               tileWidth, tileHeight, tilesets);
+}
+
+void MapRenderer::drawCultivatedLayer(QPainter &painter, const QRect &visible,
+                                    const QPoint &offset, int tileWidth, int tileHeight,
+                                    const QVector<Tileset> &tilesets, const WorldState &world) const {
+    const auto &layer = world.cultivatedLayer();
+    const Tileset *soil = nullptr;
+    for (const auto &tileset : tilesets) {
+        if (QFileInfo(tileset.sourcePath).fileName() == QStringLiteral("Tilled_Dirt_Wide_v2.tsx") &&
+            tileset.tileWidth == 16 && tileset.tileHeight == 16 && tileset.tilesPerRow == 11 &&
+            tileset.texture.width() >= 48 && tileset.texture.height() >= 48) {
+            soil = &tileset;
+            break;
+        }
+    }
+    if (!soil) {
+        drawLayer(painter, layer, visible, offset, tileWidth, tileHeight, tilesets);
+        drawWateredSoil(painter, visible, offset, tileWidth, tileHeight, world);
+        return;
+    }
+    const auto isSoil = [&](QPoint tile) {
+        if (tile.y() < 0 || tile.y() >= layer.size() || tile.x() < 0 || tile.x() >= layer.at(tile.y()).size())
+            return false;
+        const int local = layer.at(tile.y()).at(tile.x()) - soil->firstGid;
+        return local == 0 || local == 1 || local == 2 || local == 11 || local == 12 ||
+               local == 13 || local == 22 || local == 23 || local == 24;
+    };
+    if (m_soilTextureKey != soil->texture.cacheKey()) {
+        m_wetSoilTexture = soil->texture;
+        QPainter wet(&m_wetSoilTexture);
+        wet.setCompositionMode(QPainter::CompositionMode_SourceAtop);
+        wet.fillRect(m_wetSoilTexture.rect(), QColor(64, 92, 112, 105));
+        wet.end();
+        m_soilTextureKey = soil->texture.cacheKey();
+    }
+    painter.save();
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    for (int y = visible.top(); y <= visible.bottom(); ++y) {
+        for (int x = visible.left(); x <= visible.right(); ++x) {
+            const QPoint tile(x,y);
+            if (y < 0 || y >= layer.size() || x < 0 || x >= layer.at(y).size()) continue;
+            if (!isSoil(tile)) {
+                if (layer.at(y).at(x)) drawTile(painter, layer.at(y).at(x), tile, offset, tileWidth, tileHeight, tilesets);
+                continue;
+            }
+            const bool north = isSoil(tile + QPoint(0,-1)), east = isSoil(tile + QPoint(1,0));
+            const bool south = isSoil(tile + QPoint(0,1)), west = isSoil(tile + QPoint(-1,0));
+            const QPixmap &texture = world.isWatered(tile) ? m_wetSoilTexture : soil->texture;
+            // Adapt the four-neighbour mask to this atlas's 3x3 border set.
+            // Quarter composition also handles single cells and one-cell strips.
+            for (int qy = 0; qy < 2; ++qy) for (int qx = 0; qx < 2; ++qx) {
+                const bool joinedX = qx ? east : west, joinedY = qy ? south : north;
+                const int sx = (joinedX ? 16 : (qx ? 32 : 0)) + qx * 8;
+                const int sy = (joinedY ? 16 : (qy ? 32 : 0)) + qy * 8;
+                const int left = x*tileWidth-offset.x() + qx*tileWidth/2;
+                const int top = y*tileHeight-offset.y() + qy*tileHeight/2;
+                const int right = x*tileWidth-offset.x() + (qx+1)*tileWidth/2;
+                const int bottom = y*tileHeight-offset.y() + (qy+1)*tileHeight/2;
+                painter.drawPixmap(QRect(left, top, right-left, bottom-top), texture, QRect(sx,sy,8,8));
+            }
+        }
+    }
+    painter.restore();
 }
 
 void MapRenderer::drawWateredSoil(QPainter &painter, const QRect &visibleTiles,
