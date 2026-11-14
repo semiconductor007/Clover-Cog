@@ -25,6 +25,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QWheelEvent>
+#include <QToolTip>
 #include <QtMath>
 #include <utility>
 #include <limits>
@@ -32,9 +33,8 @@
 namespace {
 constexpr int CanvasWidth = 576;
 constexpr int HeaderHeight = 34;
-constexpr int MapHeight = 320;
-constexpr int FooterHeight = 88;
-constexpr int CanvasHeight = HeaderHeight + MapHeight + FooterHeight;
+constexpr int MapHeight = 408;
+constexpr int CanvasHeight = HeaderHeight + MapHeight;
 
 }
 
@@ -55,7 +55,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_gameCanvas->setFixedSize(CanvasWidth, CanvasHeight);
     QPalette canvasPalette = m_gameCanvas->palette();
-    canvasPalette.setColor(QPalette::Window, QColor("#efdfb9"));
+    canvasPalette.setColor(QPalette::Window, QColor("#26372e"));
     m_gameCanvas->setPalette(canvasPalette);
     m_gameCanvas->setAutoFillBackground(true);
     m_gameScene->setSceneRect(m_gameCanvas->rect());
@@ -73,7 +73,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_gameView->installEventFilter(this);
     m_gameView->viewport()->installEventFilter(this);
 
-    // Reserve separate strips for the HUD and toolbar so both map edges stay playable.
+    // Keep the header separate; the toolbar floats above the bottom of the map.
     mapWidget->setGeometry(0, HeaderHeight, CanvasWidth, MapHeight);
     if (!mapWidget->loadMap(QStringLiteral(":/map/map6.tmj"))) {
         qCritical() << "Unable to initialize the game map";
@@ -111,20 +111,16 @@ MainWindow::MainWindow(QWidget *parent)
     character->setInitialPosition(QPoint(400, 192));
     m_daylight = new DayNightOverlay(mapWidget);
     itemBar = new ItemBar(m_gameCanvas);
-    const int footerTop = HeaderHeight + MapHeight;
+    connect(itemBar,&ItemBar::slotSelected,this,[this](int slot){m_economy.setEquippedSlot(slot);});
+    connect(itemBar,&ItemBar::stackMoveRequested,this,[this](StackMove move){moveInventoryStack(m_panelOpen,move);});
     const QSize barSize = itemBar->sizeHint();
-    itemBar->setGeometry(8, footerTop + (FooterHeight - barSize.height()) / 2,
+    itemBar->setGeometry((CanvasWidth - barSize.width()) / 2, CanvasHeight - barSize.height() - 8,
                          barSize.width(), barSize.height());
     mapWidget->installEventFilter(this);
-    const int textLeft = itemBar->geometry().right() + 16;
-    const int textWidth = CanvasWidth - textLeft - 10;
     m_suppliesLabel = new QLabel(m_gameCanvas);
-    m_suppliesLabel->setGeometry(textLeft, footerTop + 5, textWidth, 22);
-    m_suppliesLabel->setStyleSheet(QStringLiteral("color: #35533f; font-size: 12px; font-weight: bold;"));
+    m_suppliesLabel->hide();
     m_statusLabel = new QLabel(m_gameCanvas);
-    m_statusLabel->setWordWrap(true);
-    m_statusLabel->setGeometry(textLeft, footerTop + 26, textWidth, FooterHeight - 29);
-    m_statusLabel->setStyleSheet(QStringLiteral("color: #453728; font-size: 12px;"));
+    m_statusLabel->hide();
 
     m_transition = new SceneTransition(m_gameCanvas);
     connect(m_transition, &SceneTransition::blackReached, this, &MainWindow::presentTime);
@@ -610,10 +606,11 @@ void MainWindow::openInventory() {
         return;
     }
     auto *dialog = new InventoryDialog(this);
-    connect(dialog, &InventoryDialog::toolRequested, this, [this, dialog](ToolType tool) {
+    connect(dialog, &InventoryDialog::slotRequested, this, [this, dialog](int slot) {
         if (!acceptPanelCommand(dialog)) return;
-        itemBar->selectTool(tool);
+        itemBar->selectSlot(slot);
     });
+    connect(dialog,&InventoryDialog::stackMoveRequested,this,[this,dialog](StackMove move){moveInventoryStack(dialog,move);});
     showFarmPanel(dialog);
 }
 
@@ -673,6 +670,7 @@ void MainWindow::openMarket() {
 
 void MainWindow::openStorage() {
     auto *dialog = new StorageDialog(this);
+    connect(dialog,&StorageDialog::stackMoveRequested,this,[this,dialog](StackMove move){moveInventoryStack(dialog,move);});
     connect(dialog, &StorageDialog::transferRequested, this,
             [this, dialog](StorageItemKind kind, CropType crop, StorageDirection direction, int quantity) {
         if (!acceptPanelCommand(dialog)) return;
@@ -733,9 +731,27 @@ bool MainWindow::acceptPanelCommand(QDialog *panel) {
            m_wakeSaveState != WakeSaveState::Failed;
 }
 
+void MainWindow::moveInventoryStack(QDialog *panel,const StackMove &move) {
+    if (panel) {
+        if (!acceptPanelCommand(panel)) return;
+    } else {
+        if (m_page!=Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+            m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState==WakeSaveState::Failed) return;
+        applyClock(ClockEvent::Tick);
+        if (m_transitionActive || m_bedRecoveryPrompt || m_panelOpen) return;
+    }
+    if ((move.sourceChest || move.targetChest) &&
+        (!qobject_cast<StorageDialog *>(panel) || !m_storageArea.contains(character->currentTilePosition()))) return;
+    if (!m_economy.moveStack(move)) {
+        QToolTip::showText(QCursor::pos(),QStringLiteral("无法移动：目标、数量或库存已变化，物品已保留"),this);
+        return;
+    }
+    updateHud(); refreshOpenPanel(); saveGame(false);
+}
+
 void MainWindow::refreshOpenPanel() {
     if (auto *bag = qobject_cast<InventoryDialog *>(m_panelOpen.data())) {
-        bag->setState(m_economy, itemBar->selectedTool(), currentGameDay());
+        bag->setState(m_economy, itemBar->selectedTool(), currentGameDay(),itemBar->selectedSlot());
     } else if (auto *shop = qobject_cast<SeedShopDialog *>(m_panelOpen.data())) {
         shop->setState(m_economy);
     } else if (auto *market = qobject_cast<MarketDialog *>(m_panelOpen.data())) {

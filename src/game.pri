@@ -44,6 +44,7 @@ HEADERS += $$PWD/app/mainwindow.h \
     $$PWD/player/tooltype.h \
     $$PWD/storage/savemanager.h \
     $$PWD/ui/farmicons.h \
+    $$PWD/ui/slotgrid.h \
     $$PWD/ui/farmmenus.h \
     $$PWD/ui/farmpanel.h \
     $$PWD/ui/inventorydialog.h \

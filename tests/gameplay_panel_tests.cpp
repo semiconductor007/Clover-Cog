@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "app/mainwindow.h"
+#include "ui/slotgrid.h"
 #include "map/mapdata.h"
 #include "storage/savemanager.h"
 
@@ -102,6 +103,7 @@ private slots:
     void buySelectAndUseFertilizer();
     void inventoryHotkeyEverywhere_data();
     void inventoryHotkeyEverywhere();
+    void dragToToolbarPersistsLayout();
     void sellAtMarket();
     void continueVersionThreeNextToNewFence();
     void fullBackpackAtStorage();
@@ -124,6 +126,44 @@ void GameplayPanelTests::inventoryHotkeyEverywhere_data() {
     QTest::newRow("bed") << QPoint(25, 8);
     QTest::newRow("shop") << QPoint(33, 18);
     QTest::newRow("chest") << QPoint(31, 21);
+}
+
+void GameplayPanelTests::dragToToolbarPersistsLayout() {
+    QVERIFY(SaveManager::save(path(),m_fixture));
+    {
+        MainWindow game;showGame(game);game.resize(1000,800);QCoreApplication::processEvents();
+        auto *map=gameMap(game);QVERIFY(map);
+        auto *player=map->findChild<ImageMovementWidget *>();
+        auto *bar=map->parentWidget()->findChild<ItemBar *>();QVERIFY(player && bar);
+        QTest::keyClick(player,Qt::Key_E);QTRY_VERIFY(panel("inventoryDialog"));
+        auto *grid=dynamic_cast<SlotGrid *>(panel("inventoryDialog")->findChild<QWidget *>("bagSlots"));QVERIFY(grid);
+        QTest::mousePress(grid,Qt::LeftButton,{},grid->cellRect(2).center());
+        QTest::mouseMove(grid,grid->cellRect(0).center());
+        QTest::mouseRelease(grid,Qt::LeftButton,{},grid->cellRect(0).center());
+        QCOMPARE(grid->cells()[0].item,StackItem::seed(CropType::Wheat));
+        QTest::mouseClick(grid,Qt::RightButton,{},grid->cellRect(0).center());
+        QCOMPARE(grid->cells()[0].quantity,5);
+        int split=-1;for(int i=0;i<21;++i) if(i!=0 && grid->cells()[i].item==StackItem::seed(CropType::Wheat)) split=i;
+        QVERIFY(split>=0);
+        const QPoint destination=grid->mapFromGlobal(SlotDropSurface::globalPoint(bar,QPoint(20,34)));
+        QTest::mousePress(grid,Qt::LeftButton,{},grid->cellRect(split).center());
+        QTest::mouseMove(grid,destination);
+        QTest::mouseRelease(grid,Qt::LeftButton,{},destination);
+        QCOMPARE(grid->cells()[0].quantity,6);QCOMPARE(grid->cells()[split].item,0);
+        QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(0).center());
+        QTRY_VERIFY(!panel("inventoryDialog"));QCOMPARE(bar->selectedSlot(),0);
+        QCOMPARE(player->getCurrentTool().type,ToolType::Wheat);
+        QVERIFY(game.close());
+    }
+    GameSaveData saved;QVERIFY(SaveManager::load(path(),&saved));
+    QCOMPARE(saved.economy.bagSlots[0].item,StackItem::seed(CropType::Wheat));
+    QCOMPARE(saved.economy.bagSlots[0].quantity,6);QCOMPARE(saved.economy.bagSlots[2].item,StackItem::Hoe);
+    QCOMPARE(saved.economy.coins,m_fixture.economy.coins);
+    MainWindow reopened;showGame(reopened);auto *map=gameMap(reopened);QVERIFY(map);
+    QTest::keyClick(map->findChild<ImageMovementWidget *>(),Qt::Key_E);QTRY_VERIFY(panel("inventoryDialog"));
+    auto *grid=dynamic_cast<SlotGrid *>(panel("inventoryDialog")->findChild<QWidget *>("bagSlots"));QVERIFY(grid);
+    QCOMPARE(grid->cells()[0].quantity,6);QCOMPARE(grid->cells()[2].item,StackItem::Hoe);
+    QTest::keyClick(grid,Qt::Key_Escape);QTRY_VERIFY(!panel("inventoryDialog"));QVERIFY(reopened.close());
 }
 
 void GameplayPanelTests::inventoryHotkeyEverywhere() {
@@ -169,10 +209,11 @@ void GameplayPanelTests::inventoryHotkeyEverywhere() {
     for (ToolType tool : PlayableTools) {
         QTest::keyClick(player, Qt::Key_E);
         QTRY_VERIFY(panel("inventoryDialog"));
-        auto *slot = panel("inventoryDialog")->findChild<QPushButton *>(
-            QStringLiteral("bagTool_%1").arg(static_cast<int>(tool)));
-        QVERIFY(slot);
-        QTest::mouseClick(slot, Qt::LeftButton);
+        auto *grid=dynamic_cast<SlotGrid *>(panel("inventoryDialog")->findChild<QWidget *>("bagSlots"));
+        QVERIFY(grid);
+        int index=-1; for(int i=0;i<7;++i) if(grid->cells()[i].item==StackItem::fromTool(tool)) index=i;
+        QVERIFY(index>=0);
+        QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(index).center());
         QTRY_VERIFY(!panel("inventoryDialog"));
         QCOMPARE(bar->selectedTool(), tool);
         QCOMPARE(player->getCurrentTool().type, tool);
@@ -608,15 +649,11 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
     QTRY_VERIFY(panel("inventoryDialog"));
     auto *bag = panel("inventoryDialog");
-    auto *categories = bag->findChild<QTabWidget *>("bagCategories");
-    QVERIFY(categories);
-    QTabBar *tabBar = categories->tabBar();
-    categories->setCurrentIndex(2);
-    auto *fertilizer = bag->findChild<QListWidget *>("bagFertilizer");
-    QVERIFY(fertilizer && fertilizer->isVisible() && fertilizer->count() > 0);
-    const QRect entry = fertilizer->visualItemRect(fertilizer->item(0));
-    QVERIFY(!entry.isEmpty());
-    QTest::mouseClick(fertilizer->viewport(), Qt::LeftButton, {}, entry.center());
+    auto *grid=dynamic_cast<SlotGrid *>(bag->findChild<QWidget *>("bagSlots"));
+    QVERIFY(grid);
+    int fertilizer=-1; for(int i=0;i<7;++i) if(grid->cells()[i].item==StackItem::Fertilizer) fertilizer=i;
+    QVERIFY(fertilizer>=0);
+    QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(fertilizer).center());
     QTRY_VERIFY(!panel("inventoryDialog"));
     QTRY_VERIFY(!map->isInputBlocked() && QApplication::focusWidget());
     QCOMPARE(player->getCurrentTool().type, ToolType::Fertilizer);
@@ -875,24 +912,21 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         QTest::keyClick(QApplication::focusWidget(), key);
         return true;
     };
-    const auto selectFromBag = [&](int category, const QString &listName, ToolType tool) {
-        if (!pressGameKey(Qt::Key_Tab) || !QTest::qWaitFor([&]{ return panel("inventoryDialog") != nullptr; }, 1500))
-            return false;
-        QDialog *bag = panel("inventoryDialog");
-        auto *categories = bag->findChild<QTabWidget *>("bagCategories");
-        auto *list = bag->findChild<QListWidget *>(listName);
-        if (!categories || !list) return false;
-        auto *tabs = categories->tabBar();
-        categories->setCurrentIndex(category);
-        for (int i = 0; i < list->count(); ++i) {
-            const auto *item = list->item(i);
-            if (item->isHidden() || item->data(Qt::UserRole).toInt() != static_cast<int>(tool)) continue;
-            QTest::mouseClick(list->viewport(), Qt::LeftButton, {}, list->visualItemRect(item).center());
-            return QTest::qWaitFor([&]{ return !panel("inventoryDialog") && bar->selectedTool() == tool; }, 1500);
+    const auto selectFromBag = [&](int, const QString &, ToolType tool) {
+        if (!pressGameKey(Qt::Key_Tab) || !QTest::qWaitFor([&]{return panel("inventoryDialog")!=nullptr;},1500)) return false;
+        auto *grid=dynamic_cast<SlotGrid *>(panel("inventoryDialog")->findChild<QWidget *>("bagSlots"));
+        if(!grid) return false;
+        int index=-1; for(int i=0;i<21;++i) if(grid->cells()[i].item==StackItem::fromTool(tool)){index=i;break;}
+        if(index<0) return false;
+        if(index>=7) {
+            QTest::mousePress(grid,Qt::LeftButton,{},grid->cellRect(index).center());
+            QTest::mouseMove(grid,grid->cellRect(0).center());
+            QTest::mouseRelease(grid,Qt::LeftButton,{},grid->cellRect(0).center());
+            index=0;
         }
-        return false;
+        QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(index).center());
+        return QTest::qWaitFor([&]{return !panel("inventoryDialog") && bar->selectedTool()==tool;},1500);
     };
-
     QVERIFY(openFarm());
     QVERIFY(wheelTo(ToolType::Hoe));
     for (const auto &tile : field) {

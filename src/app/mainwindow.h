@@ -63,6 +63,7 @@ private:
     void requestSleep();
     bool recoverToMorning(bool passedOut);
     bool acceptPanelCommand(QDialog *panel);
+    void moveInventoryStack(QDialog *panel, const StackMove &move);
     std::optional<QPoint> bedWakePosition() const;
     DayAdvanceResult processDayTransitions();
     void presentTime();

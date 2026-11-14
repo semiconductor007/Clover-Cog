@@ -1,4 +1,5 @@
 #include "app/mainwindow.h"
+#include "ui/slotgrid.h"
 #include "ui/scenetransition.h"
 
 #include <QAudioDevice>
@@ -641,7 +642,8 @@ void ClockUiTests::readOnlyWakePreservesProtectedSave() {
     auto *enter = m_window->findChild<QPushButton *>("enterFarm");
     QVERIFY(enter && enter->isVisible());
     QTest::mouseClick(enter, Qt::LeftButton);
-    QVERIFY(hudText().contains(QStringLiteral("暂停保存")));
+    QVERIFY(!m_window->m_statusLabel->isVisible());
+    QVERIFY(m_window->m_statusLabel->text().contains(QStringLiteral("暂停保存")));
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     pressInteract();
@@ -677,7 +679,8 @@ void ClockUiTests::wakeFromRecoveredBackup() {
     QVERIFY(primary.write("{torn-primary") > 0);
     primary.close();
     QVERIFY(openGame());
-    QVERIFY(hudText().contains(QStringLiteral("备份恢复")));
+    QVERIFY(!m_window->m_statusLabel->isVisible());
+    QVERIFY(m_window->m_statusLabel->text().contains(QStringLiteral("备份恢复")));
     QCOMPARE(m_window->currentGameDay(), 6);
     QCOMPARE(m_window->currentGameHour(), 22);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
@@ -701,13 +704,12 @@ void ClockUiTests::seasonChangesWithBackpackOpen() {
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
     QPointer<QDialog> bag = m_window->findChild<QDialog *>("inventoryDialog");
     QVERIFY(bag && bag->isVisible());
-    auto *tabs = bag->findChild<QTabWidget *>("bagCategories");
-    auto *seeds = bag->findChild<QListWidget *>("bagSeeds");
+    auto *seeds=dynamic_cast<SlotGrid *>(bag->findChild<QWidget *>("bagSlots"));
     auto *date = bag->findChild<QLabel *>("bagDate");
     auto *summary = bag->findChild<QLabel *>("panelSummary");
-    QVERIFY(tabs && seeds && date && summary);
-    tabs->setCurrentIndex(1);
-    QCOMPARE(tabs->currentWidget(), seeds);
+    QVERIFY(seeds && date && summary);
+
+
     QTRY_VERIFY(QApplication::focusWidget() && QApplication::focusWidget()->window() == bag);
     QPointer<QWidget> previousFocus = QApplication::focusWidget();
     QVERIFY(date->text().contains(QStringLiteral("春季")));
@@ -716,9 +718,9 @@ void ClockUiTests::seasonChangesWithBackpackOpen() {
     QTRY_VERIFY_WITH_TIMEOUT(m_fade->isActive(), 4500);
     QVERIFY(!bag->isEnabled());
     QVERIFY(m_map->isInputBlocked());
-    const QRect seedRow = seeds->visualItemRect(seeds->item(0));
+    const QRect seedRow = seeds->cellRect(2);
     QVERIFY(!seedRow.isEmpty());
-    QTest::mouseClick(seeds->viewport(), Qt::LeftButton, {}, seedRow.center());
+    QTest::mouseClick(seeds, Qt::LeftButton, {}, seedRow.center());
     QVERIFY(bag && bag->isVisible());
     for (const auto key : {Qt::Key_E, Qt::Key_Tab, Qt::Key_Escape}) {
         QTest::keyClick(bag->windowHandle(), key);
@@ -729,13 +731,13 @@ void ClockUiTests::seasonChangesWithBackpackOpen() {
     QVERIFY(bag && bag->isEnabled() && bag->isVisible());
     QTRY_COMPARE(QApplication::focusWidget(), previousFocus.data());
     QVERIFY(m_map->isInputBlocked());
-    QCOMPARE(tabs->currentWidget(), seeds);
+
     QVERIFY(date->text().contains(QStringLiteral("夏季")));
     QCOMPARE(summary->text().simplified(), QStringLiteral("金币 0 · 农产品 3 / 12"));
 
-    auto *fertilizer = bag->findChild<QListWidget *>("bagFertilizer");
-    QVERIFY(fertilizer && fertilizer->count() > 0);
-    QCOMPARE(fertilizer->item(0)->text().simplified(), QStringLiteral("基础肥料 × 2"));
+    int fertilizerCount=0;
+    for(const auto &stack : seeds->cells()) if(stack.item==StackItem::Fertilizer) fertilizerCount+=stack.quantity;
+    QCOMPARE(fertilizerCount,2);
     verifySaved(7, 0, 2, false);
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_Escape);
     QTRY_VERIFY(!bag || !bag->isVisible());
@@ -834,7 +836,15 @@ void ClockUiTests::firstShowFitsViewport() {
     QVERIFY(m_canvas->rect().contains(header->geometry()));
     QVERIFY(m_canvas->rect().contains(bar->geometry()));
     QVERIFY(header->geometry().bottom() < m_map->geometry().top());
-    QVERIFY(bar->geometry().top() > m_map->geometry().bottom());
+    QVERIFY(m_map->geometry().contains(bar->geometry()));
+    QCOMPARE(bar->geometry().center().x(), m_canvas->rect().center().x());
+    QCOMPARE(m_canvas->height() - bar->geometry().bottom() - 1, 8);
+    for (auto *label : m_canvas->findChildren<QLabel *>()) {
+        if (label->parentWidget() == m_canvas) QVERIFY(!label->isVisible());
+    }
+    QDir().mkpath(QStringLiteral("captures"));
+    bar->selectTool(ToolType::Hoe);
+    QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-bottom-toolbar.png")));
 }
 
 void ClockUiTests::loadCatchesUpMissedMidnights() {

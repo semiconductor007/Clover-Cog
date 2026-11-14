@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -50,6 +51,7 @@ class SaveTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void slotLayoutRoundTripAndCorruption();
     void fertilizerRoundTrip();
     void missingV2StockMigratesWithoutWritingLegacy();
     void migrateV3AndRoundTripStorage();
@@ -64,6 +66,42 @@ private slots:
     void invalidCopiesArePreserved();
     void rejectedSnapshotAndFailedBackupLeavePrimaryAlone();
 };
+
+void SaveTests::slotLayoutRoundTripAndCorruption() {
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const QString path=directory.filePath("slots.json");
+    auto data=newFarm(); EconomyService economy; QVERIFY(economy.restore(data.economy));
+    StackMove move; move.source=2;move.target=12;move.quantity=2;move.revision=economy.revision();move.expected=economy.bagSlots()[2];
+    QVERIFY(economy.moveStack(move));
+    move={}; move.source=0;move.target=4;move.quantity=1;move.targetChest=true;
+    move.revision=economy.revision();move.expected=economy.bagSlots()[0];
+    QVERIFY(economy.moveStack(move));
+    data.economy=economy.state(); QVERIFY(SaveManager::save(path,data));
+    GameSaveData loaded; QVERIFY(SaveManager::load(path,&loaded));
+    QCOMPARE(loaded.economy.bagSlots,data.economy.bagSlots);
+    QCOMPARE(loaded.economy.chestSlots,data.economy.chestSlots);
+    const auto valid=QJsonDocument::fromJson(readFile(path)).object();
+    for (int failure=0; failure<4; ++failure) {
+        auto root=valid; auto stock=root.value("economy").toObject(); auto cells=stock.value("bagSlots").toArray();
+        if (failure==0) {auto cell=cells[12].toObject();cell["quantity"]=99;cells[12]=cell;}
+        if (failure==1) {auto cell=cells[12].toObject();cell["item"]=99999;cells[12]=cell;}
+        if (failure==2) cells.removeLast();
+        if (failure==3) {auto cell=cells[1].toObject();cell["quantity"]=2;cells[1]=cell;}
+        stock["bagSlots"]=cells;root["economy"]=stock;
+        QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));file.write(QJsonDocument(root).toJson());file.close();
+        GameSaveData unchanged=loaded;
+        QVERIFY(!SaveManager::load(path,&unchanged));
+        QCOMPARE(unchanged.economy.bagSlots,loaded.economy.bagSlots);
+        QCOMPARE(unchanged.gameMinutes,loaded.gameMinutes);
+    }
+    auto legacy=valid; auto stock=legacy.value("economy").toObject();
+    stock.remove("bagSlots");stock.remove("chestSlots");stock.remove("slotLayoutVersion");legacy["economy"]=stock;
+    QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));file.write(QJsonDocument(legacy).toJson());file.close();
+    QVERIFY(SaveManager::load(path,&loaded));
+    EconomyService restored;QVERIFY(restored.restore(loaded.economy));
+    QCOMPARE(restored.seedCount(CropType::Wheat),6);
+    QVERIFY(EconomyService::layoutMatches(restored.state()));
+}
 
 void SaveTests::fertilizerRoundTrip() {
     QTemporaryDir dir;

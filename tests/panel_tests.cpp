@@ -1,4 +1,5 @@
 #include "ui/inventorydialog.h"
+#include "ui/slotgrid.h"
 #include "ui/marketdialog.h"
 #include "ui/seedshopdialog.h"
 #include "ui/storagedialog.h"
@@ -30,127 +31,84 @@ private slots:
     void shopOrders();
     void marketQuoteAndSale();
     void storageTransfersAndFailureFeedback();
+    void chestDragAndCancel();
 };
 
 void PanelTests::bagToolsAndQuantitiesStayUnchanged() {
     EconomyService economy;
-    auto state = economy.state();
-    state.coins = 123;
-    state.inventoryCounts[static_cast<int>(CropType::Wheat)] = 12;
-    state.fertilizerCount = 5;
-    for (CropType crop : CropCatalog::cropTypes())
-        state.seedCounts[static_cast<int>(crop)] = 9876;
+    auto state=economy.state(); state.coins=123; state.inventoryCounts[1]=12; state.fertilizerCount=5;
+    for (CropType crop : CropCatalog::cropTypes()) state.seedCounts[static_cast<int>(crop)]=9876;
     QVERIFY(economy.restore(state));
-    InventoryDialog bag;
-    bag.setState(economy, ToolType::Hoe);
-    QSignalSpy selected(&bag, &InventoryDialog::toolRequested);
-    bag.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&bag));
-    QVERIFY(bag.findChild<QLabel *>("panelSummary")->text().contains(QStringLiteral("12 / 12")));
-    QVERIFY(bag.findChild<QLabel *>("panelSummary")->text().contains(QStringLiteral("123")));
-    auto *tabs = bag.findChild<QTabWidget *>("bagCategories");
-    tabs->setCurrentIndex(0);
-    auto *seeds = bag.findChild<QListWidget *>("bagSeeds");
-    QCOMPARE(seeds->viewMode(), QListView::IconMode);
-    QCOMPARE(bag.findChildren<QPushButton *>(QRegularExpression(QStringLiteral("^bagTool_"))).size(), 7);
+    InventoryDialog bag; bag.setState(economy,ToolType::Hoe);
+    QSignalSpy selected(&bag,&InventoryDialog::toolRequested);
+    bag.show(); QVERIFY(QTest::qWaitForWindowExposed(&bag));
+    auto *grid=dynamic_cast<SlotGrid *>(bag.findChild<QWidget *>("bagSlots")); QVERIFY(grid);
+    QCOMPARE(grid->cells().size(),21);
+    QVERIFY(!bag.findChild<QLabel *>("panelSummary")->isVisible());
     QVERIFY(!bag.findChild<QPushButton *>("bagTool_0"));
-    QVERIFY(!bag.findChild<QLabel *>("bagDate")->isVisible());
-    QVERIFY(!bag.findChild<QLabel *>("bagDetails")->isVisible());
-    QDir().mkpath(QStringLiteral("captures"));
-    QVERIFY(bag.grab().save(QStringLiteral("captures/inventory-grid.png")));
-    EconomyService preview;
-    bag.setState(preview, ToolType::Wheat);
-    QCoreApplication::processEvents();
-    QVERIFY(bag.grab().save(QStringLiteral("captures/inventory-preview.png")));
-    bag.setState(economy, ToolType::Hoe);
-    // Browsing and closing a full bag must never consume or discard anything.
-    QTest::keyClick(seeds, Qt::Key_Right);
-    QTest::keyClick(seeds, Qt::Key_E);
-    QCOMPARE(selected.count(), 0);
-    QCOMPARE(economy.state().inventoryCounts, state.inventoryCounts);
-    QCOMPARE(economy.state().seedCounts, state.seedCounts);
-    for (ToolType tool : {ToolType::Hoe, ToolType::WateringCan}) {
-        bag.show();
-        auto *button = bag.findChild<QPushButton *>(QStringLiteral("bagTool_%1").arg(static_cast<int>(tool)));
-        QVERIFY(button);
-        QTest::mouseClick(button, Qt::LeftButton);
-        QCOMPARE(selected.last().first().value<ToolType>(), tool);
+    QDir().mkpath("captures");
+    QVERIFY(bag.grab().save("captures/inventory-grid.png"));
+    EconomyService preview; bag.setState(preview,ToolType::Wheat);
+    QCoreApplication::processEvents(); QVERIFY(bag.grab().save("captures/inventory-preview.png"));
+    bag.setState(economy,ToolType::Hoe);
+    QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(20).center());
+    QVERIFY(bag.isVisible()); QCOMPARE(selected.count(),0);
+    QTest::keyClick(grid,Qt::Key_E);
+    for (int index : {0,1}) {
+        bag.show(); QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(index).center());
+        QCOMPARE(selected.last().first().value<ToolType>(),index==0 ? ToolType::Hoe : ToolType::WateringCan);
         QVERIFY(!bag.isVisible());
     }
-    QCOMPARE(selected.count(), 2);
-    QCOMPARE(economy.state().inventoryCounts, state.inventoryCounts);
-    QCOMPARE(economy.state().seedCounts, state.seedCounts);
-    QCOMPARE(economy.coins(), 123);
-    QCOMPARE(economy.fertilizerCount(), 5);
+    QCOMPARE(economy.state().inventoryCounts,state.inventoryCounts);
+    QCOMPARE(economy.state().seedCounts,state.seedCounts);
+    QCOMPARE(economy.coins(),123); QCOMPARE(economy.fertilizerCount(),5);
 }
 
 void PanelTests::bagSelectionAndRefresh() {
-    EconomyService economy;
-    EconomyState state = economy.state();
-    state.seedCounts[static_cast<int>(CropType::Carrot)] = 2;
-    QVERIFY(economy.restore(state));
-    InventoryDialog bag;
-    bag.setState(economy, ToolType::Carrot, 6);
-    QSignalSpy chosen(&bag, &InventoryDialog::toolRequested);
-    bag.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&bag));
-    auto *tabs = bag.findChild<QTabWidget *>("bagCategories");
-    auto *seeds = bag.findChild<QListWidget *>("bagSeeds");
-    QVERIFY(tabs && seeds);
-    tabs->setCurrentWidget(seeds);
-    QCOMPARE(tabs->currentWidget(), seeds);
-    QVERIFY(seeds->currentItem()->text().contains(QStringLiteral("胡萝卜种子\n× 2 ✓")));
-    QCOMPARE(seeds->viewMode(), QListView::IconMode);
-    QVERIFY(seeds->currentItem()->toolTip().contains(QStringLiteral("持有 2")));
-    QVERIFY(!seeds->currentItem()->icon().isNull());
-    QVERIFY(economy.plantWithSeed(CropType::Carrot, [] { return true; }));
-    bag.setState(economy, ToolType::Carrot, 7);
+    EconomyService economy; auto state=economy.state(); state.seedCounts[3]=2; QVERIFY(economy.restore(state));
+    InventoryDialog bag; bag.setState(economy,ToolType::Carrot,6);
+    QSignalSpy chosen(&bag,&InventoryDialog::toolRequested);
+    bag.show(); QVERIFY(QTest::qWaitForWindowExposed(&bag));
+    auto *grid=dynamic_cast<SlotGrid *>(bag.findChild<QWidget *>("bagSlots")); QVERIFY(grid);
+    int index=-1; for (int i=0;i<21;++i) if(grid->cells()[i].item==StackItem::seed(CropType::Carrot)) index=i;
+    QVERIFY(index>=0 && index<7);
+    QVERIFY(economy.plantWithSeed(CropType::Carrot,[]{return true;}));
+    bag.setState(economy,ToolType::Carrot,7);
     QVERIFY(bag.findChild<QLabel *>("bagDate")->text().contains(QStringLiteral("夏")));
-    QVERIFY(seeds->currentItem()->text().contains(QStringLiteral("× 1")));
-    QTest::keyClick(seeds, Qt::Key_Return);
-    QCOMPARE(chosen.count(), 1);
-    QCOMPARE(chosen.first().first().value<ToolType>(), ToolType::Carrot);
-    QCOMPARE(economy.seedCount(CropType::Carrot), 1);
-    QVERIFY(!bag.isVisible());
+    QCOMPARE(grid->cells()[index].quantity,1);
+    QTest::mouseClick(grid,Qt::LeftButton,{},grid->cellRect(index).center());
+    QCOMPARE(chosen.count(),1); QCOMPARE(chosen.first().first().value<ToolType>(),ToolType::Carrot);
+    QCOMPARE(economy.seedCount(CropType::Carrot),1); QVERIFY(!bag.isVisible());
 }
 
 void PanelTests::bagMouseAndCloseKeys() {
-    EconomyService economy;
-    EconomyState state = economy.state();
-    state.fertilizerCount = 5;
-    QVERIFY(economy.restore(state));
-    InventoryDialog bag;
-    QSignalSpy chosen(&bag, &InventoryDialog::toolRequested);
-    bag.setState(economy, ToolType::EmptyHand);
-    bag.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&bag));
-    auto *tabs = bag.findChild<QTabWidget *>("bagCategories");
-    auto *harvest = bag.findChild<QListWidget *>("bagHarvest");
-    auto *fertilizer = bag.findChild<QListWidget *>("bagFertilizer");
-    QVERIFY(tabs && harvest && fertilizer);
-    auto *empty = harvest->item(harvest->count() - 1);
-    QVERIFY(!empty->isHidden());
-    QTest::mouseClick(harvest->viewport(), Qt::LeftButton, {}, harvest->visualItemRect(empty).center());
-    QCOMPARE(chosen.count(), 0);
-    QKeyEvent heldTab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, QString(), true);
-    QApplication::sendEvent(harvest, &heldTab);
-    QVERIFY(bag.isVisible());
-    QTest::keyClick(harvest, Qt::Key_Left, Qt::ControlModifier);
-    QCOMPARE(tabs->currentWidget(), fertilizer);
-    auto *item = fertilizer->item(0);
-    QTest::mouseClick(fertilizer->viewport(), Qt::LeftButton, {}, fertilizer->visualItemRect(item).center());
-    QCOMPARE(chosen.count(), 1);
-    QCOMPARE(chosen.first().first().value<ToolType>(), ToolType::Fertilizer);
-    QCOMPARE(economy.fertilizerCount(), 5);
-    for (Qt::Key key : {Qt::Key_E, Qt::Key_Tab, Qt::Key_Escape}) {
-        bag.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&bag));
-        QTest::keyClick(fertilizer, key);
-        QVERIFY(!bag.isVisible());
-        QCOMPARE(chosen.count(), 1);
+    EconomyService economy; InventoryDialog bag; bag.setState(economy,ToolType::EmptyHand);
+    auto *grid=dynamic_cast<SlotGrid *>(bag.findChild<QWidget *>("bagSlots")); QVERIFY(grid);
+    connect(&bag,&InventoryDialog::stackMoveRequested,&bag,[&](StackMove move){
+        QVERIFY(economy.moveStack(move)); bag.setState(economy,ToolType::EmptyHand);
+    });
+    bag.show(); QVERIFY(QTest::qWaitForWindowExposed(&bag));
+    QTest::mouseClick(grid,Qt::RightButton,{},grid->cellRect(2).center());
+    QCOMPARE(economy.bagSlots()[2].quantity,5); QCOMPARE(economy.bagSlots()[4].quantity,1);
+    QTest::mouseClick(grid,Qt::RightButton,Qt::ShiftModifier,grid->cellRect(2).center());
+    QCOMPARE(economy.bagSlots()[2].quantity,2); QCOMPARE(economy.bagSlots()[5].quantity,3);
+    QTest::mousePress(grid,Qt::LeftButton,{},grid->cellRect(5).center());
+    QTest::mouseMove(grid,grid->cellRect(2).center());
+    QTest::mouseRelease(grid,Qt::LeftButton,{},grid->cellRect(2).center());
+    QTest::mousePress(grid,Qt::LeftButton,{},grid->cellRect(4).center());
+    QTest::mouseMove(grid,grid->cellRect(2).center());
+    QTest::mouseRelease(grid,Qt::LeftButton,{},grid->cellRect(2).center());
+    QCOMPARE(economy.bagSlots()[2].quantity,6); QCOMPARE(economy.bagSlots()[4].item,0);
+    const auto before=economy.state();
+    QTest::mousePress(grid,Qt::LeftButton,{},grid->cellRect(2).center());
+    QTest::mouseMove(grid,grid->cellRect(10).center());
+    QTest::keyClick(grid,Qt::Key_Escape);
+    QTest::mouseRelease(grid,Qt::LeftButton,{},grid->cellRect(10).center());
+    QCOMPARE(economy.bagSlots(),before.bagSlots);
+    for (Qt::Key key : {Qt::Key_E,Qt::Key_Tab,Qt::Key_Escape}) {
+        bag.show(); grid->setFocus(); QTest::keyClick(grid,key); QVERIFY(!bag.isVisible());
     }
 }
-
 void PanelTests::shopOrders() {
     EconomyService economy;
     EconomyState state = economy.state();
@@ -280,6 +238,41 @@ void PanelTests::storageTransfersAndFailureFeedback() {
     QCOMPARE(transfers.count(), 4);
     QTest::keyClick(depositOne, Qt::Key_Escape);
     QVERIFY(!storage.isVisible());
+}
+
+void PanelTests::chestDragAndCancel() {
+    EconomyService economy; auto state=economy.state();state.inventoryCounts[1]=11;state.storage.harvestCounts[1]=2;
+    QVERIFY(economy.restore(state)); StorageDialog storage;storage.setState(economy);
+    auto *bag=dynamic_cast<SlotGrid *>(storage.findChild<QWidget *>("storageBagSlots"));
+    auto *chest=dynamic_cast<SlotGrid *>(storage.findChild<QWidget *>("chestSlots"));
+    QVERIFY(bag && chest);
+    bool accepted=false;
+    connect(&storage,&StorageDialog::stackMoveRequested,&storage,[&](StackMove move){
+        accepted=economy.moveStack(move);storage.setState(economy);
+    });
+    storage.show();QVERIFY(QTest::qWaitForWindowExposed(&storage));
+    const auto drag=[](SlotGrid *from,int source,SlotGrid *to,int destination,Qt::MouseButton button) {
+        const QPoint target=from->mapFromGlobal(to->mapToGlobal(to->cellRect(destination).center()));
+        QTest::mousePress(from,button,{},from->cellRect(source).center());
+        QTest::mouseMove(from,target);
+        QTest::mouseRelease(from,button,{},target);
+    };
+    drag(chest,0,bag,10,Qt::RightButton);
+    QVERIFY(accepted); QCOMPARE(economy.inventory().usedCapacity(),12);QCOMPARE(economy.storage().harvestCounts.value(1),1);
+    const auto before=economy.state();
+    accepted=true;drag(chest,0,bag,11,Qt::LeftButton);QVERIFY(!accepted);
+    QCOMPARE(economy.bagSlots(),before.bagSlots);QCOMPARE(economy.chestSlots(),before.chestSlots);
+    drag(bag,0,chest,5,Qt::LeftButton);QVERIFY(accepted);
+    QCOMPARE(economy.chestSlots()[5].item,StackItem::Hoe);
+    drag(bag,4,bag,15,Qt::RightButton);QVERIFY(accepted);
+    QCOMPARE(economy.bagSlots()[15].item,StackItem::harvest(CropType::Wheat));
+    QCOMPARE(economy.inventory().usedCapacity(),12);
+    const auto closing=economy.state();
+    QTest::mousePress(bag,Qt::LeftButton,{},bag->cellRect(2).center());
+    QTest::mouseMove(bag,bag->cellRect(16).center());
+    storage.reject();
+    QCOMPARE(economy.bagSlots(),closing.bagSlots);QCOMPARE(economy.chestSlots(),closing.chestSlots);
+    QVERIFY(EconomyService::layoutMatches(economy.state()));
 }
 
 QTEST_MAIN(PanelTests)

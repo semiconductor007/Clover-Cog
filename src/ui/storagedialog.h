@@ -5,6 +5,7 @@
 #include "farmpanel.h"
 
 class QTableWidget;
+class SlotGrid;
 
 class StorageDialog : public FarmPanel {
     Q_OBJECT
@@ -14,6 +15,7 @@ public:
 
 signals:
     void transferRequested(StorageItemKind kind, CropType crop, StorageDirection direction, int quantity);
+    void stackMoveRequested(StackMove move);
 
 private:
     struct Row {
@@ -30,6 +32,8 @@ private:
     QPushButton *m_depositAll;
     QPushButton *m_withdrawOne;
     QPushButton *m_withdrawAll;
+    SlotGrid *m_bagGrid;
+    SlotGrid *m_chestGrid;
 };
 
 #endif
