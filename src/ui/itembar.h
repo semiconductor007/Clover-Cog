@@ -4,6 +4,9 @@
 #include "player/tooltype.h"
 #include <QWidget>
 #include <array>
+#include <QHash>
+
+class EconomyService;
 
 class ItemBar : public QWidget {
     Q_OBJECT
@@ -12,6 +15,7 @@ public:
     QSize sizeHint() const override;
     ToolType selectedTool() const { return m_selected; }
     void selectTool(ToolType tool);
+    void setStock(const EconomyService &economy);
     void wheelEvent(QWheelEvent *event) override;
 
 signals:
@@ -28,7 +32,7 @@ private:
     bool acceptsPlayerInput() const;
     ToolType m_selected = ToolType::EmptyHand;
     int m_wheelRemainder = 0;
-    QPixmap m_slots;
+    QHash<int, int> m_counts;
     std::array<QPixmap, ToolCount> m_icons;
 };
 

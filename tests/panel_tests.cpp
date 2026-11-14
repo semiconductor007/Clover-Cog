@@ -4,6 +4,8 @@
 #include "ui/storagedialog.h"
 
 #include <QApplication>
+#include <QDir>
+#include <QFontDatabase>
 #include <QListWidget>
 #include <QSpinBox>
 #include <QTabBar>
@@ -14,12 +16,73 @@
 class PanelTests : public QObject {
     Q_OBJECT
 private slots:
+    void initTestCase() {
+#ifdef Q_OS_WIN
+        const int font = QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+        const auto families = QFontDatabase::applicationFontFamilies(font);
+        if (qEnvironmentVariable("QT_QPA_PLATFORM") == QStringLiteral("offscreen") && !families.isEmpty())
+            QApplication::setFont(QFont(families.first(), 10));
+#endif
+    }
     void bagSelectionAndRefresh();
     void bagMouseAndCloseKeys();
+    void bagToolsAndQuantitiesStayUnchanged();
     void shopOrders();
     void marketQuoteAndSale();
     void storageTransfersAndFailureFeedback();
 };
+
+void PanelTests::bagToolsAndQuantitiesStayUnchanged() {
+    EconomyService economy;
+    auto state = economy.state();
+    state.coins = 123;
+    state.inventoryCounts[static_cast<int>(CropType::Wheat)] = 12;
+    state.fertilizerCount = 5;
+    for (CropType crop : CropCatalog::cropTypes())
+        state.seedCounts[static_cast<int>(crop)] = 9876;
+    QVERIFY(economy.restore(state));
+    InventoryDialog bag;
+    bag.setState(economy, ToolType::Hoe);
+    QSignalSpy selected(&bag, &InventoryDialog::toolRequested);
+    bag.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&bag));
+    QVERIFY(bag.findChild<QLabel *>("panelSummary")->text().contains(QStringLiteral("12 / 12")));
+    QVERIFY(bag.findChild<QLabel *>("panelSummary")->text().contains(QStringLiteral("123")));
+    auto *tabs = bag.findChild<QTabWidget *>("bagCategories");
+    tabs->setCurrentIndex(0);
+    auto *seeds = bag.findChild<QListWidget *>("bagSeeds");
+    QCOMPARE(seeds->viewMode(), QListView::IconMode);
+    QCOMPARE(bag.findChildren<QPushButton *>(QRegularExpression(QStringLiteral("^bagTool_"))).size(), 7);
+    QVERIFY(!bag.findChild<QPushButton *>("bagTool_0"));
+    QVERIFY(!bag.findChild<QLabel *>("bagDate")->isVisible());
+    QVERIFY(!bag.findChild<QLabel *>("bagDetails")->isVisible());
+    QDir().mkpath(QStringLiteral("captures"));
+    QVERIFY(bag.grab().save(QStringLiteral("captures/inventory-grid.png")));
+    EconomyService preview;
+    bag.setState(preview, ToolType::Wheat);
+    QCoreApplication::processEvents();
+    QVERIFY(bag.grab().save(QStringLiteral("captures/inventory-preview.png")));
+    bag.setState(economy, ToolType::Hoe);
+    // Browsing and closing a full bag must never consume or discard anything.
+    QTest::keyClick(seeds, Qt::Key_Right);
+    QTest::keyClick(seeds, Qt::Key_E);
+    QCOMPARE(selected.count(), 0);
+    QCOMPARE(economy.state().inventoryCounts, state.inventoryCounts);
+    QCOMPARE(economy.state().seedCounts, state.seedCounts);
+    for (ToolType tool : {ToolType::Hoe, ToolType::WateringCan}) {
+        bag.show();
+        auto *button = bag.findChild<QPushButton *>(QStringLiteral("bagTool_%1").arg(static_cast<int>(tool)));
+        QVERIFY(button);
+        QTest::mouseClick(button, Qt::LeftButton);
+        QCOMPARE(selected.last().first().value<ToolType>(), tool);
+        QVERIFY(!bag.isVisible());
+    }
+    QCOMPARE(selected.count(), 2);
+    QCOMPARE(economy.state().inventoryCounts, state.inventoryCounts);
+    QCOMPARE(economy.state().seedCounts, state.seedCounts);
+    QCOMPARE(economy.coins(), 123);
+    QCOMPARE(economy.fertilizerCount(), 5);
+}
 
 void PanelTests::bagSelectionAndRefresh() {
     EconomyService economy;
@@ -34,8 +97,11 @@ void PanelTests::bagSelectionAndRefresh() {
     auto *tabs = bag.findChild<QTabWidget *>("bagCategories");
     auto *seeds = bag.findChild<QListWidget *>("bagSeeds");
     QVERIFY(tabs && seeds);
+    tabs->setCurrentWidget(seeds);
     QCOMPARE(tabs->currentWidget(), seeds);
-    QVERIFY(seeds->currentItem()->text().contains(QStringLiteral("胡萝卜种子    × 2    · 已选用")));
+    QVERIFY(seeds->currentItem()->text().contains(QStringLiteral("胡萝卜种子\n× 2 ✓")));
+    QCOMPARE(seeds->viewMode(), QListView::IconMode);
+    QVERIFY(seeds->currentItem()->toolTip().contains(QStringLiteral("持有 2")));
     QVERIFY(!seeds->currentItem()->icon().isNull());
     QVERIFY(economy.plantWithSeed(CropType::Carrot, [] { return true; }));
     bag.setState(economy, ToolType::Carrot, 7);
@@ -69,14 +135,14 @@ void PanelTests::bagMouseAndCloseKeys() {
     QKeyEvent heldTab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, QString(), true);
     QApplication::sendEvent(harvest, &heldTab);
     QVERIFY(bag.isVisible());
-    QTest::keyClick(harvest, Qt::Key_Left);
+    QTest::keyClick(harvest, Qt::Key_Left, Qt::ControlModifier);
     QCOMPARE(tabs->currentWidget(), fertilizer);
     auto *item = fertilizer->item(0);
     QTest::mouseClick(fertilizer->viewport(), Qt::LeftButton, {}, fertilizer->visualItemRect(item).center());
     QCOMPARE(chosen.count(), 1);
     QCOMPARE(chosen.first().first().value<ToolType>(), ToolType::Fertilizer);
     QCOMPARE(economy.fertilizerCount(), 5);
-    for (Qt::Key key : {Qt::Key_Tab, Qt::Key_Escape}) {
+    for (Qt::Key key : {Qt::Key_E, Qt::Key_Tab, Qt::Key_Escape}) {
         bag.show();
         QVERIFY(QTest::qWaitForWindowExposed(&bag));
         QTest::keyClick(fertilizer, key);

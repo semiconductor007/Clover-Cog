@@ -1,8 +1,10 @@
 #include "itembar.h"
 #include "farmicons.h"
+#include "economy/economyservice.h"
 #include "map/mapwidget.h"
 
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QWheelEvent>
 #include <QtMath>
@@ -13,7 +15,7 @@ constexpr int CaptionHeight = 16;
 }
 
 ItemBar::ItemBar(QWidget *parent)
-    : QWidget(parent), m_slots(QStringLiteral(":/farm-ui/slots.png")) {
+    : QWidget(parent) {
     setFocusPolicy(Qt::NoFocus);
     setAccessibleName(QStringLiteral("农具栏"));
     setAccessibleDescription(toolName(m_selected));
@@ -30,17 +32,29 @@ ItemBar::ItemBar(QWidget *parent)
 }
 
 QSize ItemBar::sizeHint() const {
-    return QSize(ToolbarSlotCount * SlotSize, SlotSize + CaptionHeight);
+    return QSize(232, 64 + CaptionHeight);
+}
+
+void ItemBar::setStock(const EconomyService &economy) {
+    m_counts.clear();
+    for (CropType crop : CropCatalog::cropTypes())
+        m_counts.insert(static_cast<int>(toolForSeed(crop)), economy.seedCount(crop));
+    m_counts.insert(static_cast<int>(ToolType::Fertilizer), economy.fertilizerCount());
+    if (m_counts.contains(static_cast<int>(m_selected)) && m_counts.value(static_cast<int>(m_selected)) == 0)
+        selectTool(ToolType::EmptyHand);
+    update();
 }
 
 QRect ItemBar::slotRect(int index) const {
     const int side = qMin(SlotSize, qMin(width() / ToolbarSlotCount, qMax(0, height() - CaptionHeight)));
     const int left = (width() - ToolbarSlotCount * side) / 2;
-    return QRect(left + side * index, height() - side, side, side);
+    return QRect(left + side * index, height() - 40, side, side);
 }
 
 void ItemBar::selectTool(ToolType tool) {
-    if (toolSlot(tool) < 0 || m_selected == tool)
+    if (m_counts.contains(static_cast<int>(tool)) && m_counts.value(static_cast<int>(tool)) == 0)
+        tool = ToolType::EmptyHand;
+    if ((tool != ToolType::EmptyHand && toolSlot(tool) < 0) || m_selected == tool)
         return;
     m_selected = tool;
     setAccessibleDescription(toolName(tool));
@@ -54,6 +68,13 @@ bool ItemBar::acceptsPlayerInput() const {
 }
 
 bool ItemBar::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == parentWidget() && event->type() == QEvent::KeyPress) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_0 && key->modifiers() == Qt::NoModifier) {
+            if (acceptsPlayerInput() && !key->isAutoRepeat()) selectTool(ToolType::EmptyHand);
+            return true;
+        }
+    }
     if (watched == parentWidget() && event->type() == QEvent::Wheel) {
         wheelEvent(static_cast<QWheelEvent *>(event));
         return true;
@@ -75,7 +96,8 @@ void ItemBar::wheelEvent(QWheelEvent *event) {
     const int steps = m_wheelRemainder / 120;
     m_wheelRemainder %= 120;
     if (steps) {
-        const int next = (toolSlot(m_selected) - steps % ToolbarSlotCount + ToolbarSlotCount) % ToolbarSlotCount;
+        const int current = m_selected == ToolType::EmptyHand ? (steps < 0 ? -1 : 0) : toolSlot(m_selected);
+        const int next = (current - steps % ToolbarSlotCount + ToolbarSlotCount) % ToolbarSlotCount;
         selectTool(PlayableTools[next]);
     }
     if (event->phase() == Qt::ScrollEnd)
@@ -89,7 +111,7 @@ void ItemBar::mousePressEvent(QMouseEvent *event) {
     const QPoint pos(qFloor(event->position().x()), qFloor(event->position().y()));
     for (int i = 0; i < ToolbarSlotCount; ++i) {
         if (slotRect(i).contains(pos)) {
-            selectTool(PlayableTools[i]);
+            selectTool(m_selected == PlayableTools[i] ? ToolType::EmptyHand : PlayableTools[i]);
             return;
         }
     }
@@ -98,12 +120,12 @@ void ItemBar::mousePressEvent(QMouseEvent *event) {
 void ItemBar::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter.drawPixmap(QRect((width()-232)/2, height()-64, 232, 64),
+                       QPixmap(QStringLiteral(":/farm-ui/hotbar.png")));
     for (int i = 0; i < ToolbarSlotCount; ++i) {
         const QRect slot = slotRect(i);
         const ToolType tool = PlayableTools[i];
         const bool selected = m_selected == tool;
-        const QRect source(selected ? 57 : 9, 57, 30, 32);
-        painter.drawPixmap(slot.adjusted(1, 1, -1, 0), m_slots, source);
         if (selected) {
             painter.setPen(QColor(81, 53, 43));
             painter.drawRect(slot.adjusted(0, 0, -1, -1));
@@ -111,8 +133,15 @@ void ItemBar::paintEvent(QPaintEvent *) {
             painter.drawRect(slot.adjusted(1, 1, -2, -2));
         }
         const QPixmap &icon = m_icons[static_cast<int>(tool)];
-        painter.drawPixmap(slot.x() + (slot.width() - icon.width()) / 2,
+        const bool hasItem = !m_counts.contains(static_cast<int>(tool)) || m_counts.value(static_cast<int>(tool)) > 0;
+        if (hasItem) painter.drawPixmap(slot.x() + (slot.width() - icon.width()) / 2,
                            slot.y() + (slot.height() - icon.height()) / 2, icon);
+        if (hasItem && m_counts.contains(static_cast<int>(tool))) {
+            QFont number = font(); number.setPixelSize(9); number.setBold(true); painter.setFont(number);
+            painter.setPen(QColor(75, 43, 25));
+            painter.drawText(slot.adjusted(1, 0, -3, -2), Qt::AlignRight | Qt::AlignBottom,
+                             QString::number(m_counts.value(static_cast<int>(tool))));
+        }
     }
 
     QFont caption = font();
@@ -120,7 +149,7 @@ void ItemBar::paintEvent(QPaintEvent *) {
     painter.setFont(caption);
     const QString label = toolName(m_selected);
     const int labelWidth = painter.fontMetrics().horizontalAdvance(label) + 14;
-    const QRect plaque((width() - labelWidth) / 2, slotRect(0).top() - CaptionHeight,
+    const QRect plaque((width() - labelWidth) / 2, 0,
                        labelWidth, CaptionHeight);
     painter.fillRect(plaque, QColor(77, 48, 38));
     painter.setPen(QColor(255, 235, 184));

@@ -28,6 +28,8 @@ UI 由 Cup Nooble 制作。Basic 素材沿用[随包说明](../sprout/Sprout%20L
 
 ## 本轮实际选用的界面素材
 
+2026-11-14 按用户明确指定，新增选用同一 Premium UI 包的 `emojis/emoji style ui/inventory_example_with_slots.png`，原样复制为 `resources/ui/inventory-hotbar.png`，QRC 为 `:/farm-ui/hotbar.png`。SHA256：`60C62708FABFC6DD3FA6847E019035534345C196EB43D823DFF2AC1E746EFCD9`。游戏物品栏和背包首排均按原图七格呈现，上方爱心为原图装饰，不新增生命值规则；沿用 Cup Nooble 署名和本文件已有 UI 包条款记录，未上传整包。
+
 物品格使用 Cup Nooble 的 Sprout Lands Premium UI Pack 中的 `Inventory_Blocks_Spritesheet.png`，仓库文件为 `resources/ui/inventory-slots.png`，QRC 路径为 `:/farm-ui/slots.png`。基础肥料图标取自已有 Sprout Lands 物品图集的首格土壤块。浇水与收获使用本项目新制作的两个短音效，随 `farm-sounds.qrc` 载入。
 
 ## 睡醒成功提示音（2026-11-12）

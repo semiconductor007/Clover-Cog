@@ -34,6 +34,7 @@ public:
     explicit ImageMovementWidget(MapWidget *mapWidget, QWidget *parent = nullptr);
     void setInitialPosition(const QPoint &pos);
     bool restorePosition(const QPoint &saved);
+    bool canStandAt(const QPoint &position) const;
     void handleToolAction();
     void setInputBlocked(bool blocked);
     QPoint currentTilePosition() const;

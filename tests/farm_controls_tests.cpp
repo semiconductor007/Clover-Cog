@@ -20,6 +20,11 @@ class FarmControlsTests : public QObject {
     ItemBar *bar = nullptr;
     const QPoint plot{24, 12}; // grass next to the starting position in map6
 
+    void standAt(QPoint tile) {
+        player->setInitialPosition(QPoint(tile.x() * map->tileWidth() + map->tileWidth() / 2 - player->width() / 2,
+                                         tile.y() * map->tileHeight() + map->tileHeight() / 2 - player->height() / 2));
+    }
+
     QPoint tileCenter(QPoint tile) const {
         return QPoint(tile.x() * map->tileWidth() + map->tileWidth() / 2 - map->offsetX(),
                       tile.y() * map->tileHeight() + map->tileHeight() / 2 - map->offsetY());
@@ -44,7 +49,7 @@ private slots:
         map->setGeometry(canvas->rect());
         QVERIFY(map->loadMap(QStringLiteral(":/map/map6.tmj")));
         player = new ImageMovementWidget(map, map);
-        player->setInitialPosition(QPoint(400, 192));
+        standAt(QPoint(25, 13));
         bar = new ItemBar(map);
         bar->resize(bar->sizeHint());
         bar->move((map->width() - bar->width()) / 2, map->height() - bar->height() - 8);
@@ -68,12 +73,91 @@ private slots:
         scene.clear();
     }
 
+    void interactionReach_data() {
+        QTest::addColumn<QPoint>("offset");
+        QTest::addColumn<int>("action");
+        for (int action = 0; action < 5; ++action)
+            for (int y = -2; y <= 2; ++y)
+                for (int x = -2; x <= 2; ++x)
+                    QTest::newRow(qPrintable(QStringLiteral("action%1_%2_%3").arg(action).arg(x).arg(y)))
+                        << QPoint(x, y) << action;
+    }
+
+    void interactionReach() {
+        QFETCH(QPoint, offset);
+        QFETCH(int, action);
+        EconomyService economy;
+        auto state = economy.state();
+        state.fertilizerCount = 2;
+        QVERIFY(economy.restore(state));
+        const ToolType tools[] = {ToolType::Hoe, ToolType::Wheat, ToolType::WateringCan,
+                                  ToolType::Fertilizer, ToolType::EmptyHand};
+        if (action != 0) QVERIFY(map->cultivateTile(plot));
+        if (action >= 3) QVERIFY(map->plantSeed(plot, CropType::Wheat));
+        if (action == 4) {
+            auto snapshot = map->worldSnapshot();
+            snapshot.crops.first().growthDays = CropCatalog::definition(CropType::Wheat).growthDays;
+            QVERIFY(map->restoreWorld(snapshot));
+        }
+        int handlerCalls = 0;
+        map->setPlantHandler([&](CropType crop, const std::function<bool()> &apply) {
+            ++handlerCalls;
+            return economy.plantWithSeed(crop, apply);
+        });
+        map->setFertilizeHandler([&](const std::function<bool()> &apply) {
+            ++handlerCalls;
+            return economy.fertilizeWithItem(apply);
+        });
+        map->setHarvestHandler([&](CropType crop, int count) {
+            ++handlerCalls;
+            return economy.collectHarvest(crop, count);
+        });
+        standAt(plot - offset);
+        bar->selectTool(tools[action]);
+        const auto before = map->worldSnapshot();
+        const auto assets = economy.state();
+        QSignalSpy changed(map, &MapWidget::worldChanged);
+        QSignalSpy feedback(map, &MapWidget::farmingFeedback);
+        click(tileCenter(plot));
+        const bool allowed = qAbs(offset.x()) <= 1 && qAbs(offset.y()) <= 1;
+        QCOMPARE(changed.count(), allowed ? 1 : 0);
+        if (!allowed) {
+            // Direct controller commands must not bypass the mouse's reach check.
+            player->useCurrentToolAt(tileCenter(plot));
+            QCOMPARE(handlerCalls, 0);
+            QCOMPARE(changed.count(), 0);
+            QCOMPARE(economy.state().inventoryCounts, assets.inventoryCounts);
+            QCOMPARE(economy.state().seedCounts, assets.seedCounts);
+            QCOMPARE(economy.fertilizerCount(), assets.fertilizerCount);
+            QCOMPARE(economy.coins(), assets.coins);
+            const auto after = map->worldSnapshot();
+            QCOMPARE(after.cultivatedLayer, before.cultivatedLayer);
+            QCOMPARE(after.wateredTiles, before.wateredTiles);
+            QCOMPARE(after.crops.size(), before.crops.size());
+            if (!after.crops.isEmpty()) {
+                QCOMPARE(after.crops.first().growthDays, before.crops.first().growthDays);
+                QCOMPARE(after.crops.first().fertilizerApplied, before.crops.first().fertilizerApplied);
+                QCOMPARE(after.crops.first().fertilizerBonusPending, before.crops.first().fertilizerBonusPending);
+            }
+            QVERIFY(feedback.first().first().toString().contains(QStringLiteral("距离太远")));
+        } else {
+            QCOMPARE(handlerCalls, (action == 1 || action >= 3) ? 1 : 0);
+            if (action == 1) QCOMPARE(economy.seedCount(CropType::Wheat), assets.seedCounts.value(1) - 1);
+            if (action == 2) QVERIFY(map->worldSnapshot().wateredTiles.contains(plot));
+            if (action == 3) QCOMPARE(economy.fertilizerCount(), assets.fertilizerCount - 1);
+            if (action == 4) {
+                QVERIFY(map->worldSnapshot().crops.isEmpty());
+                QCOMPARE(economy.inventory().count(CropType::Wheat), 1);
+            }
+        }
+    }
+
     void toolbarSelection() {
         QSignalSpy selected(bar, &ItemBar::itemSelected);
         QSignalSpy mapClicks(map, &MapWidget::mapClicked);
         QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
         const QPoint row = bar->pos() + QPoint(0, bar->height() - 12);
-        const std::array expected{ToolType::EmptyHand, ToolType::Hoe, ToolType::WateringCan,
+        const std::array expected{ToolType::Hoe, ToolType::WateringCan,
                                   ToolType::Wheat, ToolType::Potato, ToolType::Carrot,
                                   ToolType::Beet, ToolType::Fertilizer};
         QCOMPARE(ToolbarSlotCount, int(expected.size()));
@@ -83,7 +167,7 @@ private slots:
             QCOMPARE(player->getCurrentTool().type, expected[i]);
             QVERIFY(!bar->accessibleDescription().isEmpty());
         }
-        QCOMPARE(selected.count(), ToolbarSlotCount - 1);
+        QCOMPARE(selected.count(), ToolbarSlotCount);
         QCOMPARE(mapClicks.count(), 0);
         for (const ToolType tool : expected) {
             scroll(tileCenter(plot), -120);  // anywhere on the map
@@ -95,7 +179,7 @@ private slots:
             QCOMPARE(player->getCurrentTool().type, tool);
         }
         scroll(tileCenter(plot), -120);
-        QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
+        QCOMPARE(bar->selectedTool(), ToolType::Hoe);
         scroll(row + QPoint(10, 0), 120);
         QCOMPARE(bar->selectedTool(), ToolType::Fertilizer);
         scroll(tileCenter(plot), 0);
@@ -109,6 +193,25 @@ private slots:
         QCOMPARE(selected.count(), count);
     }
 
+    void depletedSupplyClearsHeldItem() {
+        EconomyService economy;
+        bar->setStock(economy);
+        bar->selectTool(ToolType::Wheat);
+        QCOMPARE(player->getCurrentTool().type, ToolType::Wheat);
+        const int count = economy.seedCount(CropType::Wheat);
+        for (int i = 0; i < count; ++i)
+            QVERIFY(economy.plantWithSeed(CropType::Wheat, [] { return true; }));
+        bar->setStock(economy);
+        QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
+        QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+        bar->selectTool(ToolType::Wheat);
+        QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
+        QCOMPARE(economy.seedCount(CropType::Wheat), 0);
+        bar->selectTool(ToolType::Hoe);
+        QTest::keyClick(&view, Qt::Key_0);
+        QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+    }
+
     void hoeExplainsItsTarget() {
         bar->selectTool(ToolType::Hoe);
         QSignalSpy feedback(map, &MapWidget::farmingFeedback);
@@ -120,12 +223,14 @@ private slots:
         QCOMPARE(changes.count(), 1);
 
         const QPoint readyField(11, 8);
+        standAt(readyField);
         QVERIFY(map->isPlantable(readyField));
         click(tileCenter(readyField));
         QCOMPARE(feedback.count(), 1);
         QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("这里可以直接播种"));
 
         const QPoint road(26, 13);
+        standAt(QPoint(25, 13));
         click(tileCenter(road));
         QCOMPARE(feedback.count(), 1);
         QCOMPARE(feedback.takeFirst().first().toString(), QStringLiteral("道路不能耕种，请选草地"));
@@ -133,6 +238,7 @@ private slots:
         QCOMPARE(changes.count(), 1);
 
         const QPoint besideChest(31, 21);
+        standAt(besideChest);
         map->setViewportCenter(besideChest.x() * map->tileWidth(), besideChest.y() * map->tileHeight());
         map->setStorageArea(QRect(besideChest, QSize(1, 1)));
         click(tileCenter(besideChest));
@@ -144,6 +250,7 @@ private slots:
         QVERIFY(!map->plantSeed(plot, CropType::Wheat));
         QVERIFY(!map->waterTile(plot));
         map->setStorageArea({});
+        standAt(QPoint(25, 13));
         QVERIFY(map->plantSeed(plot, CropType::Wheat));
         click(tileCenter(plot));
         QCOMPARE(feedback.count(), 1);
@@ -227,6 +334,7 @@ private slots:
             QCOMPARE(crops.first().type, crop);
             QCOMPARE(crops.first().tilePos, plot);
             const QPoint nextPlot(24, 16);
+            standAt(nextPlot);
             QVERIFY(map->cultivateTile(nextPlot));
             QSignalSpy blocked(map, &MapWidget::plantingBlocked);
             click(tileCenter(nextPlot));
@@ -385,11 +493,18 @@ private slots:
         QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, {}, true);
         QApplication::sendEvent(&view, &repeat);
         QCOMPARE(inventory.count(), 1);
+        QTest::keyClick(&view, Qt::Key_E);
+        QCOMPARE(inventory.count(), 2);
+        QCOMPARE(interactions.count(), 0);
+        QKeyEvent heldE(QEvent::KeyPress, Qt::Key_E, Qt::NoModifier, {}, true);
+        QApplication::sendEvent(&view, &heldE);
+        QCOMPARE(inventory.count(), 2);
         QTest::keyPress(&view, Qt::Key_D);
         QTRY_VERIFY(player->absolutePosition().x() > start.x());
         map->setInputBlocked(true);
         player->setInputBlocked(true);
         const auto paused = player->absolutePosition();
+        QTest::keyClick(&view, Qt::Key_F);
         QTest::keyClick(&view, Qt::Key_E);
         QTest::keyClick(&view, Qt::Key_Tab);
         QTest::keyPress(&view, Qt::Key_S);
@@ -398,7 +513,7 @@ private slots:
         QCOMPARE(clicks.count(), 0);
         QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
         QCOMPARE(interactions.count(), 0);
-        QCOMPARE(inventory.count(), 1);
+        QCOMPARE(inventory.count(), 2);
         // Selecting in a panel still equips the tool during the lock.
         bar->selectTool(ToolType::Carrot);
         map->setInputBlocked(false);
@@ -408,7 +523,7 @@ private slots:
         QCOMPARE(player->getCurrentTool().type, ToolType::Carrot);
         QTest::keyRelease(&view, Qt::Key_S);
         QTest::keyRelease(&view, Qt::Key_D);
-        QTest::keyClick(&view, Qt::Key_E);
+        QTest::keyClick(&view, Qt::Key_F);
         QCOMPARE(interactions.count(), 1);
         QTest::keyPress(&view, Qt::Key_A);
         QTRY_VERIFY(player->absolutePosition().x() < paused.x());
@@ -438,12 +553,13 @@ private slots:
     }
 
     void walkThroughDoorAndBack() {
+        standAt(QPoint(26, 13)); // Align with the original doorway approach.
         const QRect bedside(25, 8, 2, 2);
         QTest::keyPress(&view, Qt::Key_W);
         QTRY_VERIFY(bedside.contains(player->currentTilePosition()));
         QTest::keyRelease(&view, Qt::Key_W);
         QSignalSpy interactions(player, &ImageMovementWidget::interactionRequested);
-        QTest::keyClick(&view, Qt::Key_E);
+        QTest::keyClick(&view, Qt::Key_F);
         QCOMPARE(interactions.count(), 1);
         QVERIFY(bedside.contains(interactions.first().first().toPoint()));
         QTest::keyPress(&view, Qt::Key_S);

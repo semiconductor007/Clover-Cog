@@ -19,6 +19,8 @@ signals:
     void toolRequested(ToolType tool);
 
 protected:
+    void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
@@ -29,6 +31,8 @@ private:
     QListWidget *m_seeds;
     QListWidget *m_fertilizer;
     QLabel *m_date;
+    QLabel *m_details;
+    QList<QPushButton *> m_tools;
     bool m_firstRefresh = true;
 };
 

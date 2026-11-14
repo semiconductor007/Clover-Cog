@@ -6,6 +6,8 @@
 #include <QObject>
 #include <QPoint>
 #include <QPointer>
+#include <functional>
+#include <utility>
 
 class MapWidget;
 
@@ -25,6 +27,8 @@ public:
     const ToolProperty &currentTool() const { return m_currentTool; }
     void setCurrentTool(int toolIndex);
     void useToolAt(const QPoint &mapPoint);
+    void setTilePositionGetter(std::function<QPoint()> getter) { m_tilePosition = std::move(getter); }
+    bool canReachTile(const QPoint &tile) const;
 
 signals:
     void toolChanged(ToolType type);
@@ -32,6 +36,7 @@ signals:
 private:
     QPointer<MapWidget> m_mapWidget;
     ToolProperty m_currentTool;
+    std::function<QPoint()> m_tilePosition;
 };
 
 #endif // PLAYERCONTROLLER_H

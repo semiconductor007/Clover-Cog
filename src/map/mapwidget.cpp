@@ -100,13 +100,13 @@ void MapWidget::paintEvent(QPaintEvent *event) {
         painter.restore();
     };
     drawInteractionArea(m_marketArea, QColor(255, 222, 126, 45),
-                        QStringLiteral("收购 [E]"));
+                        QStringLiteral("收购 [F]"));
     drawInteractionArea(m_shopArea, QColor(114, 190, 255, 45),
-                        QStringLiteral("商店 [E]"));
+                        QStringLiteral("商店 [F]"));
     drawInteractionArea(m_storageArea, QColor(135, 211, 173, 45),
-                        QStringLiteral("储物 [E]"), true);
+                        QStringLiteral("储物 [F]"), true);
     drawInteractionArea(m_bedArea, QColor(180, 130, 220, 45),
-                        QStringLiteral("床铺 [E]"));
+                        QStringLiteral("床铺 [F]"));
 }
 
 void MapWidget::setViewportCenter(int x, int y) {
@@ -130,6 +130,13 @@ void MapWidget::mousePressEvent(QMouseEvent *event) {
     const QPoint tilePos = mapPointToTile(point);
     if (!isValidTile(tilePos))
         return;
+
+    // Validate before harvesting or dispatching tools: neither inventory nor
+    // world state may change for a remote click, including a mature crop.
+    if (!m_playerController || !m_playerController->canReachTile(tilePos)) {
+        emit farmingFeedback(QStringLiteral("距离太远，请靠近到周围一格内操作"));
+        return;
+    }
 
     // Fertilizer always goes through the crop and inventory checks, even on ripe crops.
     if (m_playerController && m_playerController->currentTool().type == ToolType::Fertilizer) {

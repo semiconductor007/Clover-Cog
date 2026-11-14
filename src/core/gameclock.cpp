@@ -1,6 +1,7 @@
 #include "gameclock.h"
 
 #include <QtGlobal>
+#include <limits>
 
 GameClock::GameClock(int millisecondsPerGameMinute)
     : m_millisecondsPerGameMinute(qMax(1, millisecondsPerGameMinute)) {}
@@ -41,20 +42,28 @@ qint64 GameClock::elapsedGameMinutes() const {
 namespace {
 
 qint64 minutesUntilMorning(qint64 gameMinutes, int wakeHour, int sleepStartHour) {
-    constexpr int dayLength = 24 * 60;
-    const int minuteOfDay = static_cast<int>(gameMinutes % dayLength);
-    const int wakeMinute = qBound(0, wakeHour, 23) * 60;
-    const int sleepMinute = qBound(0, sleepStartHour, 23) * 60;
-    if (minuteOfDay < wakeMinute) {
-        return wakeMinute - minuteOfDay;
-    }
-    if (minuteOfDay >= sleepMinute) {
-        return dayLength - minuteOfDay + wakeMinute;
-    }
-    return 0;
+    Q_UNUSED(sleepStartHour); // Retained for source compatibility; daytime rest is now allowed.
+    const auto target = GameClock::sleepTargetMinute(gameMinutes, wakeHour);
+    return target ? *target - gameMinutes : 0;
 }
 
 } // namespace
+
+std::optional<qint64> GameClock::sleepTargetMinute(qint64 minutes, int wakeHour) {
+    if (minutes < 0 || wakeHour < 1 || wakeHour > 23) return std::nullopt;
+    const int minute = int(minutes % 1440), wake = wakeHour * 60;
+    const int delta = minute < wake ? wake - minute : 1440 - minute + wake;
+    if (minutes > std::numeric_limits<qint64>::max() - delta) return std::nullopt;
+    return minutes + delta;
+}
+
+std::optional<qint64> GameClock::passOutDeadline(qint64 from, qint64 to) {
+    if (from < 0 || to < from) return std::nullopt;
+    const int minute = int(from % 1440);
+    if (minute >= 120 && minute < 360) return from;
+    const int delta = minute < 120 ? 120 - minute : 1440 - minute + 120;
+    return to - from >= delta ? std::optional<qint64>(from + delta) : std::nullopt;
+}
 
 bool GameClock::canSleep(int sleepStartHour, int wakeHour) const {
     return minutesUntilMorning(elapsedGameMinutes(), wakeHour, sleepStartHour) > 0;

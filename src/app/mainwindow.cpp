@@ -27,12 +27,13 @@
 #include <QWheelEvent>
 #include <QtMath>
 #include <utility>
+#include <limits>
 
 namespace {
 constexpr int CanvasWidth = 576;
 constexpr int HeaderHeight = 34;
 constexpr int MapHeight = 320;
-constexpr int FooterHeight = 68;
+constexpr int FooterHeight = 88;
 constexpr int CanvasHeight = HeaderHeight + MapHeight + FooterHeight;
 
 }
@@ -213,9 +214,9 @@ MainWindow::MainWindow(QWidget *parent)
         } else if (m_storageArea.contains(playerTile)) {
             openStorage();
         } else if (m_bedArea.contains(playerTile)) {
-            sleepUntilMorning();
+            requestSleep();
         } else {
-            showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 E"));
+            showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 F"));
         }
     });
     // MapWidget emits this only after both the world action and the inventory action commit.
@@ -289,13 +290,13 @@ void MainWindow::enterFarm() {
 }
 
 void MainWindow::pauseFarm() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt || m_bedRecoveryPrompt ||
         m_wakeSaveState == WakeSaveState::Failed) return;
     m_gameClock.pause();
     applyClock(ClockEvent::Tick);
     // A key at the first instant of a new season must let its single transition finish.
     if (m_transitionActive) {
-        m_gameClock.resume();
+        if (m_wakeSaveState != WakeSaveState::Failed) m_gameClock.resume();
         return;
     }
     m_page = Page::Pause;
@@ -323,10 +324,22 @@ void MainWindow::updateTime() {
 }
 
 bool MainWindow::applyClock(ClockEvent event) {
+    if (m_sleepConfirmation || m_bedRecoveryPrompt) return event != ClockEvent::Save;
     if (m_wakeSaveState == WakeSaveState::Failed)
         return event != ClockEvent::Save;
     if (m_page != Page::Farm || m_closePrompt) return true;
     const qint64 minutes = m_gameClock.elapsedGameMinutes();
+    if (!m_passOutStarting && event != ClockEvent::WakeUp) {
+        const auto deadline = GameClock::passOutDeadline(
+            event == ClockEvent::Load ? minutes : m_committedMinutes, minutes);
+        if (deadline) {
+            // Finish an existing season fade first, then the next tick recovers.
+            if (m_transitionActive) return event != ClockEvent::Save;
+            m_gameClock.setElapsedGameMinutes(*deadline);
+            return recoverToMorning(true);
+        }
+    }
+    if (minutes < 0 || minutes / 1440 > std::numeric_limits<int>::max()) return false;
     if (event == ClockEvent::Tick && minutes == m_committedMinutes) return true;
     const int day = int(minutes / (24 * 60));
     const bool crossedDay = m_lastProcessedDay < day;
@@ -409,14 +422,115 @@ void MainWindow::sleepUntilMorning() {
     if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed || !m_bedArea.contains(character->currentTilePosition()))
         return;
-    if (!m_gameClock.sleepToNextMorning()) {
-        showStatus(QStringLiteral("可在 20:00 至次日 06:00 前到床边睡觉。"));
-        return;
+    // Kept as a non-UI command for integration callers. Bed interaction uses confirmation.
+    applyClock(ClockEvent::Tick);
+    if (m_transitionActive || m_bedRecoveryPrompt) return;
+    recoverToMorning(false);
+}
+
+void MainWindow::requestSleep() {
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
+        !m_bedArea.contains(character->currentTilePosition())) return;
+    applyClock(ClockEvent::Tick);
+    if (m_transitionActive || m_bedRecoveryPrompt) return;
+    m_confirmWasPaused = m_gameClock.isPaused();
+    m_gameClock.pause();
+    const auto target = GameClock::sleepTargetMinute(m_gameClock.elapsedGameMinutes());
+    if (!target) { if (!m_confirmWasPaused) m_gameClock.resume(); return; }
+    const auto date = SeasonCalendar::dateForMinutes(*target);
+    auto *question = new QMessageBox(QMessageBox::Question, QStringLiteral("休息到早晨"),
+        QStringLiteral("休息到第 %1 年 · %2 %3 日 06:00？\n选择期间时间暂停。")
+            .arg(date.year).arg(SeasonCalendar::seasonName(date.season)).arg(date.dayOfSeason),
+        QMessageBox::NoButton, this);
+    question->setObjectName(QStringLiteral("sleepConfirmation"));
+    auto *yes = question->addButton(QStringLiteral("休息"), QMessageBox::AcceptRole);
+    auto *no = question->addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
+    yes->setObjectName(QStringLiteral("confirmSleep"));
+    no->setObjectName(QStringLiteral("cancelSleep"));
+    question->setDefaultButton(yes);
+    question->setEscapeButton(no);
+    for (auto *button : {yes, no}) button->setAutoRepeat(false);
+    m_sleepConfirmation = question;
+    showFarmPanel(question);
+    connect(question, &QDialog::finished, this, [this, question, yes] {
+        m_sleepConfirmation.clear();
+        const bool confirmed = question->clickedButton() == yes;
+        if (confirmed && m_page == Page::Farm && !m_transitionActive && !m_closePrompt &&
+            m_wakeSaveState != WakeSaveState::Failed &&
+            m_bedArea.contains(character->currentTilePosition())) {
+            // Time was frozen during the choice; recompute target and recheck position.
+            recoverToMorning(false);
+        } else {
+            if (!m_confirmWasPaused && m_page == Page::Farm) m_gameClock.resume();
+            showStatus(QStringLiteral("已取消休息。"));
+        }
+        refreshGameplayInput();
+    });
+}
+
+std::optional<QPoint> MainWindow::bedWakePosition() const {
+    for (int radius = 0; radius <= 4; ++radius) {
+        const QRect area = m_bedArea.adjusted(-radius, -radius, radius, radius);
+        for (int y = area.bottom(); y >= area.top(); --y) for (int x = area.left(); x <= area.right(); ++x) {
+            const QPoint position(x * mapWidget->tileWidth() + mapWidget->tileWidth() / 2 - character->width() / 2,
+                                  y * mapWidget->tileHeight() + mapWidget->tileHeight() / 2 - character->height() / 2);
+            if (character->canStandAt(position)) return position;
+        }
     }
-    applyClock(ClockEvent::WakeUp);
+    return std::nullopt;
+}
+
+bool MainWindow::recoverToMorning(bool passedOut) {
+    const auto target = GameClock::sleepTargetMinute(m_gameClock.elapsedGameMinutes());
+    if (!target || *target / 1440 > std::numeric_limits<int>::max()) return false;
+    const auto bed = passedOut ? bedWakePosition() : std::optional<QPoint>(character->absolutePosition());
+    if (!bed) {
+        m_gameClock.pause();
+        auto *error = new QMessageBox(QMessageBox::Warning, QStringLiteral("无法回到床边"),
+            QStringLiteral("床边没有安全落点。农场已暂停，修复后可重试。"), QMessageBox::Retry, this);
+        error->setAttribute(Qt::WA_DeleteOnClose);
+        error->setObjectName(QStringLiteral("bedRecoveryBlocked"));
+        m_bedRecoveryPrompt = error;
+        if (m_panelOpen) m_panelOpen->reject();
+        refreshGameplayInput();
+        connect(error, &QDialog::finished, this, [this] {
+            m_bedRecoveryPrompt.clear();
+            recoverToMorning(true);
+        });
+        error->open();
+        return false;
+    }
+    m_passOutStarting = true;
+    // Start captures the old position; committed state is updated before saving,
+    // while presentTime only reveals it at blackReached as in the existing flow.
+    if (!m_transitionActive) {
+        m_transitionActive = m_transition->start();
+        refreshGameplayInput();
+    }
+    if (passedOut && m_panelOpen) {
+        m_panelFocusBeforeFade.clear();
+        m_panelOpen->reject();
+    }
+    character->setInputBlocked(true);
+    if (passedOut) character->setInitialPosition(*bed);
+    m_gameClock.setElapsedGameMinutes(*target);
+    const bool saved = applyClock(ClockEvent::WakeUp);
+    if (passedOut) showStatus(QStringLiteral("凌晨 02:00 体力不支，已回到床边休息。"));
+    if (m_wakeSaveState != WakeSaveState::Failed) m_gameClock.resume();
+    m_passOutStarting = false;
+    return saved;
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (m_page == Page::Farm && !m_sleepConfirmation && !m_bedRecoveryPrompt &&
+        !m_transitionActive && !m_closePrompt && m_wakeSaveState != WakeSaveState::Failed &&
+        (event->type() == QEvent::KeyPress || event->type() == QEvent::MouseButtonPress)) {
+        applyClock(ClockEvent::Tick);
+        if (m_transitionActive || m_bedRecoveryPrompt) return true;
+    }
+    if (m_sleepConfirmation && (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
+        static_cast<QKeyEvent *>(event)->isAutoRepeat()) return true;
     if (m_page == Page::Farm && !m_panelOpen && !m_closePrompt &&
         m_wakeSaveState != WakeSaveState::Failed && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
@@ -468,6 +582,7 @@ void MainWindow::updateGameScale() {
 }
 
 void MainWindow::updateHud() {
+    itemBar->setStock(m_economy);
     const Inventory &inventory = m_economy.inventory();
     m_coinsLabel->setText(QStringLiteral("金币 %1").arg(m_economy.coins()));
     m_inventoryLabel->setText(QStringLiteral("背包 %1 / %2")
@@ -495,7 +610,8 @@ void MainWindow::openInventory() {
         return;
     }
     auto *dialog = new InventoryDialog(this);
-    connect(dialog, &InventoryDialog::toolRequested, this, [this](ToolType tool) {
+    connect(dialog, &InventoryDialog::toolRequested, this, [this, dialog](ToolType tool) {
+        if (!acceptPanelCommand(dialog)) return;
         itemBar->selectTool(tool);
     });
     showFarmPanel(dialog);
@@ -504,6 +620,7 @@ void MainWindow::openInventory() {
 void MainWindow::openSeedShop() {
     auto *dialog = new SeedShopDialog(this);
     const auto purchase = [this, dialog](ToolType tool, int quantity) {
+        if (!acceptPanelCommand(dialog)) return;
         if (!m_shopArea.contains(character->currentTilePosition())) {
             dialog->setMessage(QStringLiteral("请到种子商店购买"));
             return;
@@ -542,11 +659,13 @@ void MainWindow::openMarket() {
         finishTrade(dialog, QStringLiteral("已售出 %1 份%2，收入 %3 金币")
                                 .arg(sale.itemsSold).arg(product).arg(sale.coinsEarned));
     };
-    connect(dialog, &MarketDialog::cropSaleRequested, this, [this, showSale](CropType crop, int quantity) {
+    connect(dialog, &MarketDialog::cropSaleRequested, this, [this, dialog, showSale](CropType crop, int quantity) {
+        if (!acceptPanelCommand(dialog)) return;
         showSale(m_economy.sellCrop(crop, quantity, character->currentTilePosition(), m_marketArea),
                  CropCatalog::definition(crop).localizedName);
     });
-    connect(dialog, &MarketDialog::saleRequested, this, [this, showSale] {
+    connect(dialog, &MarketDialog::saleRequested, this, [this, dialog, showSale] {
+        if (!acceptPanelCommand(dialog)) return;
         showSale(m_economy.sellAll(character->currentTilePosition(), m_marketArea), QStringLiteral("农产品"));
     });
     showFarmPanel(dialog);
@@ -556,6 +675,7 @@ void MainWindow::openStorage() {
     auto *dialog = new StorageDialog(this);
     connect(dialog, &StorageDialog::transferRequested, this,
             [this, dialog](StorageItemKind kind, CropType crop, StorageDirection direction, int quantity) {
+        if (!acceptPanelCommand(dialog)) return;
         if (!m_storageArea.contains(character->currentTilePosition())) {
             dialog->setMessage(QStringLiteral("请到储物箱前存取"));
             return;
@@ -578,6 +698,11 @@ void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
 }
 
 void MainWindow::showFarmPanel(QDialog *dialog) {
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) {
+        dialog->deleteLater();
+        return;
+    }
     m_panelOpen = dialog;
     // Panel hotkeys use event filters and can otherwise fire on a disabled widget.
     dialog->installEventFilter(this);
@@ -600,6 +725,14 @@ void MainWindow::showFarmPanel(QDialog *dialog) {
     dialog->open();
 }
 
+bool MainWindow::acceptPanelCommand(QDialog *panel) {
+    if (m_panelOpen != panel || m_page != Page::Farm || m_transitionActive || m_closePrompt ||
+        m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) return false;
+    applyClock(ClockEvent::Tick);
+    return m_panelOpen == panel && !m_transitionActive && !m_bedRecoveryPrompt &&
+           m_wakeSaveState != WakeSaveState::Failed;
+}
+
 void MainWindow::refreshOpenPanel() {
     if (auto *bag = qobject_cast<InventoryDialog *>(m_panelOpen.data())) {
         bag->setState(m_economy, itemBar->selectedTool(), currentGameDay());
@@ -614,12 +747,12 @@ void MainWindow::refreshOpenPanel() {
 
 void MainWindow::refreshGameplayInput() {
     const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
-                         m_wakeSaveState == WakeSaveState::Failed;
+                         m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
     itemBar->setEnabled(!blocked);
     if (m_panelOpen) {
-        m_panelOpen->setEnabled(!m_transitionActive && !m_closePrompt);
+        m_panelOpen->setEnabled(!m_transitionActive && !m_closePrompt && !m_bedRecoveryPrompt);
     }
     if (!blocked) {
         m_gameView->setFocus(Qt::OtherFocusReason);
@@ -693,7 +826,7 @@ void MainWindow::resolveWakeSaveFailure(bool saved) {
 
 bool MainWindow::saveGame(bool showError) {
     // World actions and background saves cannot resolve a failed wake implicitly.
-    if (m_wakeSaveState == WakeSaveState::Failed) return false;
+    if (m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) return false;
     return writeGameSave(showError);
 }
 
@@ -738,7 +871,7 @@ bool MainWindow::readFarmSave(const QString &source, GameSaveData *data, QString
 void MainWindow::loadGame() {
     const QString source = SaveManager::preferredSavePath();
     if (source.isEmpty()) {
-        showStatus(QStringLiteral("WASD 移动，滚轮选工具。Tab 背包，Esc 暂停。"));
+        showStatus(QStringLiteral("WASD 移动，滚轮选工具。E / Tab 背包，F 互动，Esc 暂停。"));
         return;
     }
     GameSaveData data;
@@ -801,6 +934,8 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    if (m_sleepConfirmation) m_sleepConfirmation->reject();
+    if (m_bedRecoveryPrompt) { event->ignore(); return; }
     if (m_page == Page::Home || !m_saveEnabled || m_discardOnClose) {
         m_discardOnClose = false;
         m_wakeSaveState = WakeSaveState::None;

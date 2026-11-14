@@ -100,6 +100,8 @@ private slots:
     void invalidPlayerPositionRecoversFromBackup();
     void damagedCurrentFilesRemainUntouched();
     void buySelectAndUseFertilizer();
+    void inventoryHotkeyEverywhere_data();
+    void inventoryHotkeyEverywhere();
     void sellAtMarket();
     void continueVersionThreeNextToNewFence();
     void fullBackpackAtStorage();
@@ -115,6 +117,80 @@ private:
     QString oldPath() const { return SaveManager::legacySavePath(); }
     QPoint stationPosition(const QPoint &tile) const;
 };
+
+void GameplayPanelTests::inventoryHotkeyEverywhere_data() {
+    QTest::addColumn<QPoint>("tile");
+    QTest::newRow("field") << QPoint(24, 12);
+    QTest::newRow("bed") << QPoint(25, 8);
+    QTest::newRow("shop") << QPoint(33, 18);
+    QTest::newRow("chest") << QPoint(31, 21);
+}
+
+void GameplayPanelTests::inventoryHotkeyEverywhere() {
+    QFETCH(QPoint, tile);
+    auto fixture = m_fixture;
+    fixture.economy.seedCounts[static_cast<int>(CropType::Carrot)] = 2;
+    fixture.economy.seedCounts[static_cast<int>(CropType::Beet)] = 2;
+    fixture.economy.fertilizerCount = 3;
+    fixture.playerPosition = stationPosition(tile);
+    QVERIFY(SaveManager::save(path(), fixture));
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    auto *player = map->parentWidget()->findChild<ImageMovementWidget *>();
+    QVERIFY(player);
+    const QPoint position = player->absolutePosition();
+    QTest::keyClick(player, Qt::Key_E);
+    QTRY_VERIFY(panel("inventoryDialog"));
+    QVERIFY(!panel("shopDialog"));
+    QVERIFY(!game.findChild<QMessageBox *>("sleepConfirmation"));
+    QVERIFY(map->isInputBlocked());
+    auto *bag = panel("inventoryDialog");
+    QKeyEvent repeat(QEvent::KeyPress, Qt::Key_E, Qt::NoModifier, {}, true);
+    QApplication::sendEvent(QApplication::focusWidget(), &repeat);
+    QVERIFY(bag->isVisible());
+    QTest::keyPress(player, Qt::Key_D);
+    QTest::qWait(100);
+    QTest::keyRelease(player, Qt::Key_D);
+    QCOMPARE(player->absolutePosition(), position);
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_E);
+    QTRY_VERIFY(!panel("inventoryDialog"));
+    QTRY_VERIFY(!map->isInputBlocked());
+    QTRY_VERIFY(QApplication::focusWidget());
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
+    QTRY_VERIFY(panel("inventoryDialog"));
+    QTRY_VERIFY(QApplication::focusWidget() &&
+                QApplication::focusWidget()->window() == panel("inventoryDialog"));
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Escape);
+    QTRY_VERIFY(!panel("inventoryDialog"));
+    auto *bar = map->parentWidget()->findChild<ItemBar *>();
+    QVERIFY(bar);
+    for (ToolType tool : PlayableTools) {
+        QTest::keyClick(player, Qt::Key_E);
+        QTRY_VERIFY(panel("inventoryDialog"));
+        auto *slot = panel("inventoryDialog")->findChild<QPushButton *>(
+            QStringLiteral("bagTool_%1").arg(static_cast<int>(tool)));
+        QVERIFY(slot);
+        QTest::mouseClick(slot, Qt::LeftButton);
+        QTRY_VERIFY(!panel("inventoryDialog"));
+        QCOMPARE(bar->selectedTool(), tool);
+        QCOMPARE(player->getCurrentTool().type, tool);
+    }
+    QTest::keyClick(player, Qt::Key_0);
+    QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
+    QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+    QVERIFY(game.close());
+    GameSaveData saved;
+    QVERIFY(SaveManager::load(path(), &saved));
+    for (CropType crop : CropCatalog::cropTypes()) {
+        const int id = static_cast<int>(crop);
+        QCOMPARE(saved.economy.inventoryCounts.value(id), fixture.economy.inventoryCounts.value(id));
+        QCOMPARE(saved.economy.seedCounts.value(id), fixture.economy.seedCounts.value(id));
+    }
+    QCOMPARE(saved.economy.coins, fixture.economy.coins);
+    QCOMPARE(saved.economy.fertilizerCount, fixture.economy.fertilizerCount);
+}
 
 QPoint GameplayPanelTests::stationPosition(const QPoint &tile) const {
     // Saved positions are measured at the top left of a 48 x 48 player.
@@ -513,7 +589,7 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     QTRY_VERIFY(!panel("inventoryDialog"));
 
     QTRY_VERIFY(QApplication::focusWidget());
-    QTest::keyClick(QApplication::focusWidget(), Qt::Key_E);
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_F);
     QTRY_VERIFY(panel("shopDialog"));
     auto *buy = panel("shopDialog")->findChild<QPushButton *>("buy_fertilizer_1");
     QVERIFY(buy && buy->isEnabled());
@@ -535,7 +611,7 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     auto *categories = bag->findChild<QTabWidget *>("bagCategories");
     QVERIFY(categories);
     QTabBar *tabBar = categories->tabBar();
-    QTest::mouseClick(tabBar, Qt::LeftButton, {}, tabBar->tabRect(2).center());
+    categories->setCurrentIndex(2);
     auto *fertilizer = bag->findChild<QListWidget *>("bagFertilizer");
     QVERIFY(fertilizer && fertilizer->isVisible() && fertilizer->count() > 0);
     const QRect entry = fertilizer->visualItemRect(fertilizer->item(0));
@@ -545,6 +621,11 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     QTRY_VERIFY(!map->isInputBlocked() && QApplication::focusWidget());
     QCOMPARE(player->getCurrentTool().type, ToolType::Fertilizer);
     QCOMPARE(bar->selectedTool(), ToolType::Fertilizer);
+
+    // This item transaction fixture must be standing beside the target field.
+    QVERIFY(player->restorePosition(stationPosition(m_field + QPoint(0, 1))));
+    QVERIFY(qAbs(player->currentTilePosition().x() - m_field.x()) <= 1);
+    QVERIFY(qAbs(player->currentTilePosition().y() - m_field.y()) <= 1);
 
     const QPoint mapPoint = QPoint(m_field.x() * map->tileWidth() + map->tileWidth() / 2,
                                    m_field.y() * map->tileHeight() + map->tileHeight() / 2) -
@@ -585,7 +666,7 @@ void GameplayPanelTests::sellAtMarket() {
     MainWindow game;
     showGame(game);
     QTRY_VERIFY(QApplication::focusWidget());
-    QTest::keyClick(QApplication::focusWidget(), Qt::Key_E);
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_F);
     QTRY_VERIFY(panel("marketDialog"));
     auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
     auto *sellWheat = panel("marketDialog")->findChild<QPushButton *>("sell_wheat");
@@ -674,7 +755,7 @@ void GameplayPanelTests::fullBackpackAtStorage() {
     QVERIFY(map);
     auto *player = map->findChild<ImageMovementWidget *>();
     QVERIFY(player);
-    QTest::keyClick(player, Qt::Key_E);
+    QTest::keyClick(player, Qt::Key_F);
     QTRY_VERIFY(panel("storageDialog"));
     auto *dialog = panel("storageDialog");
     auto *all = dialog->findChild<QPushButton *>("withdrawAll");
@@ -704,7 +785,7 @@ void GameplayPanelTests::fullBackpackAtStorage() {
     QVERIFY(marketMap);
     auto *seller = marketMap->findChild<ImageMovementWidget *>();
     QVERIFY(seller);
-    QTest::keyClick(seller, Qt::Key_E);
+    QTest::keyClick(seller, Qt::Key_F);
     QTRY_VERIFY(panel("marketDialog"));
     auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
     QVERIFY(sell && sell->isEnabled());
@@ -743,6 +824,10 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         return SaveManager::save(path(), state) && openFarm();
     };
     const auto wheelTo = [&](ToolType tool) {
+        if (tool == ToolType::EmptyHand) {
+            QTest::keyClick(player, Qt::Key_0);
+            return bar->selectedTool() == tool;
+        }
         for (int i = 0; i < ToolbarSlotCount && bar->selectedTool() != tool; ++i) {
             const QPoint pos = bar->rect().center();
             QWheelEvent wheel(pos, bar->mapToGlobal(pos), {}, {0,-120},
@@ -752,6 +837,9 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         return bar->selectedTool() == tool && player->getCurrentTool().type == tool;
     };
     const auto clickField = [&](QPoint tile) {
+        // Place this transaction fixture at its field; movement/collision is
+        // covered separately. Farm commands still use the real click path.
+        if (!player->restorePosition(stationPosition(tile))) return false;
         auto *view = game->findChild<QGraphicsView *>();
         QWidget *canvas = map->window();
         if (!view || !canvas->graphicsProxyWidget()) return false;
@@ -795,7 +883,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         auto *list = bag->findChild<QListWidget *>(listName);
         if (!categories || !list) return false;
         auto *tabs = categories->tabBar();
-        QTest::mouseClick(tabs, Qt::LeftButton, {}, tabs->tabRect(category).center());
+        categories->setCurrentIndex(category);
         for (int i = 0; i < list->count(); ++i) {
             const auto *item = list->item(i);
             if (item->isHidden() || item->data(Qt::UserRole).toInt() != static_cast<int>(tool)) continue;
@@ -837,7 +925,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QVERIFY(walkTo(Qt::Key_D, 30));
     QVERIFY(walkTo(Qt::Key_S, 21));
     QVERIFY(walkTo(Qt::Key_D, 31));
-    QVERIFY(pressGameKey(Qt::Key_E));
+    QVERIFY(pressGameKey(Qt::Key_F));
     QTRY_VERIFY(panel("storageDialog"));
     auto *deposit = panel("storageDialog")->findChild<QPushButton *>("depositAll");
     QVERIFY(deposit && deposit->isEnabled());
@@ -857,7 +945,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QTest::mouseClick(enter, Qt::LeftButton);
     QTRY_VERIFY(!map->isInputBlocked());
     QCOMPARE(player->currentTilePosition(), QPoint(31,21));
-    QVERIFY(pressGameKey(Qt::Key_E));
+    QVERIFY(pressGameKey(Qt::Key_F));
     QTRY_VERIFY(panel("storageDialog"));
     auto *withdraw = panel("storageDialog")->findChild<QPushButton *>("withdrawAll");
     QVERIFY(withdraw && withdraw->isEnabled());
@@ -870,7 +958,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QVERIFY(walkTo(Qt::Key_A, 29)); // Leave enough space for the player's feet to clear the chest.
     QVERIFY(walkTo(Qt::Key_W, 18));
     QVERIFY(walkTo(Qt::Key_A, 28));
-    QVERIFY(pressGameKey(Qt::Key_E));
+    QVERIFY(pressGameKey(Qt::Key_F));
     QTRY_VERIFY(panel("marketDialog"));
     auto *sell = panel("marketDialog")->findChild<QPushButton *>("sellAll");
     QVERIFY(sell && sell->isEnabled());
@@ -881,7 +969,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QTRY_VERIFY(!panel("marketDialog"));
 
     QVERIFY(walkTo(Qt::Key_D, 33));
-    QVERIFY(pressGameKey(Qt::Key_E));
+    QVERIFY(pressGameKey(Qt::Key_F));
     QTRY_VERIFY(panel("shopDialog"));
     for (const char *id : {"buy_carrot_1", "buy_fertilizer_1"}) {
         auto *buy = panel("shopDialog")->findChild<QPushButton *>(id);
@@ -906,9 +994,13 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QVERIFY(state.world.crops.first().fertilizerBonusPending);
 
     QVERIFY(reopenAt(22 * 60));
-    QVERIFY(walkTo(Qt::Key_A, 26));
+    QVERIFY(walkTo(Qt::Key_S, 18));
+    QVERIFY(walkTo(Qt::Key_D, 26));
     QVERIFY(walkTo(Qt::Key_W, 8));
-    QVERIFY(pressGameKey(Qt::Key_E));
+    QVERIFY(pressGameKey(Qt::Key_F));
+    auto *sleep = game->findChild<QMessageBox *>("sleepConfirmation");
+    QTRY_VERIFY(sleep && sleep->isVisible());
+    QTest::mouseClick(sleep->findChild<QPushButton *>("confirmSleep"), Qt::LeftButton);
     QTRY_COMPARE_WITH_TIMEOUT(game->currentGameDay(), 4, 3000);
     QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
     QCOMPARE(game->currentGameHour(), 6);

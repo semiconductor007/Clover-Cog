@@ -166,9 +166,10 @@ FarmMenus::FarmMenus(const QPixmap &farm, QWidget *parent)
     body->addLayout(tools);
     auto *route = new QLabel(QStringLiteral(
         "选锄头点草地，或直接找到已耕的田。选当季种子点田播种，换水壶浇水。每过一个浇过水的夜晚，作物就会生长。\n\n"
-        "空手点成熟作物即可收获。走到收购摊按 E 出售；在储物箱南侧按 E 存取物品。种子和肥料可以在商店购买。\n\n"
+        "空手点成熟作物即可收获。走到收购摊按 F 出售；在储物箱南侧按 F 存取物品。种子和肥料可以在商店购买。\n\n"
         "WASD 移动　·　滚轮或点击工具格选物　·　左键使用\n"
-        "E 站点互动　·　Tab 背包　·　Esc 暂停或关闭面板"));
+        "地块操作仅限脚下及周围八格，请先走近。\n"
+        "F 站点互动　·　E / Tab 背包　·　Esc 暂停或关闭面板"));
     route->setWordWrap(true);
     body->addWidget(route);
     body->addStretch();
