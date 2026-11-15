@@ -30,7 +30,8 @@ private:
                           const QRect &visibleTiles, const QPoint &offset,
                           int tileWidth, int tileHeight,
                           const QVector<Tileset> &tilesets,
-                          const QPoint &storageChestTile = QPoint(-1, -1), int storageChestFrame = 0);
+                          const QPoint &storageChestTile = QPoint(-1, -1), int storageChestFrame = 0,
+                          const WorldState *soilState = nullptr);
     static void drawTile(QPainter &painter, int gid, const QPoint &tilePos,
                          const QPoint &offset, int tileWidth, int tileHeight,
                          const QVector<Tileset> &tilesets, int storageChestFrame = -1);

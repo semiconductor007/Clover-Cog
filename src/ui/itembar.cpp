@@ -109,9 +109,19 @@ void ItemBar::wheelEvent(QWheelEvent *event) {
     const int steps = m_wheelRemainder / 120;
     m_wheelRemainder %= 120;
     if (steps) {
-        const int current = m_activeSlot<0 ? (steps < 0 ? -1 : 0) : m_activeSlot;
-        const int next = (current - steps % ToolbarSlotCount + ToolbarSlotCount) % ToolbarSlotCount;
-        selectSlot(next);
+        QVector<int> occupied;
+        for (int i = 0; i < ToolbarSlotCount && i < m_cells.size(); ++i)
+            if (m_cells[i].item && m_cells[i].quantity > 0) occupied.append(i);
+        if (!occupied.isEmpty()) {
+            const int direction = steps < 0 ? 1 : -1;
+            int next = m_activeSlot < 0 ? (direction > 0 ? -1 : 0) : m_activeSlot;
+            // Match Game1.pressSwitchToolButton: direction, not delta magnitude.
+            // High-resolution wheels can report multiple notches in one event;
+            // cycling that many times can return to the starting occupied slot.
+            do { next = (next + direction + ToolbarSlotCount) % ToolbarSlotCount; }
+            while (!occupied.contains(next));
+            selectSlot(next);
+        }
     }
     if (event->phase() == Qt::ScrollEnd)
         m_wheelRemainder = 0;

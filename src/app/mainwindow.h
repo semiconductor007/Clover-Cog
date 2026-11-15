@@ -19,6 +19,7 @@
 
 class DayNightOverlay;
 class FarmPanel;
+class FarmHud;
 class QDialog;
 class FarmMenus;
 class QStackedWidget;
@@ -128,6 +129,7 @@ private:
     DayNightOverlay *m_daylight;
     SceneTransition *m_transition;
     QLabel *m_coinsLabel;
+    FarmHud *m_hud;
     QLabel *m_inventoryLabel;
     QLabel *m_suppliesLabel;
     QLabel *m_statusLabel;

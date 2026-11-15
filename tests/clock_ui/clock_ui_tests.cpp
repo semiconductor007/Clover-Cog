@@ -1,6 +1,7 @@
 #include "app/mainwindow.h"
 #include "ui/slotgrid.h"
 #include "ui/scenetransition.h"
+#include "ui/farmhud.h"
 
 #include <QAudioDevice>
 #include <QAudioOutput>
@@ -25,6 +26,7 @@
 #include <QUuid>
 #include <QWheelEvent>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <QFontDatabase>
 #include <QRawFont>
@@ -65,6 +67,7 @@ private slots:
     void onlySuccessfulActionsPlaySounds();
     void firstShowFitsViewport_data();
     void firstShowFitsViewport();
+    void cornerHudUpdatesAndConsumesClicks();
     void loadCatchesUpMissedMidnights();
     void sleepRefused_data();
     void sleepRefused();
@@ -826,8 +829,9 @@ void ClockUiTests::firstShowFitsViewport() {
     QVERIFY(openGame(size));
     auto *view = m_window->findChild<QGraphicsView *>();
     auto *bar = m_canvas->findChild<ItemBar *>();
-    auto *header = m_canvas->findChild<QWidget *>("farmHeader");
-    QVERIFY(view && bar && header);
+    auto *hud = m_canvas->findChild<QWidget *>("farmHud");
+    QVERIFY(view && bar && hud);
+    QVERIFY(!m_canvas->findChild<QWidget *>("farmHeader"));
     const QSize viewport = view->viewport()->size();
     const qreal available = qMin(qreal(viewport.width()) / m_canvas->width(),
                                  qreal(viewport.height()) / m_canvas->height());
@@ -838,9 +842,12 @@ void ClockUiTests::firstShowFitsViewport() {
     const QRect canvasOnScreen = view->mapFromScene(view->sceneRect()).boundingRect();
     QVERIFY(view->viewport()->rect().adjusted(-1, -1, 1, 1).contains(canvasOnScreen));
     QVERIFY((view->viewport()->rect().center() - canvasOnScreen.center()).manhattanLength() <= 2);
-    QVERIFY(m_canvas->rect().contains(header->geometry()));
+    QVERIFY(m_canvas->rect().contains(hud->geometry()));
     QVERIFY(m_canvas->rect().contains(bar->geometry()));
-    QVERIFY(header->geometry().bottom() < m_map->geometry().top());
+    QCOMPARE(m_map->geometry(), m_canvas->rect());
+    QCOMPARE(m_canvas->width() - hud->geometry().right() - 1, 8);
+    QCOMPARE(hud->y(), 8);
+    QVERIFY(!hud->geometry().intersects(bar->geometry()));
     QVERIFY(m_map->geometry().contains(bar->geometry()));
     QCOMPARE(bar->geometry().center().x(), m_canvas->rect().center().x());
     QCOMPARE(m_canvas->height() - bar->geometry().bottom() - 1, 8);
@@ -850,6 +857,44 @@ void ClockUiTests::firstShowFitsViewport() {
     QDir().mkpath(QStringLiteral("captures"));
     bar->selectTool(ToolType::Hoe);
     QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-bottom-toolbar.png")));
+    QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-corner-hud.png")));
+}
+
+void ClockUiTests::cornerHudUpdatesAndConsumesClicks() {
+    QVERIFY(writeFarm(2, 13 * 60));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    auto *hud = m_canvas->findChild<QWidget *>("farmHud");
+    QVERIFY(hud);
+    auto *money = hud->findChild<QLabel *>("gameMoney");
+    QVERIFY(money && money->isVisible());
+    QCOMPARE(money->text(), QStringLiteral("0"));
+    auto assets = m_window->m_economy.state();
+    assets.coins = std::numeric_limits<int>::max();
+    QVERIFY(m_window->m_economy.restore(assets));
+    m_window->updateHud();
+    QCOMPARE(money->text(), QStringLiteral("2,147,483,647"));
+    QVERIFY(money->fontMetrics().horizontalAdvance(money->text()) <= money->width());
+    QSignalSpy clicks(m_map, &MapWidget::mapClicked);
+    QSignalSpy attempts(m_map, &MapWidget::farmingFeedback);
+    clickCanvas(hud, QPoint(80, 40));
+    QCOMPARE(clicks.count(), 0);
+    QCOMPARE(attempts.count(), 0);
+    const QImage daytime = hud->grab().toImage();
+    m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 22 * 60 + 30);
+    m_window->updateTime();
+    QCOMPARE(m_time->text(), QStringLiteral("22:30"));
+    QCOMPARE(m_date->text(), QStringLiteral("第 1 年 · 春季 3 日"));
+    QCOMPARE(money->text(), QStringLiteral("2,147,483,647"));
+    const QImage nighttime = hud->grab().toImage();
+    // The opaque panel backgrounds remain readable above the night overlay.
+    QCOMPARE(daytime.pixelColor(12, 12), nighttime.pixelColor(12, 12));
+    QCOMPARE(m_window->m_economy.state().bagSlots, assets.bagSlots);
+    QCOMPARE(m_window->m_economy.coins(), assets.coins);
+    QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-corner-hud-night.png")));
+    auto *display = static_cast<FarmHud *>(hud);
+    display->setDate(QStringLiteral("第 76695845 年 · 冬季 7 日"));
+    QVERIFY(m_date->fontMetrics().horizontalAdvance(m_date->text()) <= m_date->width());
 }
 
 void ClockUiTests::loadCatchesUpMissedMidnights() {

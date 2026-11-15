@@ -1,5 +1,12 @@
 # 素材来源与许可核对记录
 
+## HUD 金币图标（2026-11-15）
+
+`resources/ui/hud-coins.png` 原样来自 Cup Nooble Sprout Lands Premium UI Pack 的
+`UI Sprites/Icons/special icons/coins.png`（128×48），QRC 为 `:/farm-ui/coins.png`。
+悬浮面板复用已登记的 `inventory-slots.png`，图标、背景和钟面均未使用星露谷资源。
+沿用本文已有 Premium UI Pack 许可与署名记录，未上传整包。使用范围见[右上角 HUD](FLOATING_HUD.md)。
+
 ## 储物箱短音效（2026-11-14）
 
 新增 `resources/audio/chest_open.wav` 和 `chest_close.wav`，由本项目

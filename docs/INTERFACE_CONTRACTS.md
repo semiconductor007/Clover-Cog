@@ -1,5 +1,10 @@
 # 当前接口约定
 
+2026-11-15 HUD 展示契约：`FarmHud::setDate(QString)` / `setTime(int,int)` /
+`setMoney(int)` 仅消费主窗口快照，不拥有时钟或金币。HUD 按画布右上角定位，地图视区铺满
+原画布；地图坐标转换继续由 MapWidget 和视图处理。`gameDate` / `gameTime` 查询标签名称
+保留，新增 `gameMoney`，移除旧 `farmHeader`。资源、文件窗口和验证见[右上角 HUD](FLOATING_HUD.md)。
+
 2026-11-14 箱子表现增量：`MapWidget::setStorageChestOpen(bool)` / `resetStorageChest()`
 只管理展示帧；`storageChestOpened()` 通知主窗口完成开盖，`storageChestCue(bool)`
 请求开/关音效。主窗口拥有待打开请求、位置和活动状态校验、菜单生命周期；动画回调不能

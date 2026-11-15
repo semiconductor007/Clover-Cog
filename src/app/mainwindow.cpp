@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui/farmmenus.h"
+#include "ui/farmhud.h"
 #include "core/gameconstants.h"
 #include "ui/inventorydialog.h"
 #include "ui/marketdialog.h"
@@ -32,9 +33,7 @@
 
 namespace {
 constexpr int CanvasWidth = 576;
-constexpr int HeaderHeight = 34;
-constexpr int MapHeight = 408;
-constexpr int CanvasHeight = HeaderHeight + MapHeight;
+constexpr int CanvasHeight = 442;
 
 }
 
@@ -73,8 +72,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_gameView->installEventFilter(this);
     m_gameView->viewport()->installEventFilter(this);
 
-    // Keep the header separate; the toolbar floats above the bottom of the map.
-    mapWidget->setGeometry(0, HeaderHeight, CanvasWidth, MapHeight);
+    // The map fills the canvas; both HUD and toolbar float above it.
+    mapWidget->setGeometry(0, 0, CanvasWidth, CanvasHeight);
     if (!mapWidget->loadMap(QStringLiteral(":/map/map6.tmj"))) {
         qCritical() << "Unable to initialize the game map";
     }
@@ -85,27 +84,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_seasons.load(mapWidget->originalTilesets());
     mapWidget->setTimeReference([this] { return m_committedMinutes; });
 
-    auto *header = new QWidget(m_gameCanvas);
-    header->setObjectName(QStringLiteral("farmHeader"));
-    header->setGeometry(0, 0, CanvasWidth, HeaderHeight);
-    header->setStyleSheet(QStringLiteral(
-        "QWidget#farmHeader { background: #35533f; }"
-        "QLabel { color: #fff4d8; font-size: 13px; }"
-        "QLabel#gameTime { color: #ffe19c; font-weight: bold; }"));
-    auto *headerRow = new QHBoxLayout(header);
-    headerRow->setContentsMargins(12, 0, 12, 0);
-    headerRow->setSpacing(14);
-    dayLabel = new QLabel(header);
-    dayLabel->setObjectName(QStringLiteral("gameDate"));
-    timeLabel = new QLabel(header);
-    timeLabel->setObjectName(QStringLiteral("gameTime"));
-    m_coinsLabel = new QLabel(header);
-    m_inventoryLabel = new QLabel(header);
-    headerRow->addWidget(dayLabel);
-    headerRow->addWidget(timeLabel);
-    headerRow->addStretch();
-    headerRow->addWidget(m_coinsLabel);
-    headerRow->addWidget(m_inventoryLabel);
+    m_hud = new FarmHud(m_gameCanvas);
+    dayLabel = m_hud->dateLabel();
+    timeLabel = m_hud->timeLabel();
+    m_coinsLabel = m_hud->moneyLabel();
+    m_inventoryLabel = new QLabel(m_hud);
+    m_inventoryLabel->hide();
 
     character = new ImageMovementWidget(mapWidget, mapWidget);
     character->setInitialPosition(QPoint(400, 192));
@@ -418,14 +402,13 @@ void MainWindow::presentTime() {
                     m_seasons.paintDecorations(season, painter, offset, world);
                 });
         }
-        dayLabel->setText(QStringLiteral("第 %1 年 · %2 %3 日")
+        m_hud->setDate(QStringLiteral("第 %1 年 · %2 %3 日")
                               .arg(date.year).arg(SeasonCalendar::seasonName(season))
                               .arg(date.dayOfSeason));
         m_visibleDay = day;
         refreshOpenPanel();
     }
-    timeLabel->setText(QStringLiteral("%1:%2").arg(currentGameHour(), 2, 10, QLatin1Char('0'))
-                                              .arg(currentGameMinute(), 2, 10, QLatin1Char('0')));
+    m_hud->setTime(currentGameHour(), currentGameMinute());
     m_daylight->setGameMinutes(m_committedMinutes);
 }
 
@@ -604,7 +587,7 @@ void MainWindow::updateGameScale() {
 void MainWindow::updateHud() {
     itemBar->setStock(m_economy);
     const Inventory &inventory = m_economy.inventory();
-    m_coinsLabel->setText(QStringLiteral("金币 %1").arg(m_economy.coins()));
+    m_hud->setMoney(m_economy.coins());
     m_inventoryLabel->setText(QStringLiteral("背包 %1 / %2")
                                   .arg(inventory.usedCapacity()).arg(inventory.capacity()));
     const CropType crop = seedCropForTool(itemBar->selectedTool());
