@@ -25,15 +25,16 @@
 #include <QTimer>
 #include <QUrl>
 #include <QWheelEvent>
+#include <QToolTip>
 #include <QtMath>
 #include <utility>
+#include <limits>
 
 namespace {
 constexpr int CanvasWidth = 576;
 constexpr int HeaderHeight = 34;
-constexpr int MapHeight = 320;
-constexpr int FooterHeight = 68;
-constexpr int CanvasHeight = HeaderHeight + MapHeight + FooterHeight;
+constexpr int MapHeight = 408;
+constexpr int CanvasHeight = HeaderHeight + MapHeight;
 
 }
 
@@ -54,7 +55,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_gameCanvas->setFixedSize(CanvasWidth, CanvasHeight);
     QPalette canvasPalette = m_gameCanvas->palette();
-    canvasPalette.setColor(QPalette::Window, QColor("#efdfb9"));
+    canvasPalette.setColor(QPalette::Window, QColor("#26372e"));
     m_gameCanvas->setPalette(canvasPalette);
     m_gameCanvas->setAutoFillBackground(true);
     m_gameScene->setSceneRect(m_gameCanvas->rect());
@@ -72,7 +73,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_gameView->installEventFilter(this);
     m_gameView->viewport()->installEventFilter(this);
 
-    // Reserve separate strips for the HUD and toolbar so both map edges stay playable.
+    // Keep the header separate; the toolbar floats above the bottom of the map.
     mapWidget->setGeometry(0, HeaderHeight, CanvasWidth, MapHeight);
     if (!mapWidget->loadMap(QStringLiteral(":/map/map6.tmj"))) {
         qCritical() << "Unable to initialize the game map";
@@ -110,20 +111,28 @@ MainWindow::MainWindow(QWidget *parent)
     character->setInitialPosition(QPoint(400, 192));
     m_daylight = new DayNightOverlay(mapWidget);
     itemBar = new ItemBar(m_gameCanvas);
-    const int footerTop = HeaderHeight + MapHeight;
+    connect(itemBar,&ItemBar::slotSelected,this,[this](int slot){m_economy.setEquippedSlot(slot);});
+    connect(itemBar,&ItemBar::stackMoveRequested,this,[this](StackMove move){moveInventoryStack(m_panelOpen,move);});
     const QSize barSize = itemBar->sizeHint();
-    itemBar->setGeometry(8, footerTop + (FooterHeight - barSize.height()) / 2,
+    itemBar->setGeometry((CanvasWidth - barSize.width()) / 2, CanvasHeight - barSize.height() - 8,
                          barSize.width(), barSize.height());
     mapWidget->installEventFilter(this);
-    const int textLeft = itemBar->geometry().right() + 16;
-    const int textWidth = CanvasWidth - textLeft - 10;
     m_suppliesLabel = new QLabel(m_gameCanvas);
-    m_suppliesLabel->setGeometry(textLeft, footerTop + 5, textWidth, 22);
-    m_suppliesLabel->setStyleSheet(QStringLiteral("color: #35533f; font-size: 12px; font-weight: bold;"));
+    m_suppliesLabel->hide();
     m_statusLabel = new QLabel(m_gameCanvas);
-    m_statusLabel->setWordWrap(true);
-    m_statusLabel->setGeometry(textLeft, footerTop + 26, textWidth, FooterHeight - 29);
-    m_statusLabel->setStyleSheet(QStringLiteral("color: #453728; font-size: 12px;"));
+    m_statusLabel->setObjectName(QStringLiteral("farmStatus"));
+    m_statusLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_statusLabel->setTextFormat(Qt::PlainText);
+    m_statusLabel->setAlignment(Qt::AlignCenter);
+    m_statusLabel->setMaximumWidth(CanvasWidth - 24);
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "QLabel { background-color: #304738; color: #fff4d8; border: 1px solid #b3bf94;"
+        " border-radius: 4px; padding: 4px 9px; font-size: 13px; }"));
+    m_statusLabel->hide();
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setSingleShot(true);
+    m_statusTimer->setInterval(3500);
+    connect(m_statusTimer, &QTimer::timeout, m_statusLabel, &QLabel::hide);
 
     m_transition = new SceneTransition(m_gameCanvas);
     connect(m_transition, &SceneTransition::blackReached, this, &MainWindow::presentTime);
@@ -154,6 +163,19 @@ MainWindow::MainWindow(QWidget *parent)
     auto *water = sound(QStringLiteral("wateringSound"), QStringLiteral("qrc:/sounds/water.wav"));
     auto *harvest = sound(QStringLiteral("harvestSound"), QStringLiteral("qrc:/sounds/harvest.wav"));
     auto *wake = sound(QStringLiteral("wakeSound"), QStringLiteral("qrc:/sounds/sleep_success.wav"));
+    auto *chestOpen = sound(QStringLiteral("chestOpenSound"), QStringLiteral("qrc:/sounds/chest_open.wav"));
+    auto *chestClose = sound(QStringLiteral("chestCloseSound"), QStringLiteral("qrc:/sounds/chest_close.wav"));
+    chestOpen->setVolume(0.40f);
+    chestClose->setVolume(0.40f);
+    connect(mapWidget, &MapWidget::storageChestCue, this, [chestOpen, chestClose](bool opening) {
+        auto *effect = opening ? chestOpen : chestClose;
+        // Audio is best-effort: no delayed playback after closing or device failure.
+        if (effect->status() == QSoundEffect::Ready && !effect->isMuted() &&
+            effect->volume() > 0 && !QMediaDevices::defaultAudioOutput().isNull()) {
+            effect->play();
+        }
+    });
+    connect(mapWidget, &MapWidget::storageChestOpened, this, &MainWindow::finishStorageOpening);
     wake->setVolume(0.35f);
     wake->setLoopCount(1);
     connect(this, &MainWindow::wakeSaved, wake, [wake] {
@@ -202,7 +224,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(character, &ImageMovementWidget::interactionRequested, this, [this](QPoint playerTile) {
-        if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
             m_wakeSaveState == WakeSaveState::Failed) {
             return;
         }
@@ -215,7 +237,7 @@ MainWindow::MainWindow(QWidget *parent)
         } else if (m_bedArea.contains(playerTile)) {
             sleepUntilMorning();
         } else {
-            showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 E"));
+            showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 F"));
         }
     });
     // MapWidget emits this only after both the world action and the inventory action commit.
@@ -254,6 +276,8 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 void MainWindow::showHome() {
+    m_storageOpening = false;
+    mapWidget->resetStorageChest();
     m_page = Page::Home;
     refreshGameplayInput();
     m_music->stop();
@@ -289,13 +313,13 @@ void MainWindow::enterFarm() {
 }
 
 void MainWindow::pauseFarm() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed) return;
     m_gameClock.pause();
     applyClock(ClockEvent::Tick);
     // A key at the first instant of a new season must let its single transition finish.
     if (m_transitionActive) {
-        m_gameClock.resume();
+        if (m_wakeSaveState != WakeSaveState::Failed) m_gameClock.resume();
         return;
     }
     m_page = Page::Pause;
@@ -327,6 +351,7 @@ bool MainWindow::applyClock(ClockEvent event) {
         return event != ClockEvent::Save;
     if (m_page != Page::Farm || m_closePrompt) return true;
     const qint64 minutes = m_gameClock.elapsedGameMinutes();
+    if (minutes < 0 || minutes / 1440 > std::numeric_limits<int>::max()) return false;
     if (event == ClockEvent::Tick && minutes == m_committedMinutes) return true;
     const int day = int(minutes / (24 * 60));
     const bool crossedDay = m_lastProcessedDay < day;
@@ -406,7 +431,7 @@ void MainWindow::presentTime() {
 }
 
 void MainWindow::sleepUntilMorning() {
-    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_closePrompt ||
+    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_storageOpening || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed || !m_bedArea.contains(character->currentTilePosition()))
         return;
     if (!m_gameClock.sleepToNextMorning()) {
@@ -417,6 +442,20 @@ void MainWindow::sleepUntilMorning() {
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (m_page == Page::Farm && !m_transitionActive && !m_closePrompt &&
+        m_wakeSaveState != WakeSaveState::Failed &&
+        (event->type() == QEvent::KeyPress || event->type() == QEvent::MouseButtonPress)) {
+        applyClock(ClockEvent::Tick);
+        if (m_transitionActive) return true;
+    }
+    if (m_storageOpening && event->type() == QEvent::KeyPress) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Escape && !key->isAutoRepeat()) {
+            cancelStorageOpening();
+            refreshGameplayInput();
+        }
+        return true;
+    }
     if (m_page == Page::Farm && !m_panelOpen && !m_closePrompt &&
         m_wakeSaveState != WakeSaveState::Failed && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
@@ -468,6 +507,7 @@ void MainWindow::updateGameScale() {
 }
 
 void MainWindow::updateHud() {
+    itemBar->setStock(m_economy);
     const Inventory &inventory = m_economy.inventory();
     m_coinsLabel->setText(QStringLiteral("金币 %1").arg(m_economy.coins()));
     m_inventoryLabel->setText(QStringLiteral("背包 %1 / %2")
@@ -486,24 +526,33 @@ void MainWindow::updateHud() {
 }
 
 void MainWindow::showStatus(const QString &message) {
+    m_statusLabel->setWordWrap(false);
     m_statusLabel->setText(message);
+    m_statusLabel->setWordWrap(m_statusLabel->sizeHint().width() > m_statusLabel->maximumWidth());
+    m_statusLabel->adjustSize();
+    m_statusLabel->move((CanvasWidth - m_statusLabel->width()) / 2, HeaderHeight + 8);
+    m_statusLabel->show();
+    m_statusTimer->start();
 }
 
 void MainWindow::openInventory() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed) {
         return;
     }
     auto *dialog = new InventoryDialog(this);
-    connect(dialog, &InventoryDialog::toolRequested, this, [this](ToolType tool) {
-        itemBar->selectTool(tool);
+    connect(dialog, &InventoryDialog::slotRequested, this, [this, dialog](int slot) {
+        if (!acceptPanelCommand(dialog)) return;
+        itemBar->selectSlot(slot);
     });
+    connect(dialog,&InventoryDialog::stackMoveRequested,this,[this,dialog](StackMove move){moveInventoryStack(dialog,move);});
     showFarmPanel(dialog);
 }
 
 void MainWindow::openSeedShop() {
     auto *dialog = new SeedShopDialog(this);
     const auto purchase = [this, dialog](ToolType tool, int quantity) {
+        if (!acceptPanelCommand(dialog)) return;
         if (!m_shopArea.contains(character->currentTilePosition())) {
             dialog->setMessage(QStringLiteral("请到种子商店购买"));
             return;
@@ -542,20 +591,54 @@ void MainWindow::openMarket() {
         finishTrade(dialog, QStringLiteral("已售出 %1 份%2，收入 %3 金币")
                                 .arg(sale.itemsSold).arg(product).arg(sale.coinsEarned));
     };
-    connect(dialog, &MarketDialog::cropSaleRequested, this, [this, showSale](CropType crop, int quantity) {
+    connect(dialog, &MarketDialog::cropSaleRequested, this, [this, dialog, showSale](CropType crop, int quantity) {
+        if (!acceptPanelCommand(dialog)) return;
         showSale(m_economy.sellCrop(crop, quantity, character->currentTilePosition(), m_marketArea),
                  CropCatalog::definition(crop).localizedName);
     });
-    connect(dialog, &MarketDialog::saleRequested, this, [this, showSale] {
+    connect(dialog, &MarketDialog::saleRequested, this, [this, dialog, showSale] {
+        if (!acceptPanelCommand(dialog)) return;
         showSale(m_economy.sellAll(character->currentTilePosition(), m_marketArea), QStringLiteral("农产品"));
     });
     showFarmPanel(dialog);
 }
 
 void MainWindow::openStorage() {
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed ||
+        !m_storageArea.contains(character->currentTilePosition())) return;
+    applyClock(ClockEvent::Tick);
+    if (m_transitionActive || m_wakeSaveState == WakeSaveState::Failed ||
+        !m_storageArea.contains(character->currentTilePosition())) return;
+    m_storageOpening = true;
+    refreshGameplayInput();
+    mapWidget->setStorageChestOpen(true);
+}
+
+void MainWindow::cancelStorageOpening() {
+    if (!m_storageOpening) return;
+    m_storageOpening = false;
+    mapWidget->setStorageChestOpen(false);
+}
+
+void MainWindow::finishStorageOpening() {
+    if (!m_storageOpening) return;
+    applyClock(ClockEvent::Tick);
+    if (!m_storageOpening) return;
+    m_storageOpening = false;
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed ||
+        !m_storageArea.contains(character->currentTilePosition())) {
+        mapWidget->setStorageChestOpen(false);
+        refreshGameplayInput();
+        return;
+    }
     auto *dialog = new StorageDialog(this);
+    connect(dialog, &QDialog::finished, mapWidget, [this] { mapWidget->setStorageChestOpen(false); });
+    connect(dialog,&StorageDialog::stackMoveRequested,this,[this,dialog](StackMove move){moveInventoryStack(dialog,move);});
     connect(dialog, &StorageDialog::transferRequested, this,
             [this, dialog](StorageItemKind kind, CropType crop, StorageDirection direction, int quantity) {
+        if (!acceptPanelCommand(dialog)) return;
         if (!m_storageArea.contains(character->currentTilePosition())) {
             dialog->setMessage(QStringLiteral("请到储物箱前存取"));
             return;
@@ -567,6 +650,7 @@ void MainWindow::openStorage() {
             dialog->setMessage(result.message);
     });
     showFarmPanel(dialog);
+    if (m_panelOpen != dialog) mapWidget->setStorageChestOpen(false);
 }
 
 void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
@@ -578,6 +662,11 @@ void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
 }
 
 void MainWindow::showFarmPanel(QDialog *dialog) {
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed) {
+        dialog->deleteLater();
+        return;
+    }
     m_panelOpen = dialog;
     // Panel hotkeys use event filters and can otherwise fire on a disabled widget.
     dialog->installEventFilter(this);
@@ -600,9 +689,35 @@ void MainWindow::showFarmPanel(QDialog *dialog) {
     dialog->open();
 }
 
+bool MainWindow::acceptPanelCommand(QDialog *panel) {
+    if (m_panelOpen != panel || m_page != Page::Farm || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed) return false;
+    applyClock(ClockEvent::Tick);
+    return m_panelOpen == panel && !m_transitionActive &&
+           m_wakeSaveState != WakeSaveState::Failed;
+}
+
+void MainWindow::moveInventoryStack(QDialog *panel,const StackMove &move) {
+    if (panel) {
+        if (!acceptPanelCommand(panel)) return;
+    } else {
+        if (m_page!=Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
+            m_wakeSaveState==WakeSaveState::Failed) return;
+        applyClock(ClockEvent::Tick);
+        if (m_transitionActive || m_panelOpen) return;
+    }
+    if ((move.sourceChest || move.targetChest) &&
+        (!qobject_cast<StorageDialog *>(panel) || !m_storageArea.contains(character->currentTilePosition()))) return;
+    if (!m_economy.moveStack(move)) {
+        QToolTip::showText(QCursor::pos(),QStringLiteral("无法移动：目标、数量或库存已变化，物品已保留"),this);
+        return;
+    }
+    updateHud(); refreshOpenPanel(); saveGame(false);
+}
+
 void MainWindow::refreshOpenPanel() {
     if (auto *bag = qobject_cast<InventoryDialog *>(m_panelOpen.data())) {
-        bag->setState(m_economy, itemBar->selectedTool(), currentGameDay());
+        bag->setState(m_economy, itemBar->selectedTool(), currentGameDay(),itemBar->selectedSlot());
     } else if (auto *shop = qobject_cast<SeedShopDialog *>(m_panelOpen.data())) {
         shop->setState(m_economy);
     } else if (auto *market = qobject_cast<MarketDialog *>(m_panelOpen.data())) {
@@ -613,7 +728,9 @@ void MainWindow::refreshOpenPanel() {
 }
 
 void MainWindow::refreshGameplayInput() {
-    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_storageOpening && (m_page != Page::Farm || m_transitionActive || m_closePrompt ||
+        m_wakeSaveState == WakeSaveState::Failed)) cancelStorageOpening();
+    const bool blocked = m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
                          m_wakeSaveState == WakeSaveState::Failed;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
@@ -738,7 +855,7 @@ bool MainWindow::readFarmSave(const QString &source, GameSaveData *data, QString
 void MainWindow::loadGame() {
     const QString source = SaveManager::preferredSavePath();
     if (source.isEmpty()) {
-        showStatus(QStringLiteral("WASD 移动，滚轮选工具。Tab 背包，Esc 暂停。"));
+        showStatus(QStringLiteral("WASD 移动，滚轮选工具。E / Tab 背包，F 互动，Esc 暂停。"));
         return;
     }
     GameSaveData data;
@@ -801,6 +918,7 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    cancelStorageOpening();
     if (m_page == Page::Home || !m_saveEnabled || m_discardOnClose) {
         m_discardOnClose = false;
         m_wakeSaveState = WakeSaveState::None;

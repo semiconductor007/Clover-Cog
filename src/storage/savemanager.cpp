@@ -158,7 +158,18 @@ bool validSnapshot(const GameSaveData &data, QString *errorMessage) {
 }
 
 QByteArray encodeSave(const GameSaveData &data) {
+    EconomyService canonical;
+    canonical.restore(data.economy);
+    const auto layout=canonical.state();
+    const auto encodeSlots=[](const QVector<InventoryStack> &cells) {
+        QJsonArray array;
+        for (const auto &cell : cells) array.append(QJsonObject{{"item",cell.item},{"quantity",cell.quantity}});
+        return array;
+    };
     QJsonObject economy;
+    economy.insert(QStringLiteral("slotLayoutVersion"),1);
+    economy.insert(QStringLiteral("bagSlots"),encodeSlots(layout.bagSlots));
+    economy.insert(QStringLiteral("chestSlots"),encodeSlots(layout.chestSlots));
     economy.insert(QStringLiteral("coins"), data.economy.coins);
     economy.insert(QStringLiteral("inventoryCapacity"),
                    data.economy.inventoryCapacity);
@@ -264,6 +275,29 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
             !countsFromJson(storage.value(QStringLiteral("seeds")), &stock.seedCounts)) {
             setError(errorMessage, QStringLiteral("储物箱库存无效"));
             return false;
+        }
+    }
+
+    if (version>=4 && (economy.contains(QStringLiteral("slotLayoutVersion")) || economy.contains(QStringLiteral("bagSlots")) ||
+        economy.contains(QStringLiteral("chestSlots")))) {
+        const auto decodeSlots=[](const QJsonValue &value, QVector<InventoryStack> &cells) {
+            if (!value.isArray() || value.toArray().size()>65536) return false;
+            for (const auto &entry : value.toArray()) {
+                if (!entry.isObject()) return false;
+                const auto object=entry.toObject();
+                const auto item=object.value("item"), quantity=object.value("quantity");
+                if (object.size()!=2 || !item.isDouble() || !quantity.isDouble() ||
+                    item.toInt(-1)<0 || quantity.toInt(-1)<0 || item.toDouble()!=item.toInt(-1) ||
+                    quantity.toDouble()!=quantity.toInt(-1)) return false;
+                cells.append({item.toInt(),quantity.toInt()});
+            }
+            return true;
+        };
+        if (economy.value("slotLayoutVersion").toInt(-1)!=1 ||
+            !decodeSlots(economy.value("bagSlots"),parsed.economy.bagSlots) ||
+            !decodeSlots(economy.value("chestSlots"),parsed.economy.chestSlots) ||
+            !EconomyService::layoutMatches(parsed.economy)) {
+            setError(errorMessage,QStringLiteral("背包格位与实际库存不一致")); return false;
         }
     }
 

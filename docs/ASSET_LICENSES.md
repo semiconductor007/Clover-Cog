@@ -1,5 +1,12 @@
 # 素材来源与许可核对记录
 
+## 储物箱短音效（2026-11-14）
+
+新增 `resources/audio/chest_open.wav` 和 `chest_close.wav`，由本项目
+`tools/generate_chest_sounds.py` 确定性合成木质铰链与搭扣声，无外部采样或原作音频。
+箱子动画仅使用已经接入的 Cup Nooble Sprout Lands `sprout/Chest.png` 图集，
+未上传新的完整素材包。来源、采样矩形和听测限制见[箱子开合](CHEST_ANIMATION.md)。
+
 核对日期：2026-11-11。本文记录能确认的来源与随包条款，不将“文件已经在仓库中”视为授权证明。本次未对外发布新包，也未重新上传原始素材包。
 
 ## Sprout Lands 地图与当前季节环境
@@ -27,6 +34,8 @@ UI 由 Cup Nooble 制作。Basic 素材沿用[随包说明](../sprout/Sprout%20L
 按用户最新要求，后续打包/发布整理暂缓。上述来源、随包说明及未决项先记录，四季资源按既有 Sprout 原图和署名交付；不以本轮素材检查代表完整发布审查。此前已进行的本地部署试验及辅助脚本留在仓库外备份，不纳入本次交付，不继续推进或对外发布。
 
 ## 本轮实际选用的界面素材
+
+2026-11-14 按用户明确指定，新增选用同一 Premium UI 包的 `emojis/emoji style ui/inventory_example_with_slots.png`，原样复制为 `resources/ui/inventory-hotbar.png`，QRC 为 `:/farm-ui/hotbar.png`。SHA256：`60C62708FABFC6DD3FA6847E019035534345C196EB43D823DFF2AC1E746EFCD9`。游戏物品栏和背包首排均按原图七格呈现，上方爱心为原图装饰，不新增生命值规则；沿用 Cup Nooble 署名和本文件已有 UI 包条款记录，未上传整包。
 
 物品格使用 Cup Nooble 的 Sprout Lands Premium UI Pack 中的 `Inventory_Blocks_Spritesheet.png`，仓库文件为 `resources/ui/inventory-slots.png`，QRC 路径为 `:/farm-ui/slots.png`。基础肥料图标取自已有 Sprout Lands 物品图集的首格土壤块。浇水与收获使用本项目新制作的两个短音效，随 `farm-sounds.qrc` 载入。
 

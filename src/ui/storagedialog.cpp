@@ -1,5 +1,7 @@
 #include "storagedialog.h"
 #include "farmicons.h"
+#include "slotgrid.h"
+#include <QScrollArea>
 
 #include <QHeaderView>
 #include <QTableWidget>
@@ -18,6 +20,14 @@ StorageDialog::StorageDialog(QWidget *parent)
     , m_withdrawOne(makeButton(QStringLiteral("取出 1 份"), QStringLiteral("withdrawOne")))
     , m_withdrawAll(makeButton(QStringLiteral("全部取出"), QStringLiteral("withdrawAll"))) {
     setObjectName(QStringLiteral("storageDialog"));
+    m_chestGrid=new SlotGrid(true,this); m_chestGrid->setObjectName(QStringLiteral("chestSlots"));
+    m_bagGrid=new SlotGrid(false,this); m_bagGrid->setObjectName(QStringLiteral("storageBagSlots"));
+    auto *scroll=new QScrollArea(this); scroll->setWidgetResizable(false);
+    scroll->setWidget(m_chestGrid); scroll->setFixedSize(546,170);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    body->addWidget(scroll);
+    body->addWidget(m_bagGrid);
+    for (auto *grid : {m_chestGrid,m_bagGrid}) grid->moveRequested=[this](StackMove move){emit stackMoveRequested(move);};
     m_table->setObjectName(QStringLiteral("storageRows"));
     m_table->setAccessibleName(QStringLiteral("随身背包与储物箱物品数量"));
     m_table->setHorizontalHeaderLabels({QStringLiteral("物品"), QStringLiteral("随身背包"), QStringLiteral("储物箱")});
@@ -43,7 +53,7 @@ StorageDialog::StorageDialog(QWidget *parent)
         addRow(StorageItemKind::Seed, crop, item.localizedName + QStringLiteral("种子"), FarmIcons::crop(item.seedIcon));
     }
     addRow(StorageItemKind::Fertilizer, CropType::None, QStringLiteral("基础肥料"), FarmIcons::fertilizer());
-    body->addWidget(m_table);
+    m_table->hide();
 
     auto *actions = new QHBoxLayout;
     actions->addWidget(m_depositOne);
@@ -53,13 +63,23 @@ StorageDialog::StorageDialog(QWidget *parent)
     actions->addWidget(m_withdrawAll);
     body->addLayout(actions);
     addFooter(QStringLiteral("选中物品后存取。只有随身农产品占用背包格数。"));
+    const auto choose=[this](const InventoryStack &stack) {
+        for (int i=0;i<m_rows.size();++i) {
+            const auto &row=m_rows[i];
+            const int item=row.kind==StorageItemKind::Fertilizer ? StackItem::Fertilizer :
+                row.kind==StorageItemKind::Seed ? StackItem::seed(row.crop) : StackItem::harvest(row.crop);
+            if (item==stack.item) {m_table->setCurrentCell(i,0);updateButtons();break;}
+        }
+    };
+    m_bagGrid->slotChosen=[this,choose](int i){choose(m_bagGrid->cells()[i]);};
+    m_chestGrid->slotChosen=[this,choose](int i){choose(m_chestGrid->cells()[i]);};
     connect(m_table, &QTableWidget::currentCellChanged, this, &StorageDialog::updateButtons);
     connect(m_depositOne, &QPushButton::clicked, this, [this] { requestTransfer(StorageDirection::Deposit, false); });
     connect(m_depositAll, &QPushButton::clicked, this, [this] { requestTransfer(StorageDirection::Deposit, true); });
     connect(m_withdrawOne, &QPushButton::clicked, this, [this] { requestTransfer(StorageDirection::Withdraw, false); });
     connect(m_withdrawAll, &QPushButton::clicked, this, [this] { requestTransfer(StorageDirection::Withdraw, true); });
     updateButtons();
-    resize(460, 445);
+    resize(590,680);
 }
 
 void StorageDialog::addRow(StorageItemKind kind, CropType crop, const QString &name, const QPixmap &icon) {
@@ -76,6 +96,8 @@ void StorageDialog::addRow(StorageItemKind kind, CropType crop, const QString &n
 }
 
 void StorageDialog::setState(const EconomyService &economy) {
+    m_bagGrid->setState(economy.bagSlots(),economy.revision());
+    m_chestGrid->setState(economy.chestSlots(),economy.revision());
     const auto &inventory = economy.inventory();
     const auto &storage = economy.storage();
     summary->setText(QStringLiteral("背包 %1 / %2").arg(inventory.usedCapacity()).arg(inventory.capacity()));

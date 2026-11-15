@@ -72,6 +72,7 @@ QPoint ImageMovementWidget::currentTilePosition() const {
 ImageMovementWidget::ImageMovementWidget(MapWidget *mapWidget, QWidget *parent)
     : QWidget(parent), m_mapWidget(mapWidget) {
     m_controller = new PlayerController(mapWidget, this);
+    m_controller->setTilePositionGetter([this] { return currentTilePosition(); });
     initUI();
     currentRightFrameIndex=0;
     currentLeftFrameIndex=0;
@@ -216,7 +217,7 @@ void ImageMovementWidget::focusOutEvent(QFocusEvent *event) {
 bool ImageMovementWidget::event(QEvent *event) {
     if (event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
-        if (key->key() == Qt::Key_Tab && key->modifiers() == Qt::NoModifier) {
+        if ((key->key() == Qt::Key_Tab || key->key() == Qt::Key_E) && key->modifiers() == Qt::NoModifier) {
             key->accept();
             if (!m_inputBlocked && !key->isAutoRepeat())
                 emit inventoryRequested();
@@ -232,7 +233,7 @@ void ImageMovementWidget::keyPressEvent(QKeyEvent *event) {
         return;
     }
 
-    if (event->key() == Qt::Key_E) {
+    if (event->key() == Qt::Key_F && event->modifiers() == Qt::NoModifier) {
         emit interactionRequested(currentTilePosition());
         event->accept();
         return;
@@ -408,6 +409,10 @@ void ImageMovementWidget::useCurrentToolAt(QPoint mapPos) {
     if (m_inputBlocked || !m_mapWidget || m_mapWidget->isInputBlocked() ||
         !m_mapWidget->isValidTile(m_mapWidget->mapPointToTile(mapPos)))
         return;
+    if (!m_controller->canReachTile(m_mapWidget->mapPointToTile(mapPos))) {
+        m_controller->useToolAt(mapPos); // Report the same rejected command without animating it.
+        return;
+    }
     handleToolAction();
     m_controller->useToolAt(mapPos);
 }

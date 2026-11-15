@@ -1,6 +1,7 @@
 #include "gameclock.h"
 
 #include <QtGlobal>
+#include <limits>
 
 GameClock::GameClock(int millisecondsPerGameMinute)
     : m_millisecondsPerGameMinute(qMax(1, millisecondsPerGameMinute)) {}
@@ -38,35 +39,32 @@ qint64 GameClock::elapsedGameMinutes() const {
     return m_gameMinuteOffset + rawElapsedGameMinutes();
 }
 
-namespace {
-
-qint64 minutesUntilMorning(qint64 gameMinutes, int wakeHour, int sleepStartHour) {
-    constexpr int dayLength = 24 * 60;
-    const int minuteOfDay = static_cast<int>(gameMinutes % dayLength);
-    const int wakeMinute = qBound(0, wakeHour, 23) * 60;
-    const int sleepMinute = qBound(0, sleepStartHour, 23) * 60;
-    if (minuteOfDay < wakeMinute) {
-        return wakeMinute - minuteOfDay;
-    }
-    if (minuteOfDay >= sleepMinute) {
-        return dayLength - minuteOfDay + wakeMinute;
-    }
-    return 0;
+std::optional<qint64> GameClock::sleepTargetMinute(qint64 minutes, int wakeHour,
+                                                   int sleepStartHour) {
+    if (minutes < 0 || wakeHour < 1 || wakeHour > 23 ||
+        sleepStartHour <= wakeHour || sleepStartHour > 23) return std::nullopt;
+    const int minuteOfDay = int(minutes % 1440);
+    const int wakeMinute = wakeHour * 60;
+    if (minuteOfDay >= wakeMinute && minuteOfDay < sleepStartHour * 60) return std::nullopt;
+    const int delta = minuteOfDay < wakeMinute ? wakeMinute - minuteOfDay
+                                               : 1440 - minuteOfDay + wakeMinute;
+    if (minutes > std::numeric_limits<qint64>::max() - delta) return std::nullopt;
+    const qint64 target = minutes + delta;
+    if (target / 1440 > std::numeric_limits<int>::max()) return std::nullopt;
+    return target;
 }
 
-} // namespace
-
 bool GameClock::canSleep(int sleepStartHour, int wakeHour) const {
-    return minutesUntilMorning(elapsedGameMinutes(), wakeHour, sleepStartHour) > 0;
+    return sleepTargetMinute(elapsedGameMinutes(), wakeHour, sleepStartHour).has_value();
 }
 
 bool GameClock::sleepToNextMorning(int wakeHour, int sleepStartHour) {
     const qint64 current = elapsedGameMinutes();
-    const qint64 duration = minutesUntilMorning(current, wakeHour, sleepStartHour);
-    if (duration == 0) {
+    const auto target = sleepTargetMinute(current, wakeHour, sleepStartHour);
+    if (!target) {
         return false;
     }
-    setElapsedGameMinutes(current + duration);
+    setElapsedGameMinutes(*target);
     return true;
 }
 

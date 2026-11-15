@@ -100,6 +100,7 @@
     </qresource>
     <qresource prefix="/farm-ui">
         <file alias="slots.png">resources/ui/inventory-slots.png</file>
+        <file alias="hotbar.png">resources/ui/inventory-hotbar.png</file>
         <file alias="soil-items.png">sprout/Sprout Lands - Sprites - premium pack/Objects/Items/grass-n-ground-tile-items.png</file>
     </qresource>
 </RCC>

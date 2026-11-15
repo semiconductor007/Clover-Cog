@@ -16,6 +16,7 @@
 #include "farm/seasoncalendar.h"
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <limits>
 
 class CoreTests : public QObject {
     Q_OBJECT
@@ -75,6 +76,8 @@ void CoreTests::gameClockOnlySleepsAtNight() {
 
     clock.setElapsedGameMinutes(19 * 60 + 59);
     QVERIFY(!clock.canSleep(20));
+    QVERIFY(!clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.elapsedGameMinutes(), 19LL * 60 + 59);
     clock.setElapsedGameMinutes(20 * 60);
     QVERIFY(clock.canSleep(20));
     QVERIFY(clock.sleepToNextMorning(6, 20));
@@ -83,7 +86,7 @@ void CoreTests::gameClockOnlySleepsAtNight() {
     QVERIFY(!clock.sleepToNextMorning(6, 20));
     QCOMPARE(clock.day(), 1);
 
-    for (const int minuteOfDay : {0, 1, 5 * 60 + 59, 23 * 60 + 59}) {
+    for (const int minuteOfDay : {0, 1, 119, 120, 5 * 60 + 59, 20 * 60, 23 * 60 + 59}) {
         const int currentDay = 6;
         clock.setElapsedGameMinutes(currentDay * 24 * 60 + minuteOfDay);
         QVERIFY(clock.canSleep());
@@ -93,6 +96,16 @@ void CoreTests::gameClockOnlySleepsAtNight() {
         QCOMPARE(clock.minute(), 0);
         QVERIFY(!clock.canSleep());
     }
+    QVERIFY(!GameClock::sleepTargetMinute(-1));
+    QVERIFY(!GameClock::sleepTargetMinute(0, 24));
+    QVERIFY(!GameClock::sleepTargetMinute(6 * 60));
+    QVERIFY(!GameClock::sleepTargetMinute(19 * 60 + 59));
+    QCOMPARE(GameClock::sleepTargetMinute(120).value(), 360LL);
+    QCOMPARE(GameClock::sleepTargetMinute(20 * 60).value(), 1800LL);
+    const qint64 lastDay = qint64(std::numeric_limits<int>::max()) * 1440;
+    clock.setElapsedGameMinutes(lastDay + 20 * 60);
+    QVERIFY(!clock.sleepToNextMorning());
+    QCOMPARE(clock.elapsedGameMinutes(), lastDay + 20 * 60);
 }
 
 void CoreTests::gameClockRunsThroughMidnight() {

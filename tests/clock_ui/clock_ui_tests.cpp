@@ -1,4 +1,5 @@
 #include "app/mainwindow.h"
+#include "ui/slotgrid.h"
 #include "ui/scenetransition.h"
 
 #include <QAudioDevice>
@@ -25,6 +26,8 @@
 #include <QWheelEvent>
 #include <cmath>
 #include <memory>
+#include <QFontDatabase>
+#include <QRawFont>
 
 namespace {
 
@@ -57,13 +60,24 @@ private slots:
     void readOnlyWakePreservesProtectedSave();
     void wakeFromRecoveredBackup();
     void twoAmRemainsPlayableAndSleepsWithinSameDay();
+    void directSleepUsesNearestMorning_data();
+    void directSleepUsesNearestMorning();
     void seasonChangesWithBackpackOpen();
     void onlySuccessfulActionsPlaySounds();
     void firstShowFitsViewport_data();
     void firstShowFitsViewport();
+    void visibleFeedbackAllowsMapInputAndExpires();
     void loadCatchesUpMissedMidnights();
     void sleepRefused_data();
     void sleepRefused();
+    void twoAmKeepsPanelAndAssets();
+    void twoAmKeepsPanelAndAssets_data();
+    void dawnLoadPreservesPositionAndAssets();
+    void storageAnimationAndAudio_data();
+    void storageAnimationAndAudio();
+    void storageOpeningCancellation_data();
+    void storageOpeningCancellation();
+    void storageOpeningContinuesThroughTwoAm();
 
 private:
     bool writeFarm(int day, int minuteOfDay, QPoint position = BesideBed);
@@ -91,6 +105,21 @@ private:
 };
 
 void ClockUiTests::initTestCase() {
+#ifdef Q_OS_WIN
+    // Offscreen does not enumerate Windows system fonts. Load an installed font
+    // for meaningful CJK screenshots without adding a font asset to the game.
+    if (QGuiApplication::platformName() == QStringLiteral("offscreen")) {
+        const QString fontPath = QStringLiteral("C:/Windows/Fonts/msyh.ttc");
+        if (QFileInfo::exists(fontPath)) {
+            const int fontId = QFontDatabase::addApplicationFont(fontPath);
+            const auto families = QFontDatabase::applicationFontFamilies(fontId);
+            QVERIFY(!families.isEmpty());
+            const QFont font(families.first(), 9);
+            QVERIFY(QRawFont::fromFont(font).supportsCharacter(QChar(u'休')));
+            QApplication::setFont(font);
+        }
+    }
+#endif
     QStandardPaths::setTestModeEnabled(true);
     m_applicationId = QStringLiteral("clock-ui-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
     QCoreApplication::setOrganizationName(QStringLiteral("CloverCogTests"));
@@ -188,7 +217,7 @@ QColor ClockUiTests::grassColour() const {
 }
 
 void ClockUiTests::pressInteract() {
-    QTest::keyClick(m_character, Qt::Key_E);
+    QTest::keyClick(m_character, Qt::Key_F);
 }
 
 void ClockUiTests::clickCanvas(QWidget *widget, const QPoint &point) {
@@ -279,7 +308,7 @@ void ClockUiTests::eveningSleepUsesOneTransition() {
     QCOMPARE(black.count(), 1);
     QCOMPARE(wakes.count(), 1);
     QVERIFY(!wakePrompt());
-    QTest::mouseClick(m_map, Qt::LeftButton, Qt::NoModifier, QPoint(70, 100));
+    clickTile(m_character->currentTilePosition());
     QCOMPARE(clicks.count(), 1);
     scrollOverFarm();
     QVERIFY(bar->selectedTool() != ToolType::EmptyHand);
@@ -404,6 +433,7 @@ QByteArray ClockUiTests::savedBytes() const {
 void ClockUiTests::verifyWakeFailureFrozen() {
     QCOMPARE(m_window->currentGameHour(), 6);
     QCOMPARE(m_window->currentGameMinute(), 0);
+    QVERIFY(m_window->m_gameClock.isPaused());
     QVERIFY(m_map->isInputBlocked());
     auto *bar = m_canvas->findChild<ItemBar *>();
     QVERIFY(bar && !bar->isEnabled());
@@ -488,7 +518,8 @@ void ClockUiTests::failedWakeRetriesOnlySettledMorning() {
         QCOMPARE(after.economy.seedCounts.value(static_cast<int>(crop)),
                  before.economy.seedCounts.value(static_cast<int>(crop)));
     QCOMPARE(after.economy.fertilizerCount, before.economy.fertilizerCount);
-    pressInteract();
+    QTest::keyClick(m_character, Qt::Key_F);
+    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
     QCOMPARE(wakes.count(), 1);
     QVERIFY(!m_fade->isActive());
 
@@ -610,7 +641,8 @@ void ClockUiTests::readOnlyWakePreservesProtectedSave() {
     auto *enter = m_window->findChild<QPushButton *>("enterFarm");
     QVERIFY(enter && enter->isVisible());
     QTest::mouseClick(enter, Qt::LeftButton);
-    QVERIFY(hudText().contains(QStringLiteral("暂停保存")));
+    QVERIFY(m_window->m_statusLabel->isVisible());
+    QVERIFY(m_window->m_statusLabel->text().contains(QStringLiteral("暂停保存")));
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     pressInteract();
@@ -655,7 +687,8 @@ void ClockUiTests::wakeFromRecoveredBackup() {
     QVERIFY(primary.write("{torn-primary") > 0);
     primary.close();
     QVERIFY(openGame());
-    QVERIFY(hudText().contains(QStringLiteral("备份恢复")));
+    QVERIFY(m_window->m_statusLabel->isVisible());
+    QVERIFY(m_window->m_statusLabel->text().contains(QStringLiteral("备份恢复")));
     QCOMPARE(m_window->currentGameDay(), 6);
     QCOMPARE(m_window->currentGameHour(), 22);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
@@ -679,13 +712,12 @@ void ClockUiTests::seasonChangesWithBackpackOpen() {
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
     QPointer<QDialog> bag = m_window->findChild<QDialog *>("inventoryDialog");
     QVERIFY(bag && bag->isVisible());
-    auto *tabs = bag->findChild<QTabWidget *>("bagCategories");
-    auto *seeds = bag->findChild<QListWidget *>("bagSeeds");
+    auto *seeds=dynamic_cast<SlotGrid *>(bag->findChild<QWidget *>("bagSlots"));
     auto *date = bag->findChild<QLabel *>("bagDate");
     auto *summary = bag->findChild<QLabel *>("panelSummary");
-    QVERIFY(tabs && seeds && date && summary);
-    QTest::mouseClick(tabs->tabBar(), Qt::LeftButton, {}, tabs->tabBar()->tabRect(1).center());
-    QCOMPARE(tabs->currentWidget(), seeds);
+    QVERIFY(seeds && date && summary);
+
+
     QTRY_VERIFY(QApplication::focusWidget() && QApplication::focusWidget()->window() == bag);
     QPointer<QWidget> previousFocus = QApplication::focusWidget();
     QVERIFY(date->text().contains(QStringLiteral("春季")));
@@ -694,11 +726,11 @@ void ClockUiTests::seasonChangesWithBackpackOpen() {
     QTRY_VERIFY_WITH_TIMEOUT(m_fade->isActive(), 4500);
     QVERIFY(!bag->isEnabled());
     QVERIFY(m_map->isInputBlocked());
-    const QRect seedRow = seeds->visualItemRect(seeds->item(0));
+    const QRect seedRow = seeds->cellRect(2);
     QVERIFY(!seedRow.isEmpty());
-    QTest::mouseClick(seeds->viewport(), Qt::LeftButton, {}, seedRow.center());
+    QTest::mouseClick(seeds, Qt::LeftButton, {}, seedRow.center());
     QVERIFY(bag && bag->isVisible());
-    for (const auto key : {Qt::Key_Tab, Qt::Key_Escape}) {
+    for (const auto key : {Qt::Key_E, Qt::Key_Tab, Qt::Key_Escape}) {
         QTest::keyClick(bag->windowHandle(), key);
         QVERIFY(bag && bag->isVisible());
     }
@@ -707,13 +739,13 @@ void ClockUiTests::seasonChangesWithBackpackOpen() {
     QVERIFY(bag && bag->isEnabled() && bag->isVisible());
     QTRY_COMPARE(QApplication::focusWidget(), previousFocus.data());
     QVERIFY(m_map->isInputBlocked());
-    QCOMPARE(tabs->currentWidget(), seeds);
-    QVERIFY(date->text().contains(QStringLiteral("夏季")));
-    QCOMPARE(summary->text().simplified(), QStringLiteral("农产品 3 / 12"));
 
-    auto *fertilizer = bag->findChild<QListWidget *>("bagFertilizer");
-    QVERIFY(fertilizer && fertilizer->count() > 0);
-    QCOMPARE(fertilizer->item(0)->text().simplified(), QStringLiteral("基础肥料 × 2"));
+    QVERIFY(date->text().contains(QStringLiteral("夏季")));
+    QCOMPARE(summary->text().simplified(), QStringLiteral("金币 0 · 农产品 3 / 12"));
+
+    int fertilizerCount=0;
+    for(const auto &stack : seeds->cells()) if(stack.item==StackItem::Fertilizer) fertilizerCount+=stack.quantity;
+    QCOMPARE(fertilizerCount,2);
     verifySaved(7, 0, 2, false);
     QTest::keyClick(QApplication::focusWidget(), Qt::Key_Escape);
     QTRY_VERIFY(!bag || !bag->isVisible());
@@ -740,6 +772,8 @@ void ClockUiTests::onlySuccessfulActionsPlaySounds() {
     QVERIFY(SaveManager::save(path, sample));
     QVERIFY(openGame());
     auto *water = m_window->findChild<QSoundEffect *>("wateringSound");
+    m_character->setInitialPosition(QPoint(ripe.x() * m_map->tileWidth() + m_map->tileWidth() / 2 - m_character->width() / 2,
+                                           ripe.y() * m_map->tileHeight() + m_map->tileHeight() / 2 - m_character->height() / 2));
     auto *harvest = m_window->findChild<QSoundEffect *>("harvestSound");
     auto *bar = m_canvas->findChild<ItemBar *>();
     QVERIFY(water && harvest && bar);
@@ -783,6 +817,40 @@ void ClockUiTests::onlySuccessfulActionsPlaySounds() {
     QCOMPARE(saved.world.crops.size(), 2);
 }
 
+void ClockUiTests::visibleFeedbackAllowsMapInputAndExpires() {
+    QVERIFY(writeFarm(4, 12 * 60, OutsideHouse));
+    const QString path = SaveManager::defaultSavePath();
+    GameSaveData farm;
+    QVERIFY(SaveManager::load(path, &farm));
+    EconomyService economy;
+    QVERIFY(economy.collectHarvest(CropType::Wheat, economy.inventory().capacity()));
+    farm.economy = economy.state();
+    farm.world.crops.first().growthDays = CropCatalog::definition(CropType::Wheat).growthDays;
+    farm.world.crops.first().fertilizerBonusPending = false;
+    QVERIFY(SaveManager::save(path, farm));
+    QVERIFY(openGame());
+
+    auto *notice = m_canvas->findChild<QLabel *>("farmStatus");
+    QVERIFY(notice && notice->isVisible());
+    // Click through the load notice into a distant tile using the game viewport.
+    clickCanvas(m_map, m_map->mapFrom(m_canvas, notice->geometry().center()));
+    QVERIFY(notice->isVisible());
+    QVERIFY(notice->text().contains(QStringLiteral("距离太远")));
+    QVERIFY(m_map->geometry().contains(notice->geometry()));
+    QVERIFY(!notice->geometry().intersects(m_canvas->findChild<ItemBar *>()->geometry()));
+
+    const QPoint cropCenter(FarmTile.x() * m_map->tileWidth() + m_map->tileWidth() / 2,
+                            FarmTile.y() * m_map->tileHeight() + m_map->tileHeight() / 2);
+    m_character->setInitialPosition(cropCenter - m_character->rect().center());
+    clickTile(FarmTile);
+    QVERIFY(notice->isVisible());
+    QVERIFY(notice->text().contains(QStringLiteral("背包装不下")));
+    QCOMPARE(m_map->worldSnapshot().crops.size(), 1);
+    QDir().mkpath(QStringLiteral("captures"));
+    QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-feedback.png")));
+    QTRY_VERIFY_WITH_TIMEOUT(!notice->isVisible(), 5000);
+}
+
 void ClockUiTests::firstShowFitsViewport_data() {
     QTest::addColumn<QSize>("size");
     QTest::newRow("smaller-than-canvas") << QSize(420, 315);
@@ -810,7 +878,16 @@ void ClockUiTests::firstShowFitsViewport() {
     QVERIFY(m_canvas->rect().contains(header->geometry()));
     QVERIFY(m_canvas->rect().contains(bar->geometry()));
     QVERIFY(header->geometry().bottom() < m_map->geometry().top());
-    QVERIFY(bar->geometry().top() > m_map->geometry().bottom());
+    QVERIFY(m_map->geometry().contains(bar->geometry()));
+    QCOMPARE(bar->geometry().center().x(), m_canvas->rect().center().x());
+    QCOMPARE(m_canvas->height() - bar->geometry().bottom() - 1, 8);
+    QVERIFY(!m_window->m_suppliesLabel->isVisible());
+    QVERIFY(m_window->m_statusLabel->isVisible());
+    QVERIFY(m_map->geometry().contains(m_window->m_statusLabel->geometry()));
+    QVERIFY(!m_window->m_statusLabel->geometry().intersects(bar->geometry()));
+    QDir().mkpath(QStringLiteral("captures"));
+    bar->selectTool(ToolType::Hoe);
+    QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-bottom-toolbar.png")));
 }
 
 void ClockUiTests::loadCatchesUpMissedMidnights() {
@@ -829,23 +906,292 @@ void ClockUiTests::loadCatchesUpMissedMidnights() {
 
 void ClockUiTests::sleepRefused_data() {
     QTest::addColumn<QPoint>("position");
-    QTest::addColumn<int>("hour");
-    QTest::newRow("daytime-at-bed") << BesideBed << 13;
-    QTest::newRow("night-away-from-bed") << OutsideHouse << 21;
+    QTest::addColumn<int>("minuteOfDay");
+    QTest::newRow("night-away-from-bed") << OutsideHouse << 21 * 60;
+    QTest::newRow("dawn-away-from-bed") << OutsideHouse << 5 * 60;
+    QTest::newRow("wake-hour-at-bed") << BesideBed << 6 * 60;
+    QTest::newRow("daytime-at-bed") << BesideBed << 12 * 60;
+    QTest::newRow("before-night-at-bed") << BesideBed << 19 * 60 + 59;
 }
 
 void ClockUiTests::sleepRefused() {
     QFETCH(QPoint, position);
-    QFETCH(int, hour);
-    QVERIFY(writeFarm(2, hour * 60, position));
+    QFETCH(int, minuteOfDay);
+    QVERIFY(writeFarm(2, minuteOfDay, position));
     QVERIFY(openGame());
+    m_window->m_gameClock.pause();
     pressInteract();
     QVERIFY(!m_fade->isActive());
-    QCOMPARE(m_window->currentGameHour(), hour);
-    if (position == BesideBed)
-        QVERIFY(hudText().contains(QStringLiteral("20:00")));
+    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
+    QCOMPARE(m_window->currentGameHour(), minuteOfDay / 60);
     QVERIFY(m_window->close());
-    verifySaved(2, hour, 0, true);
+    verifySaved(2, minuteOfDay / 60, 0, true);
+}
+
+void ClockUiTests::twoAmKeepsPanelAndAssets_data() {
+    QTest::addColumn<int>("panel");
+    QTest::newRow("storage") << 0;
+    QTest::newRow("inventory") << 1;
+    QTest::newRow("shop") << 2;
+    QTest::newRow("market") << 3;
+}
+
+void ClockUiTests::twoAmKeepsPanelAndAssets() {
+    QFETCH(int, panel);
+    QVERIFY(writeFarm(2, 119, OutsideHouse));
+    GameSaveData assets;
+    QVERIFY(SaveManager::load(SaveManager::defaultSavePath(), &assets));
+    assets.economy.coins = 123;
+    assets.economy.inventoryCounts[static_cast<int>(CropType::Wheat)] = 2;
+    assets.economy.storage.harvestCounts[static_cast<int>(CropType::Potato)] = 3;
+    QVERIFY(SaveManager::save(SaveManager::defaultSavePath(), assets));
+    QVERIFY(openGame());
+    const EconomyState before = m_window->m_economy.state();
+    switch (panel) {
+    case 0:
+        m_character->setInitialPosition(QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24));
+        m_window->openStorage();
+        break;
+    case 1: m_window->openInventory(); break;
+    case 2: m_window->openSeedShop(); break;
+    case 3: m_window->openMarket(); break;
+    }
+    QTRY_VERIFY(m_window->m_panelOpen);
+    QPointer<QDialog> dialog = m_window->m_panelOpen;
+    const QPoint position = m_character->absolutePosition();
+    QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
+    QSignalSpy finished(m_fade, &SceneTransition::finished);
+    m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 121);
+    m_window->updateTime();
+    QTest::qWait(150);
+    QVERIFY(dialog && dialog->isVisible() && dialog->isEnabled());
+    QCOMPARE(m_window->m_panelOpen.data(), dialog.data());
+    QCOMPARE(finished.count(), 0);
+    QCOMPARE(wakes.count(), 0);
+    QVERIFY(!m_fade->isActive());
+    QVERIFY(m_map->isInputBlocked()); // The panel retains its normal input lock.
+    QCOMPARE(m_character->absolutePosition(), position);
+    QCOMPARE(m_window->currentGameDay(), 2);
+    QCOMPARE(m_window->currentGameHour(), 2);
+    const auto after = m_window->m_economy.state();
+    QCOMPARE(after.coins, before.coins);
+    QCOMPARE(after.inventoryCounts, before.inventoryCounts);
+    QCOMPARE(after.seedCounts, before.seedCounts);
+    QCOMPARE(after.fertilizerCount, before.fertilizerCount);
+    QCOMPARE(after.storage.harvestCounts, before.storage.harvestCounts);
+    QCOMPARE(after.bagSlots, before.bagSlots);
+    QCOMPARE(after.chestSlots, before.chestSlots);
+    QTest::keyClick(dialog, Qt::Key_Escape);
+    QTRY_VERIFY(!m_window->m_panelOpen);
+    QTRY_VERIFY(!m_map->isInputBlocked());
+    QVERIFY(m_window->saveGame());
+    GameSaveData saved;
+    QVERIFY(SaveManager::load(SaveManager::defaultSavePath(), &saved));
+    QCOMPARE(saved.playerPosition, position);
+    QCOMPARE(saved.economy.bagSlots, before.bagSlots);
+    QCOMPARE(saved.economy.chestSlots, before.chestSlots);
+}
+
+void ClockUiTests::dawnLoadPreservesPositionAndAssets() {
+    QVERIFY(writeFarm(2, 3 * 60, OutsideHouse));
+    GameSaveData fixture;
+    QVERIFY(SaveManager::load(SaveManager::defaultSavePath(), &fixture));
+    fixture.economy.coins = 123;
+    fixture.economy.inventoryCounts[static_cast<int>(CropType::Wheat)] = 2;
+    fixture.economy.storage.harvestCounts[static_cast<int>(CropType::Potato)] = 3;
+    QVERIFY(SaveManager::save(SaveManager::defaultSavePath(), fixture));
+    QVERIFY(openGame());
+    QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
+    QCOMPARE(m_window->currentGameDay(), 2);
+    QCOMPARE(m_window->currentGameHour(), 3);
+    QVERIFY(!m_fade->isActive());
+    QVERIFY(!m_map->isInputBlocked());
+    QCOMPARE(m_character->absolutePosition(), OutsideHouse);
+    const EconomyState before = m_window->m_economy.state();
+    QCOMPARE(before.coins, fixture.economy.coins);
+    QCOMPARE(before.inventoryCounts, fixture.economy.inventoryCounts);
+    QCOMPARE(before.storage.harvestCounts, fixture.economy.storage.harvestCounts);
+    QVERIFY(m_window->saveGame());
+    m_window.reset();
+    QVERIFY(openGame());
+    QCOMPARE(m_window->currentGameHour(), 3);
+    QCOMPARE(m_character->absolutePosition(), OutsideHouse);
+    QCOMPARE(m_window->m_economy.state().coins, before.coins);
+    QCOMPARE(m_window->m_economy.state().bagSlots, before.bagSlots);
+    QCOMPARE(m_window->m_economy.state().chestSlots, before.chestSlots);
+    QVERIFY(!m_fade->isActive());
+    QCOMPARE(wakes.count(), 0);
+    verifySaved(2, 3, 0, true);
+}
+
+void ClockUiTests::directSleepUsesNearestMorning_data() {
+    QTest::addColumn<int>("minuteOfDay");
+    for (const int minute : {0, 119, 120, 359, 1200, 1439})
+        QTest::newRow(qPrintable(QString::number(minute))) << minute;
+}
+
+void ClockUiTests::directSleepUsesNearestMorning() {
+    QFETCH(int, minuteOfDay);
+    QVERIFY(writeFarm(2, minuteOfDay));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    QSignalSpy black(m_fade, &SceneTransition::blackReached);
+    QSignalSpy finished(m_fade, &SceneTransition::finished);
+    QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
+    // Auto-repeat must not initiate sleep before the actual F press.
+    QKeyEvent repeat(QEvent::KeyPress, Qt::Key_F, Qt::NoModifier, {}, true);
+    QApplication::sendEvent(m_character, &repeat);
+    QVERIFY(!m_fade->isActive());
+    pressInteract();
+    QVERIFY(m_fade->isActive());
+    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
+    pressInteract();
+    QApplication::sendEvent(m_character, &repeat);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
+    QCOMPARE(black.count(), 1);
+    QCOMPARE(wakes.count(), 1);
+    const bool crossesMidnight = minuteOfDay >= 20 * 60;
+    verifySaved(crossesMidnight ? 3 : 2, 6, crossesMidnight ? 2 : 0, !crossesMidnight);
+    pressInteract(); // 06:00 cannot immediately advance another day.
+    QVERIFY(!m_fade->isActive());
+    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
+    QCOMPARE(wakes.count(), 1);
+}
+
+void ClockUiTests::storageAnimationAndAudio_data() {
+    QTest::addColumn<QString>("audio");
+    for (const char *mode : {"normal", "muted", "zero", "missing"})
+        QTest::newRow(mode) << QString::fromLatin1(mode);
+}
+
+void ClockUiTests::storageAnimationAndAudio() {
+    QFETCH(QString, audio);
+    QVERIFY(writeFarm(1, 10 * 60, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    const QByteArray checkpoint = savedBytes();
+    const auto before = m_window->m_economy.state();
+    for (const char *name : {"chestOpenSound", "chestCloseSound"}) {
+        auto *sound = m_window->findChild<QSoundEffect *>(name);
+        QVERIFY(sound);
+        if (audio == "muted") sound->setMuted(true);
+        if (audio == "zero") sound->setVolume(0);
+        if (audio == "missing") sound->setSource(QUrl("qrc:/sounds/nonexistent.wav"));
+        else {
+            QFile resource(sound->source().toString().replace("qrc:", ":"));
+            QVERIFY(resource.open(QIODevice::ReadOnly));
+            const QByteArray bytes = resource.readAll();
+            QVERIFY(bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WAVE");
+            QVERIFY(bytes.size() > 4000);
+        }
+    }
+    QSignalSpy cues(m_map, &MapWidget::storageChestCue);
+    QSignalSpy opened(m_map, &MapWidget::storageChestOpened);
+    pressInteract();
+    QVERIFY(m_window->m_storageOpening);
+    QVERIFY(m_map->isInputBlocked());
+    QVERIFY(!m_window->m_panelOpen);
+    m_window->openStorage(); // Repeated requests must not restart audio or timing.
+    QTest::keyClick(m_character, Qt::Key_E);
+    QVERIFY(!m_window->m_panelOpen);
+    QCOMPARE(cues.count(), 1);
+    QCOMPARE(cues.at(0).at(0).toBool(), true);
+    QTRY_VERIFY_WITH_TIMEOUT(m_map->storageChestFrame() > 0, 1000);
+    QVERIFY(!m_window->m_panelOpen);
+    QDir().mkpath("captures");
+    const QImage opening = m_canvas->grab().toImage();
+    if (audio == "normal") QVERIFY(opening.save("captures/chest-opening.png"));
+    QTRY_VERIFY_WITH_TIMEOUT(m_window->m_panelOpen, 1500);
+    QCOMPARE(m_window->m_panelOpen->objectName(), QStringLiteral("storageDialog"));
+    QCOMPARE(m_map->storageChestFrame(), 4);
+    QCOMPARE(opened.count(), 1);
+    QCOMPARE(cues.count(), 1);
+    QVERIFY(!m_window->m_storageOpening);
+    if (audio == "normal") {
+        QVERIFY(m_canvas->grab().save("captures/chest-open-map.png"));
+        QVERIFY(m_window->m_panelOpen->grab().save("captures/chest-storage-ui.png"));
+    }
+    QTest::keyClick(m_window->m_panelOpen, Qt::Key_Escape);
+    QTRY_VERIFY(!m_window->m_panelOpen);
+    QCOMPARE(cues.count(), 2);
+    QCOMPARE(cues.at(1).at(0).toBool(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(m_map->storageChestFrame(), 0, 1500);
+    QVERIFY(!m_map->isInputBlocked());
+    const auto after = m_window->m_economy.state();
+    QCOMPARE(after.coins, before.coins);
+    QCOMPARE(after.bagSlots, before.bagSlots);
+    QCOMPARE(after.chestSlots, before.chestSlots);
+    QCOMPARE(savedBytes(), checkpoint); // Animation does not write or settle anything.
+    if (audio != "normal") {
+        QVERIFY(!m_window->findChild<QSoundEffect *>("chestOpenSound")->isPlaying());
+        QVERIFY(!m_window->findChild<QSoundEffect *>("chestCloseSound")->isPlaying());
+    }
+    // Reopening while the lid is closing is a fresh intent, not a second menu.
+    pressInteract();
+    QTRY_VERIFY(m_window->m_panelOpen);
+    m_window->m_panelOpen->reject();
+    pressInteract();
+    QTRY_VERIFY(m_window->m_panelOpen);
+    QCOMPARE(opened.count(), 3);
+    QCOMPARE(cues.count(), 5);
+}
+
+void ClockUiTests::storageOpeningCancellation_data() {
+    QTest::addColumn<bool>("escape");
+    QTest::newRow("escape") << true;
+    QTest::newRow("position-recheck") << false;
+}
+
+void ClockUiTests::storageOpeningCancellation() {
+    QFETCH(bool, escape);
+    QVERIFY(writeFarm(1, 10 * 60, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    const QByteArray checkpoint = savedBytes();
+    pressInteract();
+    QVERIFY(m_window->m_storageOpening);
+    if (escape) QTest::keyClick(m_character, Qt::Key_Escape);
+    else m_character->setInitialPosition(OutsideHouse);
+    QTRY_VERIFY_WITH_TIMEOUT(!m_window->m_storageOpening, 1500);
+    QTest::qWait(450); // A stale completion must not open a panel later.
+    QVERIFY(!m_window->m_panelOpen);
+    QCOMPARE(m_map->storageChestFrame(), 0);
+    QVERIFY(!m_map->isInputBlocked());
+    QCOMPARE(savedBytes(), checkpoint);
+    QVERIFY(m_window->m_page == MainWindow::Page::Farm);
+}
+
+void ClockUiTests::storageOpeningContinuesThroughTwoAm() {
+    QVERIFY(writeFarm(2, 119, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
+    QVERIFY(openGame());
+    const auto before = m_window->m_economy.state();
+    const QPoint position = m_character->absolutePosition();
+    QSignalSpy opened(m_map, &MapWidget::storageChestOpened);
+    QSignalSpy finished(m_fade, &SceneTransition::finished);
+    QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
+    pressInteract();
+    QVERIFY(m_window->m_storageOpening);
+    m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 120);
+    m_window->updateTime();
+    QVERIFY(m_window->m_storageOpening);
+    QTRY_VERIFY_WITH_TIMEOUT(m_window->m_panelOpen, 1500);
+    QVERIFY(!m_window->m_storageOpening);
+    QCOMPARE(m_window->m_panelOpen->objectName(), QStringLiteral("storageDialog"));
+    QCOMPARE(opened.count(), 1);
+    QCOMPARE(finished.count(), 0);
+    QCOMPARE(wakes.count(), 0);
+    QCOMPARE(m_map->storageChestFrame(), 4);
+    QCOMPARE(m_window->currentGameHour(), 2);
+    QCOMPARE(m_character->absolutePosition(), position);
+    const auto after = m_window->m_economy.state();
+    QCOMPARE(after.coins, before.coins);
+    QCOMPARE(after.bagSlots, before.bagSlots);
+    QCOMPARE(after.chestSlots, before.chestSlots);
+    QVERIFY(m_map->isInputBlocked());
+    QTest::keyClick(m_window->m_panelOpen, Qt::Key_Escape);
+    QTRY_VERIFY(!m_window->m_panelOpen);
+    QTRY_COMPARE_WITH_TIMEOUT(m_map->storageChestFrame(), 0, 1500);
+    QVERIFY(!m_map->isInputBlocked());
 }
 
 QTEST_MAIN(ClockUiTests)

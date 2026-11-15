@@ -24,7 +24,7 @@ PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
 
 void PlayerController::setCurrentTool(int toolIndex) {
     const ToolType tool = static_cast<ToolType>(toolIndex);
-    if (toolSlot(tool) < 0)
+    if (tool != ToolType::EmptyHand && toolSlot(tool) < 0)
         return;
     m_currentTool = propertyForTool(tool);
     emit toolChanged(m_currentTool.type);
@@ -36,6 +36,10 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
     }
     const QPoint tilePos = m_mapWidget->mapPointToTile(mapPoint);
     if (!m_mapWidget->isValidTile(tilePos)) {
+        return;
+    }
+    if (!canReachTile(tilePos)) {
+        emit m_mapWidget->farmingFeedback(QStringLiteral("距离太远，请靠近到周围一格内操作"));
         return;
     }
 
@@ -57,4 +61,12 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
     default:
         break;
     }
+}
+
+bool PlayerController::canReachTile(const QPoint &tile) const {
+    if (!m_tilePosition || !m_mapWidget || !m_mapWidget->isValidTile(tile)) return false;
+    const QPoint player = m_tilePosition();
+    return m_mapWidget->isValidTile(player) &&
+           qAbs(qint64(tile.x()) - player.x()) <= 1 &&
+           qAbs(qint64(tile.y()) - player.y()) <= 1;
 }

@@ -15,18 +15,25 @@ public:
                int mapWidth, int mapHeight, int tileWidth, int tileHeight,
                const QVector<Tileset> &tilesets,
                const QVector<MapRenderLayer> &renderLayers,
-               const WorldState &worldState) const;
+               const WorldState &worldState,
+               const QPoint &storageChestTile = QPoint(-1, -1), int storageChestFrame = 0) const;
 
 private:
+    void drawCultivatedLayer(QPainter &painter, const QRect &visibleTiles,
+                            const QPoint &offset, int tileWidth, int tileHeight,
+                            const QVector<Tileset> &tilesets, const WorldState &world) const;
+    mutable qint64 m_soilTextureKey = 0;
+    mutable QPixmap m_wetSoilTexture;
     static const QVector<QVector<int>> &resolveLayer(const MapRenderLayer &layer,
                                                      const WorldState &worldState);
     static void drawLayer(QPainter &painter, const QVector<QVector<int>> &layer,
                           const QRect &visibleTiles, const QPoint &offset,
                           int tileWidth, int tileHeight,
-                          const QVector<Tileset> &tilesets);
+                          const QVector<Tileset> &tilesets,
+                          const QPoint &storageChestTile = QPoint(-1, -1), int storageChestFrame = 0);
     static void drawTile(QPainter &painter, int gid, const QPoint &tilePos,
                          const QPoint &offset, int tileWidth, int tileHeight,
-                         const QVector<Tileset> &tilesets);
+                         const QVector<Tileset> &tilesets, int storageChestFrame = -1);
     static void drawWateredSoil(QPainter &painter, const QRect &visibleTiles,
                                 const QPoint &offset, int tileWidth,
                                 int tileHeight, const WorldState &worldState);

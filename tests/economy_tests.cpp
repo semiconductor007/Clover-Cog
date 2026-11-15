@@ -23,7 +23,80 @@ private slots:
     void harvestTransferRespectsFreeSpace();
     void suppliesInStorageStaySeparate();
     void invalidTransfersPreserveBalances();
+    void slotMovesSplitMergeAndSwap();
+    void staleAndInvalidSlotMovesAreAtomic();
+    void chestSlotTransferCapacity();
 };
+
+namespace {
+StackMove request(const EconomyService &economy,int from,int to,int count,bool fromChest=false,bool toChest=false) {
+    StackMove move; move.source=from;move.target=to;move.quantity=count;
+    move.sourceChest=fromChest;move.targetChest=toChest;move.revision=economy.revision();
+    move.expected=(fromChest?economy.chestSlots():economy.bagSlots()).at(from);return move;
+}
+}
+
+void EconomyTests::slotMovesSplitMergeAndSwap() {
+    EconomyService economy;
+    QCOMPARE(economy.bagSlots()[2].quantity,6);
+    QVERIFY(economy.moveStack(request(economy,2,10,2)));
+    QCOMPARE(economy.bagSlots()[2].quantity,4); QCOMPARE(economy.bagSlots()[10].quantity,2);
+    QCOMPARE(economy.seedCount(CropType::Wheat),6);
+    economy.setEquippedSlot(2);
+    QVERIFY(economy.plantWithSeed(CropType::Wheat,[]{return true;}));
+    QCOMPARE(economy.bagSlots()[2].quantity,3); QCOMPARE(economy.bagSlots()[10].quantity,2);
+    QVERIFY(economy.moveStack(request(economy,10,2,2)));
+    QCOMPARE(economy.bagSlots()[2].quantity,5); QCOMPARE(economy.bagSlots()[10].item,0);
+    QVERIFY(economy.moveStack(request(economy,2,1,5)));
+    QCOMPARE(economy.bagSlots()[1].item,StackItem::seed(CropType::Wheat));
+    QCOMPARE(economy.bagSlots()[2].item,StackItem::Water);
+    QVERIFY(economy.moveStack(request(economy,1,0,2,false,true)));
+    QCOMPARE(economy.seedCount(CropType::Wheat),3);
+    QCOMPARE(economy.storage().seedCounts.value(1),2);
+    QVERIFY(EconomyService::layoutMatches(economy.state()));
+    QCOMPARE(economy.coins(),0);
+}
+
+void EconomyTests::staleAndInvalidSlotMovesAreAtomic() {
+    EconomyService economy; auto move=request(economy,2,10,2);
+    QVERIFY(economy.moveStack(move)); const auto before=economy.state();
+    QVERIFY(!economy.moveStack(move)); // A replay must not move a second stack.
+    auto invalid=request(economy,2,1,1); QVERIFY(!economy.moveStack(invalid)); // Partial swap.
+    invalid=request(economy,2,20,99); QVERIFY(!economy.moveStack(invalid));
+    invalid=request(economy,2,2,1); QVERIFY(!economy.moveStack(invalid));
+    invalid=request(economy,2,20,1); invalid.expected.item=StackItem::Water; QVERIFY(!economy.moveStack(invalid));
+    invalid=request(economy,2,21,1); QVERIFY(!economy.moveStack(invalid));
+    QCOMPARE(economy.bagSlots(),before.bagSlots); QCOMPARE(economy.chestSlots(),before.chestSlots);
+    QCOMPARE(economy.seedCount(CropType::Wheat),6);
+    const auto version=economy.revision();
+    bool reentered=true;
+    QVERIFY(!economy.plantWithSeed(CropType::Wheat,[&]{
+        reentered=economy.moveStack(request(economy,2,10,1)); return false;
+    }));
+    QVERIFY(!reentered);
+    QCOMPARE(economy.revision(),version); QCOMPARE(economy.bagSlots(),before.bagSlots);
+    // Fill presentation slots with split seed stacks, preserving all totals.
+    auto stock=economy.state(); stock.seedCounts[1]=100; QVERIFY(economy.restore(stock));
+    for(int i=0;i<21;++i) if(!economy.bagSlots()[i].item) QVERIFY(economy.moveStack(request(economy,2,i,1)));
+    const auto full=economy.state();
+    QVERIFY(!economy.collectHarvest(CropType::Carrot,1));
+    QCOMPARE(economy.bagSlots(),full.bagSlots); QCOMPARE(economy.inventory().count(CropType::Carrot),0);
+}
+
+void EconomyTests::chestSlotTransferCapacity() {
+    EconomyService economy; auto state=economy.state(); state.inventoryCounts[1]=11;
+    state.storage.harvestCounts[1]=2; QVERIFY(economy.restore(state));
+    int source=-1;for(int i=0;i<economy.chestSlots().size();++i)
+        if(economy.chestSlots()[i].item==StackItem::harvest(CropType::Wheat)) source=i;
+    QVERIFY(source>=0); const auto before=economy.state();
+    QVERIFY(!economy.moveStack(request(economy,source,10,2,true,false)));
+    QCOMPARE(economy.bagSlots(),before.bagSlots); QCOMPARE(economy.chestSlots(),before.chestSlots);
+    QVERIFY(economy.moveStack(request(economy,source,10,1,true,false)));
+    QCOMPARE(economy.inventory().usedCapacity(),12); QCOMPARE(economy.storage().harvestCounts.value(1),1);
+    QVERIFY(economy.moveStack(request(economy,0,5,1,false,true))); // Tools can be stored, never duplicated.
+    QCOMPARE(economy.bagSlots()[0].item,0); QCOMPARE(economy.chestSlots()[5].item,StackItem::Hoe);
+    QVERIFY(EconomyService::layoutMatches(economy.state()));
+}
 
 void EconomyTests::approvedPricesAndRevenue() {
     EconomyService economy;

@@ -4,6 +4,7 @@
 #include "gameconstants.h"
 
 #include <QElapsedTimer>
+#include <optional>
 
 class GameClock {
 public:
@@ -12,6 +13,10 @@ public:
     void start();
     void pause();
     void resume();
+    bool isPaused() const { return !m_timer.isValid(); }
+    static std::optional<qint64> sleepTargetMinute(
+        qint64 minutes, int wakeHour = GameConstants::WakeUpHour,
+        int sleepStartHour = GameConstants::SleepStartHour);
     void setElapsedGameMinutes(qint64 gameMinutes);
     bool canSleep(int sleepStartHour = GameConstants::SleepStartHour,
                   int wakeHour = GameConstants::WakeUpHour) const;

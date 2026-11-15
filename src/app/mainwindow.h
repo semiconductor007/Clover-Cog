@@ -48,6 +48,7 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    friend class ClockUiTests;
     enum class ClockEvent { Tick, WakeUp, Load, Save };
     enum class WakeSaveState { None, Saved, Failed };
 
@@ -58,6 +59,8 @@ private:
     void showHome();
     bool readFarmSave(const QString &source, GameSaveData *data, QString *loadedPath) const;
     bool applyClock(ClockEvent event);
+    bool acceptPanelCommand(QDialog *panel);
+    void moveInventoryStack(QDialog *panel, const StackMove &move);
     DayAdvanceResult processDayTransitions();
     void presentTime();
     void updateGameScale();
@@ -67,6 +70,8 @@ private:
     void openSeedShop();
     void openMarket();
     void openStorage();
+    void finishStorageOpening();
+    void cancelStorageOpening();
     void showFarmPanel(QDialog *dialog);
     void refreshOpenPanel();
     void refreshGameplayInput();
@@ -94,6 +99,7 @@ private:
     bool m_saveEnabled = true;
     EconomyService m_economy;
     QPointer<QDialog> m_panelOpen;
+    bool m_storageOpening = false;
     QPointer<QMessageBox> m_closePrompt;
     QPointer<QMessageBox> m_wakeSavePrompt;
     WakeSaveState m_wakeSaveState = WakeSaveState::None;
@@ -117,6 +123,7 @@ private:
     QLabel *m_inventoryLabel;
     QLabel *m_suppliesLabel;
     QLabel *m_statusLabel;
+    QTimer *m_statusTimer;
     QLabel *timeLabel;
     QLabel *dayLabel;
     QCursor customCursor;
