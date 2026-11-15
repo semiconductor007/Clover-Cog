@@ -167,9 +167,11 @@ FarmMenus::FarmMenus(const QPixmap &farm, QWidget *parent)
     auto *route = new QLabel(QStringLiteral(
         "选锄头点草地，或直接找到已耕的田。选当季种子点田播种，换水壶浇水。每过一个浇过水的夜晚，作物就会生长。\n\n"
         "空手点成熟作物即可收获。走到收购摊按 F 出售；在储物箱南侧按 F 存取物品。种子和肥料可以在商店购买。\n\n"
+        "可以自由熬夜，02:00 后仍能继续活动。20:00–05:59 在家中床边按 F，直接睡到最近的 06:00。白天不能睡。午夜正常结算，凌晨睡眠不重复成长。\n\n"
         "WASD 移动　·　滚轮或点击工具格选物　·　左键使用\n"
-        "地块操作仅限脚下及周围八格，请先走近。\n"
-        "F 站点互动　·　E / Tab 背包　·　Esc 暂停或关闭面板"));
+        "地块操作仅限脚下及周围八格，请先走近。操作结果会短暂显示提示。\n"
+        "F 站点互动　·　E / Tab 背包　·　Esc 暂停或关闭面板\n"
+        "暂停页会停住时间。背包、交易和储物面板打开时照常走时。"));
     route->setWordWrap(true);
     body->addWidget(route);
     body->addStretch();

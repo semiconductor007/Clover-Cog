@@ -16,6 +16,7 @@
 #include "farm/seasoncalendar.h"
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <limits>
 
 class CoreTests : public QObject {
     Q_OBJECT
@@ -31,7 +32,7 @@ private slots:
     void fertilizerRejectsInvalidTargetsAndSnapshots();
     void fertilizedCropsSaveAndRejectMalformedFlags();
 
-    void gameClockAllowsDaytimeAndChecksDeadline();
+    void gameClockOnlySleepsAtNight();
     void gameClockRunsThroughMidnight();
     void collisionDetectorHandlesBounds();
     void mapLoaderValidatesAndInitializesLayers();
@@ -64,26 +65,28 @@ void CoreTests::gameClockConvertsElapsedTime() {
     QCOMPARE(clock.minute(), 25);
 }
 
-void CoreTests::gameClockAllowsDaytimeAndChecksDeadline() {
+void CoreTests::gameClockOnlySleepsAtNight() {
     GameClock clock(1000000);
     clock.setElapsedGameMinutes(6 * 60);
     clock.start();
-    QVERIFY(clock.canSleep(20));
-    QVERIFY(clock.sleepToNextMorning(6, 20));
-    QCOMPARE(clock.day(), 1);
+    QVERIFY(!clock.canSleep(20));
+    QVERIFY(!clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.day(), 0);
     QCOMPARE(clock.hour(), 6);
 
     clock.setElapsedGameMinutes(19 * 60 + 59);
-    QVERIFY(clock.canSleep(20));
+    QVERIFY(!clock.canSleep(20));
+    QVERIFY(!clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.elapsedGameMinutes(), 19LL * 60 + 59);
     clock.setElapsedGameMinutes(20 * 60);
     QVERIFY(clock.canSleep(20));
     QVERIFY(clock.sleepToNextMorning(6, 20));
     QCOMPARE(clock.day(), 1);
     QCOMPARE(clock.hour(), 6);
-    QVERIFY(clock.sleepToNextMorning(6, 20));
-    QCOMPARE(clock.day(), 2);
+    QVERIFY(!clock.sleepToNextMorning(6, 20));
+    QCOMPARE(clock.day(), 1);
 
-    for (const int minuteOfDay : {0, 1, 5 * 60 + 59, 23 * 60 + 59}) {
+    for (const int minuteOfDay : {0, 1, 119, 120, 5 * 60 + 59, 20 * 60, 23 * 60 + 59}) {
         const int currentDay = 6;
         clock.setElapsedGameMinutes(currentDay * 24 * 60 + minuteOfDay);
         QVERIFY(clock.canSleep());
@@ -91,15 +94,18 @@ void CoreTests::gameClockAllowsDaytimeAndChecksDeadline() {
         QCOMPARE(clock.day(), currentDay + (minuteOfDay >= 20 * 60 ? 1 : 0));
         QCOMPARE(clock.hour(), 6);
         QCOMPARE(clock.minute(), 0);
-        QVERIFY(clock.canSleep());
+        QVERIFY(!clock.canSleep());
     }
     QVERIFY(!GameClock::sleepTargetMinute(-1));
     QVERIFY(!GameClock::sleepTargetMinute(0, 24));
-    QVERIFY(!GameClock::passOutDeadline(119, 119));
-    QCOMPARE(GameClock::passOutDeadline(119, 120).value(), 120LL);
-    QCOMPARE(GameClock::passOutDeadline(360, 4 * 1440).value(), 1560LL);
-    QCOMPARE(GameClock::passOutDeadline(180, 180).value(), 180LL);
-    QVERIFY(!GameClock::passOutDeadline(360, 360));
+    QVERIFY(!GameClock::sleepTargetMinute(6 * 60));
+    QVERIFY(!GameClock::sleepTargetMinute(19 * 60 + 59));
+    QCOMPARE(GameClock::sleepTargetMinute(120).value(), 360LL);
+    QCOMPARE(GameClock::sleepTargetMinute(20 * 60).value(), 1800LL);
+    const qint64 lastDay = qint64(std::numeric_limits<int>::max()) * 1440;
+    clock.setElapsedGameMinutes(lastDay + 20 * 60);
+    QVERIFY(!clock.sleepToNextMorning());
+    QCOMPARE(clock.elapsedGameMinutes(), lastDay + 20 * 60);
 }
 
 void CoreTests::gameClockRunsThroughMidnight() {

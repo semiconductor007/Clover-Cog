@@ -13,11 +13,6 @@ QPoint ImageMovementWidget::boundedPosition(QPoint pos) const {
     return QPoint(qBound(0, pos.x(), maxX), qBound(0, pos.y(), maxY));
 }
 
-bool ImageMovementWidget::canStandAt(const QPoint &position) const {
-    return m_mapWidget && m_collisionDetector && position == boundedPosition(position) &&
-           !m_collisionDetector->isColliding(m_collisionArea.translated(position));
-}
-
 void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
     m_absolutePos = boundedPosition(pos);
     if (m_mapWidget) {

@@ -1,5 +1,9 @@
 # 当前接口约定
 
+## 2026-11-15 主线整合
+
+睡眠保留自由熬夜。`canSleep()` / `sleepToNextMorning()` 只允许 20:00–05:59，白天拒绝。床边按 F 直接睡到最近的 06:00，不打开确认框。02:00 不强制昏迷，也不因载入凌晨存档自动跳时。午夜正常结算，每个日期只处理一次。凌晨睡眠到当天 06:00 不再次成长。E / Tab 打开背包，F 用于站点，Esc 暂停或关闭面板。UI 短暂显示同一次操作的结果，不参与业务结算。下方带日期的旧交接状态按历史保留，当前玩法见 [README](../README.md)。
+
 2026-11-14 箱子表现增量：`MapWidget::setStorageChestOpen(bool)` / `resetStorageChest()`
 只管理展示帧；`storageChestOpened()` 通知主窗口完成开盖，`storageChestCue(bool)`
 请求开/关音效。主窗口拥有待打开请求、位置和活动状态校验、菜单生命周期；动画回调不能
@@ -24,11 +28,11 @@ C 的 PlayerController 新增 `setTilePositionGetter()` / `canReachTile()`：从
 ## GameClock（E 主责）
 
 - `elapsedGameMinutes()`、`day()`、`hour()`、`minute()` 提供统一时间查询。
-- `canSleep()` 的目标窗口为 20:00–次日 06:00，覆盖午夜后的凌晨。
+- `canSleep()` 的允许窗口为 20:00–05:59，覆盖午夜后的凌晨。
 - `sleepToNextMorning()` 在白天拒绝操作，夜间跳到最近的 06:00。晚间跳到次日，凌晨跳到当天。
 - 时间昼夜连续流逝，午夜自然进入次日。
 - 自然跨日和睡眠跳时均由主窗口统一调用日结算，按已跨过日期顺序处理，同一日期不能重复处理。
-- 场景夜色读取统一时间，绘制不能触发日结算。在家中床边按 E 才能发起睡眠。
+- 场景夜色读取统一时间，绘制不能触发日结算。在家中床边按 F 才能直接发起睡眠。
 
 ## WorldState / MapWidget
 

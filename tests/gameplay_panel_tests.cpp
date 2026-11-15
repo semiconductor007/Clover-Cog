@@ -1032,9 +1032,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QVERIFY(walkTo(Qt::Key_D, 26));
     QVERIFY(walkTo(Qt::Key_W, 8));
     QVERIFY(pressGameKey(Qt::Key_F));
-    auto *sleep = game->findChild<QMessageBox *>("sleepConfirmation");
-    QTRY_VERIFY(sleep && sleep->isVisible());
-    QTest::mouseClick(sleep->findChild<QPushButton *>("confirmSleep"), Qt::LeftButton);
+    QVERIFY(!game->findChild<QMessageBox *>("sleepConfirmation"));
     QTRY_COMPARE_WITH_TIMEOUT(game->currentGameDay(), 4, 3000);
     QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
     QCOMPARE(game->currentGameHour(), 6);

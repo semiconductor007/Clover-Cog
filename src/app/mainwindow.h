@@ -15,7 +15,6 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QPointer>
-#include <optional>
 
 class DayNightOverlay;
 class FarmPanel;
@@ -60,11 +59,8 @@ private:
     void showHome();
     bool readFarmSave(const QString &source, GameSaveData *data, QString *loadedPath) const;
     bool applyClock(ClockEvent event);
-    void requestSleep();
-    bool recoverToMorning(bool passedOut);
     bool acceptPanelCommand(QDialog *panel);
     void moveInventoryStack(QDialog *panel, const StackMove &move);
-    std::optional<QPoint> bedWakePosition() const;
     DayAdvanceResult processDayTransitions();
     void presentTime();
     void updateGameScale();
@@ -104,10 +100,6 @@ private:
     EconomyService m_economy;
     QPointer<QDialog> m_panelOpen;
     bool m_storageOpening = false;
-    QPointer<QMessageBox> m_sleepConfirmation;
-    QPointer<QMessageBox> m_bedRecoveryPrompt;
-    bool m_confirmWasPaused = false;
-    bool m_passOutStarting = false;
     QPointer<QMessageBox> m_closePrompt;
     QPointer<QMessageBox> m_wakeSavePrompt;
     WakeSaveState m_wakeSaveState = WakeSaveState::None;
@@ -131,6 +123,7 @@ private:
     QLabel *m_inventoryLabel;
     QLabel *m_suppliesLabel;
     QLabel *m_statusLabel;
+    QTimer *m_statusTimer;
     QLabel *timeLabel;
     QLabel *dayLabel;
     QCursor customCursor;

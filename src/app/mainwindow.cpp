@@ -120,7 +120,19 @@ MainWindow::MainWindow(QWidget *parent)
     m_suppliesLabel = new QLabel(m_gameCanvas);
     m_suppliesLabel->hide();
     m_statusLabel = new QLabel(m_gameCanvas);
+    m_statusLabel->setObjectName(QStringLiteral("farmStatus"));
+    m_statusLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_statusLabel->setTextFormat(Qt::PlainText);
+    m_statusLabel->setAlignment(Qt::AlignCenter);
+    m_statusLabel->setMaximumWidth(CanvasWidth - 24);
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "QLabel { background-color: #304738; color: #fff4d8; border: 1px solid #b3bf94;"
+        " border-radius: 4px; padding: 4px 9px; font-size: 13px; }"));
     m_statusLabel->hide();
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setSingleShot(true);
+    m_statusTimer->setInterval(3500);
+    connect(m_statusTimer, &QTimer::timeout, m_statusLabel, &QLabel::hide);
 
     m_transition = new SceneTransition(m_gameCanvas);
     connect(m_transition, &SceneTransition::blackReached, this, &MainWindow::presentTime);
@@ -223,7 +235,7 @@ MainWindow::MainWindow(QWidget *parent)
         } else if (m_storageArea.contains(playerTile)) {
             openStorage();
         } else if (m_bedArea.contains(playerTile)) {
-            requestSleep();
+            sleepUntilMorning();
         } else {
             showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 F"));
         }
@@ -301,7 +313,7 @@ void MainWindow::enterFarm() {
 }
 
 void MainWindow::pauseFarm() {
-    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt || m_bedRecoveryPrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed) return;
     m_gameClock.pause();
     applyClock(ClockEvent::Tick);
@@ -335,21 +347,10 @@ void MainWindow::updateTime() {
 }
 
 bool MainWindow::applyClock(ClockEvent event) {
-    if (m_sleepConfirmation || m_bedRecoveryPrompt) return event != ClockEvent::Save;
     if (m_wakeSaveState == WakeSaveState::Failed)
         return event != ClockEvent::Save;
     if (m_page != Page::Farm || m_closePrompt) return true;
     const qint64 minutes = m_gameClock.elapsedGameMinutes();
-    if (!m_passOutStarting && event != ClockEvent::WakeUp) {
-        const auto deadline = GameClock::passOutDeadline(
-            event == ClockEvent::Load ? minutes : m_committedMinutes, minutes);
-        if (deadline) {
-            // Finish an existing season fade first, then the next tick recovers.
-            if (m_transitionActive) return event != ClockEvent::Save;
-            m_gameClock.setElapsedGameMinutes(*deadline);
-            return recoverToMorning(true);
-        }
-    }
     if (minutes < 0 || minutes / 1440 > std::numeric_limits<int>::max()) return false;
     if (event == ClockEvent::Tick && minutes == m_committedMinutes) return true;
     const int day = int(minutes / (24 * 60));
@@ -433,116 +434,20 @@ void MainWindow::sleepUntilMorning() {
     if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_storageOpening || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed || !m_bedArea.contains(character->currentTilePosition()))
         return;
-    // Kept as a non-UI command for integration callers. Bed interaction uses confirmation.
-    applyClock(ClockEvent::Tick);
-    if (m_transitionActive || m_bedRecoveryPrompt) return;
-    recoverToMorning(false);
-}
-
-void MainWindow::requestSleep() {
-    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
-        m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
-        !m_bedArea.contains(character->currentTilePosition())) return;
-    applyClock(ClockEvent::Tick);
-    if (m_transitionActive || m_bedRecoveryPrompt) return;
-    m_confirmWasPaused = m_gameClock.isPaused();
-    m_gameClock.pause();
-    const auto target = GameClock::sleepTargetMinute(m_gameClock.elapsedGameMinutes());
-    if (!target) { if (!m_confirmWasPaused) m_gameClock.resume(); return; }
-    const auto date = SeasonCalendar::dateForMinutes(*target);
-    auto *question = new QMessageBox(QMessageBox::Question, QStringLiteral("休息到早晨"),
-        QStringLiteral("休息到第 %1 年 · %2 %3 日 06:00？\n选择期间时间暂停。")
-            .arg(date.year).arg(SeasonCalendar::seasonName(date.season)).arg(date.dayOfSeason),
-        QMessageBox::NoButton, this);
-    question->setObjectName(QStringLiteral("sleepConfirmation"));
-    auto *yes = question->addButton(QStringLiteral("休息"), QMessageBox::AcceptRole);
-    auto *no = question->addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
-    yes->setObjectName(QStringLiteral("confirmSleep"));
-    no->setObjectName(QStringLiteral("cancelSleep"));
-    question->setDefaultButton(yes);
-    question->setEscapeButton(no);
-    for (auto *button : {yes, no}) button->setAutoRepeat(false);
-    m_sleepConfirmation = question;
-    showFarmPanel(question);
-    connect(question, &QDialog::finished, this, [this, question, yes] {
-        m_sleepConfirmation.clear();
-        const bool confirmed = question->clickedButton() == yes;
-        if (confirmed && m_page == Page::Farm && !m_transitionActive && !m_closePrompt &&
-            m_wakeSaveState != WakeSaveState::Failed &&
-            m_bedArea.contains(character->currentTilePosition())) {
-            // Time was frozen during the choice; recompute target and recheck position.
-            recoverToMorning(false);
-        } else {
-            if (!m_confirmWasPaused && m_page == Page::Farm) m_gameClock.resume();
-            showStatus(QStringLiteral("已取消休息。"));
-        }
-        refreshGameplayInput();
-    });
-}
-
-std::optional<QPoint> MainWindow::bedWakePosition() const {
-    for (int radius = 0; radius <= 4; ++radius) {
-        const QRect area = m_bedArea.adjusted(-radius, -radius, radius, radius);
-        for (int y = area.bottom(); y >= area.top(); --y) for (int x = area.left(); x <= area.right(); ++x) {
-            const QPoint position(x * mapWidget->tileWidth() + mapWidget->tileWidth() / 2 - character->width() / 2,
-                                  y * mapWidget->tileHeight() + mapWidget->tileHeight() / 2 - character->height() / 2);
-            if (character->canStandAt(position)) return position;
-        }
+    if (!m_gameClock.sleepToNextMorning()) {
+        showStatus(QStringLiteral("可在 20:00 至次日 06:00 前到床边睡觉。"));
+        return;
     }
-    return std::nullopt;
-}
-
-bool MainWindow::recoverToMorning(bool passedOut) {
-    if (passedOut) cancelStorageOpening();
-    const auto target = GameClock::sleepTargetMinute(m_gameClock.elapsedGameMinutes());
-    if (!target || *target / 1440 > std::numeric_limits<int>::max()) return false;
-    const auto bed = passedOut ? bedWakePosition() : std::optional<QPoint>(character->absolutePosition());
-    if (!bed) {
-        m_gameClock.pause();
-        auto *error = new QMessageBox(QMessageBox::Warning, QStringLiteral("无法回到床边"),
-            QStringLiteral("床边没有安全落点。农场已暂停，修复后可重试。"), QMessageBox::Retry, this);
-        error->setAttribute(Qt::WA_DeleteOnClose);
-        error->setObjectName(QStringLiteral("bedRecoveryBlocked"));
-        m_bedRecoveryPrompt = error;
-        if (m_panelOpen) m_panelOpen->reject();
-        refreshGameplayInput();
-        connect(error, &QDialog::finished, this, [this] {
-            m_bedRecoveryPrompt.clear();
-            recoverToMorning(true);
-        });
-        error->open();
-        return false;
-    }
-    m_passOutStarting = true;
-    // Start captures the old position; committed state is updated before saving,
-    // while presentTime only reveals it at blackReached as in the existing flow.
-    if (!m_transitionActive) {
-        m_transitionActive = m_transition->start();
-        refreshGameplayInput();
-    }
-    if (passedOut && m_panelOpen) {
-        m_panelFocusBeforeFade.clear();
-        m_panelOpen->reject();
-    }
-    character->setInputBlocked(true);
-    if (passedOut) character->setInitialPosition(*bed);
-    m_gameClock.setElapsedGameMinutes(*target);
-    const bool saved = applyClock(ClockEvent::WakeUp);
-    if (passedOut) showStatus(QStringLiteral("凌晨 02:00 体力不支，已回到床边休息。"));
-    if (m_wakeSaveState != WakeSaveState::Failed) m_gameClock.resume();
-    m_passOutStarting = false;
-    return saved;
+    applyClock(ClockEvent::WakeUp);
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (m_page == Page::Farm && !m_sleepConfirmation && !m_bedRecoveryPrompt &&
-        !m_transitionActive && !m_closePrompt && m_wakeSaveState != WakeSaveState::Failed &&
+    if (m_page == Page::Farm && !m_transitionActive && !m_closePrompt &&
+        m_wakeSaveState != WakeSaveState::Failed &&
         (event->type() == QEvent::KeyPress || event->type() == QEvent::MouseButtonPress)) {
         applyClock(ClockEvent::Tick);
-        if (m_transitionActive || m_bedRecoveryPrompt) return true;
+        if (m_transitionActive) return true;
     }
-    if (m_sleepConfirmation && (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
-        static_cast<QKeyEvent *>(event)->isAutoRepeat()) return true;
     if (m_storageOpening && event->type() == QEvent::KeyPress) {
         const auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape && !key->isAutoRepeat()) {
@@ -621,7 +526,13 @@ void MainWindow::updateHud() {
 }
 
 void MainWindow::showStatus(const QString &message) {
+    m_statusLabel->setWordWrap(false);
     m_statusLabel->setText(message);
+    m_statusLabel->setWordWrap(m_statusLabel->sizeHint().width() > m_statusLabel->maximumWidth());
+    m_statusLabel->adjustSize();
+    m_statusLabel->move((CanvasWidth - m_statusLabel->width()) / 2, HeaderHeight + 8);
+    m_statusLabel->show();
+    m_statusTimer->start();
 }
 
 void MainWindow::openInventory() {
@@ -693,12 +604,11 @@ void MainWindow::openMarket() {
 }
 
 void MainWindow::openStorage() {
-    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive ||
-        m_closePrompt || m_sleepConfirmation || m_bedRecoveryPrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed ||
         !m_storageArea.contains(character->currentTilePosition())) return;
     applyClock(ClockEvent::Tick);
-    if (m_transitionActive || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
+    if (m_transitionActive || m_wakeSaveState == WakeSaveState::Failed ||
         !m_storageArea.contains(character->currentTilePosition())) return;
     m_storageOpening = true;
     refreshGameplayInput();
@@ -717,7 +627,7 @@ void MainWindow::finishStorageOpening() {
     if (!m_storageOpening) return;
     m_storageOpening = false;
     if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
-        m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
+        m_wakeSaveState == WakeSaveState::Failed ||
         !m_storageArea.contains(character->currentTilePosition())) {
         mapWidget->setStorageChestOpen(false);
         refreshGameplayInput();
@@ -753,7 +663,7 @@ void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
 
 void MainWindow::showFarmPanel(QDialog *dialog) {
     if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
-        m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) {
+        m_wakeSaveState == WakeSaveState::Failed) {
         dialog->deleteLater();
         return;
     }
@@ -781,9 +691,9 @@ void MainWindow::showFarmPanel(QDialog *dialog) {
 
 bool MainWindow::acceptPanelCommand(QDialog *panel) {
     if (m_panelOpen != panel || m_page != Page::Farm || m_transitionActive || m_closePrompt ||
-        m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) return false;
+        m_wakeSaveState == WakeSaveState::Failed) return false;
     applyClock(ClockEvent::Tick);
-    return m_panelOpen == panel && !m_transitionActive && !m_bedRecoveryPrompt &&
+    return m_panelOpen == panel && !m_transitionActive &&
            m_wakeSaveState != WakeSaveState::Failed;
 }
 
@@ -792,9 +702,9 @@ void MainWindow::moveInventoryStack(QDialog *panel,const StackMove &move) {
         if (!acceptPanelCommand(panel)) return;
     } else {
         if (m_page!=Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
-            m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState==WakeSaveState::Failed) return;
+            m_wakeSaveState==WakeSaveState::Failed) return;
         applyClock(ClockEvent::Tick);
-        if (m_transitionActive || m_bedRecoveryPrompt || m_panelOpen) return;
+        if (m_transitionActive || m_panelOpen) return;
     }
     if ((move.sourceChest || move.targetChest) &&
         (!qobject_cast<StorageDialog *>(panel) || !m_storageArea.contains(character->currentTilePosition()))) return;
@@ -819,14 +729,14 @@ void MainWindow::refreshOpenPanel() {
 
 void MainWindow::refreshGameplayInput() {
     if (m_storageOpening && (m_page != Page::Farm || m_transitionActive || m_closePrompt ||
-        m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed)) cancelStorageOpening();
+        m_wakeSaveState == WakeSaveState::Failed)) cancelStorageOpening();
     const bool blocked = m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
-                         m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed;
+                         m_wakeSaveState == WakeSaveState::Failed;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
     itemBar->setEnabled(!blocked);
     if (m_panelOpen) {
-        m_panelOpen->setEnabled(!m_transitionActive && !m_closePrompt && !m_bedRecoveryPrompt);
+        m_panelOpen->setEnabled(!m_transitionActive && !m_closePrompt);
     }
     if (!blocked) {
         m_gameView->setFocus(Qt::OtherFocusReason);
@@ -900,7 +810,7 @@ void MainWindow::resolveWakeSaveFailure(bool saved) {
 
 bool MainWindow::saveGame(bool showError) {
     // World actions and background saves cannot resolve a failed wake implicitly.
-    if (m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) return false;
+    if (m_wakeSaveState == WakeSaveState::Failed) return false;
     return writeGameSave(showError);
 }
 
@@ -1009,8 +919,6 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 
 void MainWindow::closeEvent(QCloseEvent *event) {
     cancelStorageOpening();
-    if (m_sleepConfirmation) m_sleepConfirmation->reject();
-    if (m_bedRecoveryPrompt) { event->ignore(); return; }
     if (m_page == Page::Home || !m_saveEnabled || m_discardOnClose) {
         m_discardOnClose = false;
         m_wakeSaveState = WakeSaveState::None;
