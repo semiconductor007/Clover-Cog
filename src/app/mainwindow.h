@@ -74,6 +74,8 @@ private:
     void openSeedShop();
     void openMarket();
     void openStorage();
+    void finishStorageOpening();
+    void cancelStorageOpening();
     void showFarmPanel(QDialog *dialog);
     void refreshOpenPanel();
     void refreshGameplayInput();
@@ -101,6 +103,7 @@ private:
     bool m_saveEnabled = true;
     EconomyService m_economy;
     QPointer<QDialog> m_panelOpen;
+    bool m_storageOpening = false;
     QPointer<QMessageBox> m_sleepConfirmation;
     QPointer<QMessageBox> m_bedRecoveryPrompt;
     bool m_confirmWasPaused = false;

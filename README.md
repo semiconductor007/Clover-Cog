@@ -57,6 +57,8 @@ py -3 tests/run_all.py ../build-farm-tests
 
 ## 开发资料
 
+- 储物箱支持开盖后打开菜单、关闭后合盖和独立短音效，取消及昏迷打断不残留菜单，见[箱子开合](docs/CHEST_ANIMATION.md)。该增量交付到 `lxk` 分支。
+
 - 背包拖动：移动、交换、合并、右键拆分、首排与箱子联动及格位存档见[拖动操作](docs/INVENTORY_DRAG.md)。没有整理或丢弃，本轮提交到 `lxk` 分支。
 
 - 界面调整：移除黄色底栏，七格物品栏悬浮于底部中央，不显示常驻说明，见[底部物品栏](docs/BOTTOM_TOOLBAR.md)。本轮提交到 `lxk` 分支。

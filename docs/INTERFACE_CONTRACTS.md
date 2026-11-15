@@ -1,5 +1,12 @@
 # 当前接口约定
 
+2026-11-14 箱子表现增量：`MapWidget::setStorageChestOpen(bool)` / `resetStorageChest()`
+只管理展示帧；`storageChestOpened()` 通知主窗口完成开盖，`storageChestCue(bool)`
+请求开/关音效。主窗口拥有待打开请求、位置和活动状态校验、菜单生命周期；动画回调不能
+更改库存或触发存档。MapRenderer 新增可选的箱子格位和帧参数，旧消费者默认行为不变。
+C（地图）/D（储物）/E（主窗口音频）/A（QRC）的接入窗口与验证见
+[箱子开合](CHEST_ANIMATION.md)，团队消费者审查仍待完成。
+
 2026-11-14 格位契约：新增 `InventoryStack`、`StackMove`、`EconomyService::moveStack()`、bagSlots/chestSlots只读查询与revision；拖动必须经主窗口活动状态和站点校验。ItemBar由实际首排格位选择，而非固定工具类型推测位置；库存总量与格位分配由服务一致维护。v4存档可选格位字段与校验、失败语义及C/D/E文件窗口详见[拖动实现](INVENTORY_DRAG.md)。不改变B的作物规则或游戏容量数值，团队消费者审查未被自测代替。
 
 2026-11-14 用户指定七格 UI：`PlayableTools` 改为七项真实物品，空手独立保留，ToolType ID 不变。`ItemBar::setStock(const EconomyService&)` 只更新数量显示快照，不拥有资产。背包第一排同序并发选用意图，主窗口将其同步到角色与物品栏。空手由0/再次点击当前物品栏格/背包独立按钮选择。详见[背包记录](INVENTORY_INTERACTION.md)，C/D/E/A 的必要接入窗口及审查归属在该文档记录。

@@ -75,6 +75,11 @@ private slots:
     void confirmationRevalidatesPosition();
     void blockedBedPreservesCheckpointAndRetryRecovers();
     void passOutSaveRetryDoesNotRepeatRecovery();
+    void storageAnimationAndAudio_data();
+    void storageAnimationAndAudio();
+    void storageOpeningCancellation_data();
+    void storageOpeningCancellation();
+    void storageOpeningInterruptedByPassOut();
 
 private:
     bool writeFarm(int day, int minuteOfDay, QPoint position = BesideBed);
@@ -923,12 +928,15 @@ void ClockUiTests::delayedPassOutClosesPanelAndPreservesAssets() {
     QVERIFY(openGame());
     const EconomyState before = m_window->m_economy.state();
     switch (panel) {
-    case 0: m_window->openStorage(); break;
+    case 0:
+        m_character->setInitialPosition(QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24));
+        m_window->openStorage();
+        break;
     case 1: m_window->openInventory(); break;
     case 2: m_window->openSeedShop(); break;
     case 3: m_window->openMarket(); break;
     }
-    QVERIFY(m_window->m_panelOpen);
+    QTRY_VERIFY(m_window->m_panelOpen);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     m_window->m_gameClock.setElapsedGameMinutes(6 * MinutesPerDay + 720);
@@ -1042,6 +1050,133 @@ void ClockUiTests::passOutSaveRetryDoesNotRepeatRecovery() {
     GameSaveData saved;
     QVERIFY(SaveManager::load(SaveManager::defaultSavePath(), &saved));
     QCOMPARE(saved.playerPosition, bed);
+}
+
+void ClockUiTests::storageAnimationAndAudio_data() {
+    QTest::addColumn<QString>("audio");
+    for (const char *mode : {"normal", "muted", "zero", "missing"})
+        QTest::newRow(mode) << QString::fromLatin1(mode);
+}
+
+void ClockUiTests::storageAnimationAndAudio() {
+    QFETCH(QString, audio);
+    QVERIFY(writeFarm(1, 10 * 60, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    const QByteArray checkpoint = savedBytes();
+    const auto before = m_window->m_economy.state();
+    for (const char *name : {"chestOpenSound", "chestCloseSound"}) {
+        auto *sound = m_window->findChild<QSoundEffect *>(name);
+        QVERIFY(sound);
+        if (audio == "muted") sound->setMuted(true);
+        if (audio == "zero") sound->setVolume(0);
+        if (audio == "missing") sound->setSource(QUrl("qrc:/sounds/nonexistent.wav"));
+        else {
+            QFile resource(sound->source().toString().replace("qrc:", ":"));
+            QVERIFY(resource.open(QIODevice::ReadOnly));
+            const QByteArray bytes = resource.readAll();
+            QVERIFY(bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WAVE");
+            QVERIFY(bytes.size() > 4000);
+        }
+    }
+    QSignalSpy cues(m_map, &MapWidget::storageChestCue);
+    QSignalSpy opened(m_map, &MapWidget::storageChestOpened);
+    pressInteract();
+    QVERIFY(m_window->m_storageOpening);
+    QVERIFY(m_map->isInputBlocked());
+    QVERIFY(!m_window->m_panelOpen);
+    m_window->openStorage(); // Repeated requests must not restart audio or timing.
+    QTest::keyClick(m_character, Qt::Key_E);
+    QVERIFY(!m_window->m_panelOpen);
+    QCOMPARE(cues.count(), 1);
+    QCOMPARE(cues.at(0).at(0).toBool(), true);
+    QTRY_VERIFY_WITH_TIMEOUT(m_map->storageChestFrame() > 0, 1000);
+    QVERIFY(!m_window->m_panelOpen);
+    QDir().mkpath("captures");
+    const QImage opening = m_canvas->grab().toImage();
+    if (audio == "normal") QVERIFY(opening.save("captures/chest-opening.png"));
+    QTRY_VERIFY_WITH_TIMEOUT(m_window->m_panelOpen, 1500);
+    QCOMPARE(m_window->m_panelOpen->objectName(), QStringLiteral("storageDialog"));
+    QCOMPARE(m_map->storageChestFrame(), 4);
+    QCOMPARE(opened.count(), 1);
+    QCOMPARE(cues.count(), 1);
+    QVERIFY(!m_window->m_storageOpening);
+    if (audio == "normal") {
+        QVERIFY(m_canvas->grab().save("captures/chest-open-map.png"));
+        QVERIFY(m_window->m_panelOpen->grab().save("captures/chest-storage-ui.png"));
+    }
+    QTest::keyClick(m_window->m_panelOpen, Qt::Key_Escape);
+    QTRY_VERIFY(!m_window->m_panelOpen);
+    QCOMPARE(cues.count(), 2);
+    QCOMPARE(cues.at(1).at(0).toBool(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(m_map->storageChestFrame(), 0, 1500);
+    QVERIFY(!m_map->isInputBlocked());
+    const auto after = m_window->m_economy.state();
+    QCOMPARE(after.coins, before.coins);
+    QCOMPARE(after.bagSlots, before.bagSlots);
+    QCOMPARE(after.chestSlots, before.chestSlots);
+    QCOMPARE(savedBytes(), checkpoint); // Animation does not write or settle anything.
+    if (audio != "normal") {
+        QVERIFY(!m_window->findChild<QSoundEffect *>("chestOpenSound")->isPlaying());
+        QVERIFY(!m_window->findChild<QSoundEffect *>("chestCloseSound")->isPlaying());
+    }
+    // Reopening while the lid is closing is a fresh intent, not a second menu.
+    pressInteract();
+    QTRY_VERIFY(m_window->m_panelOpen);
+    m_window->m_panelOpen->reject();
+    pressInteract();
+    QTRY_VERIFY(m_window->m_panelOpen);
+    QCOMPARE(opened.count(), 3);
+    QCOMPARE(cues.count(), 5);
+}
+
+void ClockUiTests::storageOpeningCancellation_data() {
+    QTest::addColumn<bool>("escape");
+    QTest::newRow("escape") << true;
+    QTest::newRow("position-recheck") << false;
+}
+
+void ClockUiTests::storageOpeningCancellation() {
+    QFETCH(bool, escape);
+    QVERIFY(writeFarm(1, 10 * 60, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    const QByteArray checkpoint = savedBytes();
+    pressInteract();
+    QVERIFY(m_window->m_storageOpening);
+    if (escape) QTest::keyClick(m_character, Qt::Key_Escape);
+    else m_character->setInitialPosition(OutsideHouse);
+    QTRY_VERIFY_WITH_TIMEOUT(!m_window->m_storageOpening, 1500);
+    QTest::qWait(450); // A stale completion must not open a panel later.
+    QVERIFY(!m_window->m_panelOpen);
+    QCOMPARE(m_map->storageChestFrame(), 0);
+    QVERIFY(!m_map->isInputBlocked());
+    QCOMPARE(savedBytes(), checkpoint);
+    QVERIFY(m_window->m_page == MainWindow::Page::Farm);
+}
+
+void ClockUiTests::storageOpeningInterruptedByPassOut() {
+    QVERIFY(writeFarm(2, 119, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
+    QVERIFY(openGame());
+    const auto before = m_window->m_economy.state();
+    pressInteract();
+    QVERIFY(m_window->m_storageOpening);
+    QSignalSpy opened(m_map, &MapWidget::storageChestOpened);
+    QSignalSpy finished(m_fade, &SceneTransition::finished);
+    m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 120);
+    m_window->updateTime();
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2500);
+    QVERIFY(!m_window->m_storageOpening);
+    QVERIFY(!m_window->m_panelOpen);
+    QCOMPARE(opened.count(), 0);
+    QCOMPARE(m_map->storageChestFrame(), 0);
+    QCOMPARE(m_window->currentGameHour(), 6);
+    QVERIFY(m_window->m_bedArea.contains(m_character->currentTilePosition()));
+    const auto after = m_window->m_economy.state();
+    QCOMPARE(after.coins, before.coins);
+    QCOMPARE(after.bagSlots, before.bagSlots);
+    QCOMPARE(after.chestSlots, before.chestSlots);
+    QVERIFY(!m_map->isInputBlocked());
 }
 
 QTEST_MAIN(ClockUiTests)

@@ -3,5 +3,7 @@
         <file alias="water.wav">resources/audio/water.wav</file>
         <file alias="harvest.wav">resources/audio/harvest.wav</file>
         <file alias="sleep_success.wav">resources/audio/sleep_success.wav</file>
+        <file alias="chest_open.wav">resources/audio/chest_open.wav</file>
+        <file alias="chest_close.wav">resources/audio/chest_close.wav</file>
     </qresource>
 </RCC>

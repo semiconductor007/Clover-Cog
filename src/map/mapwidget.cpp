@@ -9,6 +9,43 @@
 MapWidget::MapWidget(QWidget *parent)
     : QWidget(parent) {
     setAttribute(Qt::WA_InputMethodEnabled, false);
+    m_chestTimer.setInterval(16);
+    connect(&m_chestTimer, &QTimer::timeout, this, &MapWidget::advanceStorageChest);
+}
+
+void MapWidget::setStorageChestOpen(bool open) {
+    if (m_chestTargetOpen == open) return;
+    m_chestTargetOpen = open;
+    if (!open && m_chestFrame == 0) {
+        m_chestTimer.stop();
+        return;
+    }
+    m_chestStartFrame = m_chestFrame;
+    m_chestElapsed.start();
+    m_chestTimer.start();
+    emit storageChestCue(open);
+}
+
+void MapWidget::resetStorageChest() {
+    m_chestTimer.stop();
+    m_chestTargetOpen = false;
+    m_chestFrame = m_chestStartFrame = 0;
+    update();
+}
+
+void MapWidget::advanceStorageChest() {
+    // Five front-facing frames in Sprout's atlas; use real elapsed time, not FPS.
+    constexpr int FrameMs = 80;
+    constexpr int LastFrame = 4;
+    const int steps = int(m_chestElapsed.elapsed() / FrameMs);
+    m_chestFrame = m_chestTargetOpen ? qMin(LastFrame, m_chestStartFrame + steps)
+                                    : qMax(0, m_chestStartFrame - steps);
+    update();
+    const int duration = m_chestTargetOpen ? (LastFrame - m_chestStartFrame + 1) * FrameMs
+                                         : qMax(1, m_chestStartFrame) * FrameMs;
+    if (m_chestElapsed.elapsed() < duration) return;
+    m_chestTimer.stop();
+    if (m_chestTargetOpen) emit storageChestOpened();
 }
 
 void MapWidget::setPlayerController(PlayerController *controller) {
@@ -25,6 +62,7 @@ bool MapWidget::loadMap(const QString &tmjPath) {
     }
 
     m_tileWidth = data.tileWidth;
+    resetStorageChest();
     m_tileHeight = data.tileHeight;
     m_mapWidth = data.mapWidth;
     m_mapHeight = data.mapHeight;
@@ -65,7 +103,9 @@ void MapWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     m_renderer.paint(painter, rect(), QPoint(m_offsetX, m_offsetY),
                      m_mapWidth, m_mapHeight, m_tileWidth, m_tileHeight,
-                     m_displayTilesets, m_renderLayers, m_worldState);
+                     m_displayTilesets, m_renderLayers, m_worldState,
+                     m_storageArea.isEmpty() ? QPoint(-1, -1) : m_storageArea.topLeft() + QPoint(0, -1),
+                     m_chestFrame);
     if (m_paintScenery) {
         painter.save();
         m_paintScenery(painter, QPoint(m_offsetX, m_offsetY), m_worldState);

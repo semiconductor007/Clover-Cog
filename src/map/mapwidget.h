@@ -11,6 +11,8 @@
 #include <QRect>
 #include <QVector>
 #include <QWidget>
+#include <QElapsedTimer>
+#include <QTimer>
 #include <functional>
 #include <utility>
 
@@ -36,6 +38,10 @@ public:
 
     void setInputBlocked(bool blocked) { m_inputBlocked = blocked; }
     bool isInputBlocked() const { return m_inputBlocked; }
+    // Presentation only: opening completion lets the window show the inventory.
+    void setStorageChestOpen(bool open);
+    void resetStorageChest();
+    int storageChestFrame() const { return m_chestFrame; }
     const QVector<Tileset> &originalTilesets() const { return m_originalTilesets; }
     void setSeasonAppearance(QVector<Tileset> displayTilesets,
                              std::function<void(QPainter &, const QPoint &, const WorldState &)> paintScenery);
@@ -92,6 +98,8 @@ public:
     bool isValidTile(const QPoint &tilePos) const;
 
 signals:
+    void storageChestOpened();
+    void storageChestCue(bool opening);
     void mapClicked(QPoint pos);
     void farmingFeedback(QString message);
     void tileWatered();
@@ -107,6 +115,12 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
 
 private:
+    void advanceStorageChest();
+    QTimer m_chestTimer;
+    QElapsedTimer m_chestElapsed;
+    bool m_chestTargetOpen = false;
+    int m_chestFrame = 0;
+    int m_chestStartFrame = 0;
     bool isInteractionTile(const QPoint &tilePos) const;
     QPointer<PlayerController> m_playerController;
     std::function<qint64()> m_getGameMinutes;

@@ -9,7 +9,8 @@ void MapRenderer::paint(QPainter &painter, const QRect &viewport,
                         int tileWidth, int tileHeight,
                         const QVector<Tileset> &tilesets,
                         const QVector<MapRenderLayer> &renderLayers,
-                        const WorldState &worldState) const {
+                        const WorldState &worldState,
+                        const QPoint &storageChestTile, int storageChestFrame) const {
     if (mapWidth <= 0 || mapHeight <= 0 || tileWidth <= 0 || tileHeight <= 0) {
         return;
     }
@@ -27,7 +28,7 @@ void MapRenderer::paint(QPainter &painter, const QRect &viewport,
             drawCultivatedLayer(painter, visibleTiles, offset, tileWidth, tileHeight, tilesets, worldState);
         } else {
             drawLayer(painter, resolveLayer(renderLayer, worldState), visibleTiles,
-                      offset, tileWidth, tileHeight, tilesets);
+                      offset, tileWidth, tileHeight, tilesets, storageChestTile, storageChestFrame);
         }
     }
 
@@ -134,7 +135,8 @@ void MapRenderer::drawLayer(QPainter &painter,
                             const QVector<QVector<int>> &layer,
                             const QRect &visibleTiles, const QPoint &offset,
                             int tileWidth, int tileHeight,
-                            const QVector<Tileset> &tilesets) {
+                            const QVector<Tileset> &tilesets,
+                            const QPoint &storageChestTile, int storageChestFrame) {
     if (layer.isEmpty() || visibleTiles.isEmpty()) {
         return;
     }
@@ -148,7 +150,8 @@ void MapRenderer::drawLayer(QPainter &painter,
             const int gid = layer.at(y).at(x);
             if (gid != 0) {
                 drawTile(painter, gid, QPoint(x, y), offset,
-                         tileWidth, tileHeight, tilesets);
+                         tileWidth, tileHeight, tilesets,
+                         QPoint(x, y) == storageChestTile ? storageChestFrame : -1);
             }
         }
     }
@@ -156,7 +159,7 @@ void MapRenderer::drawLayer(QPainter &painter,
 
 void MapRenderer::drawTile(QPainter &painter, int gid, const QPoint &tilePos,
                            const QPoint &offset, int tileWidth, int tileHeight,
-                           const QVector<Tileset> &tilesets) {
+                           const QVector<Tileset> &tilesets, int storageChestFrame) {
     for (int i = tilesets.size() - 1; i >= 0; --i) {
         const Tileset &tileset = tilesets.at(i);
         if (gid < tileset.firstGid || tileset.tilesPerRow <= 0 ||
@@ -168,6 +171,20 @@ void MapRenderer::drawTile(QPainter &painter, int gid, const QPoint &tilePos,
         const int rows = tileset.texture.height() / tileset.tileHeight;
         if (localId >= tileset.tilesPerRow * rows) {
             continue;
+        }
+
+        if (storageChestFrame >= 0 && localId == 16 && tileset.tileWidth == 16 &&
+            tileset.tileHeight == 16 && tileset.texture.width() == 240 &&
+            tileset.texture.height() == 96 &&
+            QFileInfo(tileset.sourcePath).fileName() == QStringLiteral("Chest.tsx")) {
+            // Replace the closed map tile, including the lid's transparent headroom.
+            // Atlas cells are 48x48; front-facing sprites occupy x=16..31, y=0..31.
+            const QRect source(16 + qBound(0, storageChestFrame, 4) * 48, 0, 16, 32);
+            const QRect target(tilePos.x() * tileWidth - offset.x(),
+                               (tilePos.y() - 1) * tileHeight - offset.y(),
+                               tileWidth, tileHeight * 2);
+            painter.drawPixmap(target, tileset.texture, source);
+            return;
         }
 
         const QRect source((localId % tileset.tilesPerRow) * tileset.tileWidth,

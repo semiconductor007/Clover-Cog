@@ -151,6 +151,19 @@ MainWindow::MainWindow(QWidget *parent)
     auto *water = sound(QStringLiteral("wateringSound"), QStringLiteral("qrc:/sounds/water.wav"));
     auto *harvest = sound(QStringLiteral("harvestSound"), QStringLiteral("qrc:/sounds/harvest.wav"));
     auto *wake = sound(QStringLiteral("wakeSound"), QStringLiteral("qrc:/sounds/sleep_success.wav"));
+    auto *chestOpen = sound(QStringLiteral("chestOpenSound"), QStringLiteral("qrc:/sounds/chest_open.wav"));
+    auto *chestClose = sound(QStringLiteral("chestCloseSound"), QStringLiteral("qrc:/sounds/chest_close.wav"));
+    chestOpen->setVolume(0.40f);
+    chestClose->setVolume(0.40f);
+    connect(mapWidget, &MapWidget::storageChestCue, this, [chestOpen, chestClose](bool opening) {
+        auto *effect = opening ? chestOpen : chestClose;
+        // Audio is best-effort: no delayed playback after closing or device failure.
+        if (effect->status() == QSoundEffect::Ready && !effect->isMuted() &&
+            effect->volume() > 0 && !QMediaDevices::defaultAudioOutput().isNull()) {
+            effect->play();
+        }
+    });
+    connect(mapWidget, &MapWidget::storageChestOpened, this, &MainWindow::finishStorageOpening);
     wake->setVolume(0.35f);
     wake->setLoopCount(1);
     connect(this, &MainWindow::wakeSaved, wake, [wake] {
@@ -199,7 +212,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(character, &ImageMovementWidget::interactionRequested, this, [this](QPoint playerTile) {
-        if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
             m_wakeSaveState == WakeSaveState::Failed) {
             return;
         }
@@ -251,6 +264,8 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 void MainWindow::showHome() {
+    m_storageOpening = false;
+    mapWidget->resetStorageChest();
     m_page = Page::Home;
     refreshGameplayInput();
     m_music->stop();
@@ -286,7 +301,7 @@ void MainWindow::enterFarm() {
 }
 
 void MainWindow::pauseFarm() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt || m_bedRecoveryPrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt || m_bedRecoveryPrompt ||
         m_wakeSaveState == WakeSaveState::Failed) return;
     m_gameClock.pause();
     applyClock(ClockEvent::Tick);
@@ -415,7 +430,7 @@ void MainWindow::presentTime() {
 }
 
 void MainWindow::sleepUntilMorning() {
-    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_closePrompt ||
+    if (m_page != Page::Farm || m_transitionActive || m_panelOpen || m_storageOpening || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed || !m_bedArea.contains(character->currentTilePosition()))
         return;
     // Kept as a non-UI command for integration callers. Bed interaction uses confirmation.
@@ -425,7 +440,7 @@ void MainWindow::sleepUntilMorning() {
 }
 
 void MainWindow::requestSleep() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
         !m_bedArea.contains(character->currentTilePosition())) return;
     applyClock(ClockEvent::Tick);
@@ -478,6 +493,7 @@ std::optional<QPoint> MainWindow::bedWakePosition() const {
 }
 
 bool MainWindow::recoverToMorning(bool passedOut) {
+    if (passedOut) cancelStorageOpening();
     const auto target = GameClock::sleepTargetMinute(m_gameClock.elapsedGameMinutes());
     if (!target || *target / 1440 > std::numeric_limits<int>::max()) return false;
     const auto bed = passedOut ? bedWakePosition() : std::optional<QPoint>(character->absolutePosition());
@@ -527,6 +543,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     }
     if (m_sleepConfirmation && (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) &&
         static_cast<QKeyEvent *>(event)->isAutoRepeat()) return true;
+    if (m_storageOpening && event->type() == QEvent::KeyPress) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Escape && !key->isAutoRepeat()) {
+            cancelStorageOpening();
+            refreshGameplayInput();
+        }
+        return true;
+    }
     if (m_page == Page::Farm && !m_panelOpen && !m_closePrompt &&
         m_wakeSaveState != WakeSaveState::Failed && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
@@ -601,7 +625,7 @@ void MainWindow::showStatus(const QString &message) {
 }
 
 void MainWindow::openInventory() {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_wakeSaveState == WakeSaveState::Failed) {
         return;
     }
@@ -669,7 +693,38 @@ void MainWindow::openMarket() {
 }
 
 void MainWindow::openStorage() {
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive ||
+        m_closePrompt || m_sleepConfirmation || m_bedRecoveryPrompt ||
+        m_wakeSaveState == WakeSaveState::Failed ||
+        !m_storageArea.contains(character->currentTilePosition())) return;
+    applyClock(ClockEvent::Tick);
+    if (m_transitionActive || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
+        !m_storageArea.contains(character->currentTilePosition())) return;
+    m_storageOpening = true;
+    refreshGameplayInput();
+    mapWidget->setStorageChestOpen(true);
+}
+
+void MainWindow::cancelStorageOpening() {
+    if (!m_storageOpening) return;
+    m_storageOpening = false;
+    mapWidget->setStorageChestOpen(false);
+}
+
+void MainWindow::finishStorageOpening() {
+    if (!m_storageOpening) return;
+    applyClock(ClockEvent::Tick);
+    if (!m_storageOpening) return;
+    m_storageOpening = false;
+    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed ||
+        !m_storageArea.contains(character->currentTilePosition())) {
+        mapWidget->setStorageChestOpen(false);
+        refreshGameplayInput();
+        return;
+    }
     auto *dialog = new StorageDialog(this);
+    connect(dialog, &QDialog::finished, mapWidget, [this] { mapWidget->setStorageChestOpen(false); });
     connect(dialog,&StorageDialog::stackMoveRequested,this,[this,dialog](StackMove move){moveInventoryStack(dialog,move);});
     connect(dialog, &StorageDialog::transferRequested, this,
             [this, dialog](StorageItemKind kind, CropType crop, StorageDirection direction, int quantity) {
@@ -685,6 +740,7 @@ void MainWindow::openStorage() {
             dialog->setMessage(result.message);
     });
     showFarmPanel(dialog);
+    if (m_panelOpen != dialog) mapWidget->setStorageChestOpen(false);
 }
 
 void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
@@ -696,7 +752,7 @@ void MainWindow::finishTrade(FarmPanel *dialog, const QString &receipt) {
 }
 
 void MainWindow::showFarmPanel(QDialog *dialog) {
-    if (m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
         m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed) {
         dialog->deleteLater();
         return;
@@ -735,7 +791,7 @@ void MainWindow::moveInventoryStack(QDialog *panel,const StackMove &move) {
     if (panel) {
         if (!acceptPanelCommand(panel)) return;
     } else {
-        if (m_page!=Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+        if (m_page!=Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
             m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState==WakeSaveState::Failed) return;
         applyClock(ClockEvent::Tick);
         if (m_transitionActive || m_bedRecoveryPrompt || m_panelOpen) return;
@@ -762,7 +818,9 @@ void MainWindow::refreshOpenPanel() {
 }
 
 void MainWindow::refreshGameplayInput() {
-    const bool blocked = m_page != Page::Farm || m_panelOpen || m_transitionActive || m_closePrompt ||
+    if (m_storageOpening && (m_page != Page::Farm || m_transitionActive || m_closePrompt ||
+        m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed)) cancelStorageOpening();
+    const bool blocked = m_page != Page::Farm || m_panelOpen || m_storageOpening || m_transitionActive || m_closePrompt ||
                          m_sleepConfirmation || m_bedRecoveryPrompt || m_wakeSaveState == WakeSaveState::Failed;
     character->setInputBlocked(blocked);
     mapWidget->setInputBlocked(blocked);
@@ -950,6 +1008,7 @@ void MainWindow::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    cancelStorageOpening();
     if (m_sleepConfirmation) m_sleepConfirmation->reject();
     if (m_bedRecoveryPrompt) { event->ignore(); return; }
     if (m_page == Page::Home || !m_saveEnabled || m_discardOnClose) {

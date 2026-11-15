@@ -1,5 +1,12 @@
 # 素材来源与许可核对记录
 
+## 储物箱短音效（2026-11-14）
+
+新增 `resources/audio/chest_open.wav` 和 `chest_close.wav`，由本项目
+`tools/generate_chest_sounds.py` 确定性合成木质铰链与搭扣声，无外部采样或原作音频。
+箱子动画仅使用已经接入的 Cup Nooble Sprout Lands `sprout/Chest.png` 图集，
+未上传新的完整素材包。来源、采样矩形和听测限制见[箱子开合](CHEST_ANIMATION.md)。
+
 核对日期：2026-11-11。本文记录能确认的来源与随包条款，不将“文件已经在仓库中”视为授权证明。本次未对外发布新包，也未重新上传原始素材包。
 
 ## Sprout Lands 地图与当前季节环境
