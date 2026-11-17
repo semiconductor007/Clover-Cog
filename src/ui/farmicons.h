@@ -69,6 +69,8 @@ inline QPixmap fertilizer() {
 }
 
 inline QPixmap stackIcon(int item) {
+    if(item==StackItem::Wood) return QPixmap(QStringLiteral(":/farm-ui/wood-tools.png")).copy(0,32,16,16);
+    if (item==StackItem::Axe) return QPixmap(QStringLiteral(":/tilesets/sprout/Basic_tools_and_meterials.png")).copy(16,0,16,16);
     if (item==StackItem::Hoe || item==StackItem::Water)
         return QPixmap(QStringLiteral(":/tilesets/sprout/Basic_tools_and_meterials.png"))
             .copy(item==StackItem::Hoe ? 32 : 0,0,16,16);
@@ -80,6 +82,7 @@ inline QPixmap stackIcon(int item) {
 
 inline QString stackName(const InventoryStack &stack) {
     if (!stack.item) return {};
+    if(stack.item==StackItem::Wood) return QStringLiteral("木材 × %1").arg(stack.quantity);
     QString name;
     if (StackItem::isTool(stack.item) || stack.item==StackItem::Fertilizer) name=toolName(StackItem::tool(stack.item));
     else {
@@ -91,6 +94,8 @@ inline QString stackName(const InventoryStack &stack) {
 
 inline QString itemDescription(int item) {
     if (!item || !StackItem::valid(item)) return {};
+    if(item==StackItem::Axe) return QStringLiteral("斧头\n砍伐周围一格内的树木。先砍倒树冠，再清除树桩，获得木材。");
+    if(item==StackItem::Wood) return QStringLiteral("木材\n砍树所得的材料，可在背包中移动、拆分或存入储物箱。");
     if (item == StackItem::Hoe) return QStringLiteral("锄头\n将可耕草地翻成耕地，再种下种子。");
     if (item == StackItem::Water) return QStringLiteral("水壶\n给耕地浇水。作物在浇过水的生长日推进成长，缺水则停滞。");
     if (item == StackItem::Fertilizer)

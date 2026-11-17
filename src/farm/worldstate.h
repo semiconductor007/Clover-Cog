@@ -43,11 +43,28 @@ struct SavedCropState {
     bool fertilizerBonusPending = false;
 };
 
+struct SavedTreeState {
+    QPoint anchor;
+    int health = 100;
+    int stage = 0; // 0 standing, 1 stump, 2 cleared
+};
+
+struct TreeChopResult {
+    bool success = false;
+    QPoint anchor;
+    QRect bounds;
+    int wood = 0;
+    bool felled = false;
+    int health = 0;
+    int stage = 0;
+};
+
 struct WorldStateSnapshot {
     QVector<QVector<int>> cultivatedLayer;
     QVector<SavedCropState> crops;
     QSet<QPoint> wateredTiles;
     int lastCompletedDay = -1;
+    QVector<SavedTreeState> trees;
 };
 
 class WorldState {
@@ -63,6 +80,9 @@ public:
 
     bool hasTreeAt(const QPoint &tilePos) const;
     bool damageTree(const QPoint &tilePos, int damage);
+    TreeChopResult previewTreeChop(const QPoint &tilePos) const;
+    bool commitTreeChop(const TreeChopResult &preview);
+    QRect standingTreeBounds(const QPoint &tilePos) const;
     bool isPathTile(const QPoint &tilePos) const;
     bool isTileCultivatable(const QPoint &tilePos) const;
     bool cultivate(const QPoint &tilePos);
@@ -84,6 +104,17 @@ public:
     bool restore(const WorldStateSnapshot &snapshot);
 
 private:
+    struct WholeTree {
+        QRect bounds;
+        QPoint anchor;
+        int health = 100;
+        int stage = 0;
+    };
+    QVector<WholeTree> m_wholeTrees;
+    int m_treeFirstGid=335;
+    QVector<QVector<int>> m_originalTreeLayer;
+    QVector<QVector<int>> m_originalCollisionLayer;
+    void rebuildTreeLayers();
     struct TreeState {
         int health = 0;
     };

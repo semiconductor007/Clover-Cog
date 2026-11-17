@@ -150,7 +150,19 @@ bool validSnapshot(const GameSaveData &data, QString *errorMessage) {
     map.mapHeight = layer.size();
     WorldState world;
     world.initialize(map);
-    if (!world.restore(data.world)) {
+    // The file-level validator has only the map dimensions, not its tree atlas.
+    // Validate tree field structure here; runtime WorldState also validates anchors
+    // against the actual immutable tree catalogue before installing the save.
+    QSet<QPoint> treeAnchors;
+    for(const auto &tree:data.world.trees) {
+        if(treeAnchors.contains(tree.anchor) || tree.anchor.x()<0 || tree.anchor.y()<0 ||
+           tree.anchor.x()>=map.mapWidth || tree.anchor.y()>=map.mapHeight ||
+           tree.stage<0 || tree.stage>2 || (tree.stage==2?tree.health!=0:
+             tree.health<=0 || tree.health>(tree.stage==0?100:50))) return false;
+        treeAnchors.insert(tree.anchor);
+    }
+    auto farmland=data.world;farmland.trees.clear();
+    if (!world.restore(farmland)) {
         setError(errorMessage, QStringLiteral("存档中的农田状态无效"));
         return false;
     }
@@ -178,6 +190,8 @@ QByteArray encodeSave(const GameSaveData &data) {
     economy.insert(QStringLiteral("seeds"),
                    countsToJson(data.economy.seedCounts));
 
+    economy.insert(QStringLiteral("woodCount"), data.economy.woodCount);
+    economy.insert(QStringLiteral("woodInChest"), data.economy.storage.woodCount);
     economy.insert(QStringLiteral("fertilizerCount"), data.economy.fertilizerCount);
     const StorageStock &storage = data.economy.storage;
     economy.insert(QStringLiteral("storage"), QJsonObject{
@@ -203,6 +217,12 @@ QByteArray encodeSave(const GameSaveData &data) {
     QJsonObject world;
     world.insert(QStringLiteral("cultivatedLayer"),
                  layerToJson(data.world.cultivatedLayer));
+    QJsonArray trees;
+    for(const auto &tree:data.world.trees) {
+        auto object=pointToJson(tree.anchor);
+        object.insert("health",tree.health); object.insert("stage",tree.stage); trees.append(object);
+    }
+    world.insert("trees",trees);
     world.insert(QStringLiteral("crops"), crops);
     world.insert(QStringLiteral("wateredTiles"), wateredTiles);
     world.insert(QStringLiteral("lastCompletedDay"),
@@ -250,13 +270,15 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
     }
 
     const QJsonObject economy = root.value(QStringLiteral("economy")).toObject();
+    parsed.economy.woodCount=economy.contains("woodCount")?economy.value("woodCount").toInt(-1):0;
+    parsed.economy.storage.woodCount=economy.contains("woodInChest")?economy.value("woodInChest").toInt(-1):0;
     parsed.economy.coins = economy.value(QStringLiteral("coins")).toInt(-1);
     parsed.economy.inventoryCapacity =
         economy.value(QStringLiteral("inventoryCapacity")).toInt(-1);
     const QJsonValue fertilizer = economy.value(QStringLiteral("fertilizerCount"));
     parsed.economy.fertilizerCount = (version == 2 && fertilizer.isUndefined())
         ? 0 : fertilizer.toInt(-1);
-    if (parsed.economy.coins < 0 || parsed.economy.inventoryCapacity < 0 ||
+    if (parsed.economy.woodCount<0 || parsed.economy.storage.woodCount<0 || parsed.economy.coins < 0 || parsed.economy.inventoryCapacity < 0 ||
         parsed.economy.fertilizerCount < 0 ||
         !countsFromJson(economy.value(QStringLiteral("inventory")),
                         &parsed.economy.inventoryCounts) ||
@@ -302,6 +324,16 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
     }
 
     const QJsonObject world = root.value(QStringLiteral("world")).toObject();
+    if(world.contains("trees")) {
+        if(!world.value("trees").isArray() || world.value("trees").toArray().size()>2880) return false;
+        for(const auto &entry:world.value("trees").toArray()) {
+            if(!entry.isObject()) return false;
+            const auto object=entry.toObject(); SavedTreeState tree;
+            if(!pointFromJson(object,&tree.anchor)) return false;
+            tree.health=object.value("health").toInt(-1);tree.stage=object.value("stage").toInt(-1);
+            parsed.world.trees.append(tree);
+        }
+    }
     parsed.world.lastCompletedDay =
         world.value(QStringLiteral("lastCompletedDay")).toInt(-2);
     if (!layerFromJson(world.value(QStringLiteral("cultivatedLayer")),

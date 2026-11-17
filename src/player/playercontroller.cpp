@@ -7,6 +7,7 @@ ToolProperty propertyForTool(ToolType type) {
     ToolProperty tool{type, toolName(type), 0, {}};
     switch (type) {
     case ToolType::EmptyHand: break;
+    case ToolType::Axe: tool.damage = 25; break;
     case ToolType::Hoe: tool.damage = 15; break;
     case ToolType::WateringCan: tool.damage = 5; break;
     default: return tool;
@@ -24,7 +25,7 @@ PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
 
 void PlayerController::setCurrentTool(int toolIndex) {
     const ToolType tool = static_cast<ToolType>(toolIndex);
-    if (tool != ToolType::EmptyHand && toolSlot(tool) < 0)
+    if (tool != ToolType::EmptyHand && tool != ToolType::Axe && toolSlot(tool) < 0)
         return;
     m_currentTool = propertyForTool(tool);
     emit toolChanged(m_currentTool.type);
@@ -49,6 +50,9 @@ void PlayerController::useToolAt(const QPoint &mapPoint) {
         return;
     }
     switch (m_currentTool.type) {
+    case ToolType::Axe:
+        m_mapWidget->chopTree(tilePos);
+        break;
     case ToolType::Hoe:
         m_mapWidget->cultivateTile(tilePos);
         break;

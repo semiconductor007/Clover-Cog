@@ -138,6 +138,15 @@ void ImageMovementWidget::initUI() {
         hoeAnim.downFrames.append(spriteSheet.copy(i*48, 12*48, 48, 48));
     }
     m_toolAnimations[ToolType::Hoe] = hoeAnim;
+    ToolAnimation axeAnim;
+    for(int i=0;i<6;++i) {
+        axeAnim.downFrames.append(spriteSheet.copy(i*48,15*48,48,48));
+        axeAnim.upFrames.append(spriteSheet.copy(i*48,16*48,48,48));
+        axeAnim.rightFrames.append(spriteSheet.copy(i*48,18*48,48,48));
+        axeAnim.leftFrames.append(axeAnim.rightFrames.last().transformed(QTransform().scale(-1,1)));
+    }
+    m_toolAnimations[ToolType::Axe]=axeAnim;
+
 
 
     // 初始化浇水动画
@@ -406,12 +415,17 @@ void ImageMovementWidget::handleToolAction() {
 
 // rpg.cpp 中实现
 void ImageMovementWidget::useCurrentToolAt(QPoint mapPos) {
-    if (m_inputBlocked || !m_mapWidget || m_mapWidget->isInputBlocked() ||
+    if (m_inputBlocked || (m_isActing && m_controller->currentTool().type==ToolType::Axe) || !m_mapWidget || m_mapWidget->isInputBlocked() ||
         !m_mapWidget->isValidTile(m_mapWidget->mapPointToTile(mapPos)))
         return;
     if (!m_controller->canReachTile(m_mapWidget->mapPointToTile(mapPos))) {
         m_controller->useToolAt(mapPos); // Report the same rejected command without animating it.
         return;
+    }
+    if(m_controller->currentTool().type==ToolType::Axe) {
+        const QPoint delta=m_mapWidget->mapPointToTile(mapPos)-currentTilePosition();
+        if(qAbs(delta.x())>qAbs(delta.y())) m_lastDirection=delta.x()>0?PlayerDirection::Right:PlayerDirection::Left;
+        else if(delta.y()) m_lastDirection=delta.y()>0?PlayerDirection::Down:PlayerDirection::Up;
     }
     handleToolAction();
     m_controller->useToolAt(mapPos);

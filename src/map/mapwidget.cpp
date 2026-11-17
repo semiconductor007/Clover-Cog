@@ -9,6 +9,13 @@
 MapWidget::MapWidget(QWidget *parent)
     : QWidget(parent) {
     setAttribute(Qt::WA_InputMethodEnabled, false);
+    m_treeVisualTimer.setInterval(16);
+    connect(&m_treeVisualTimer,&QTimer::timeout,this,[this]{
+        for(int i=m_treeVisuals.size()-1;i>=0;--i)
+            if(m_treeVisuals[i].elapsed.elapsed()>=(m_treeVisuals[i].falling?1040:220)) m_treeVisuals.removeAt(i);
+        if(m_treeVisuals.isEmpty()) m_treeVisualTimer.stop();
+        update();
+    });
     m_chestTimer.setInterval(16);
     connect(&m_chestTimer, &QTimer::timeout, this, &MapWidget::advanceStorageChest);
 }
@@ -112,6 +119,32 @@ void MapWidget::paintEvent(QPaintEvent *event) {
         painter.restore();
     }
 
+
+    for(const auto &visual:m_treeVisuals) {
+        const qreal progress=qMin(1.0,visual.elapsed.elapsed()/1040.0);
+        const QPoint base=visual.anchor*16+QPoint(8,16)-QPoint(m_offsetX,m_offsetY);
+        painter.save();
+        painter.translate(base);
+        if(!visual.falling) {
+            painter.setPen(Qt::NoPen);painter.setBrush(QColor("#c89863"));
+            const qreal amount=visual.elapsed.elapsed()/220.0;
+            for(int i=0;i<5;++i) painter.drawRect(QRectF((i-2)*amount*8,-8-12*qSin(amount*3.14)+i,2,2));
+            painter.restore();continue;
+        }
+        if(visual.useFallSheet) {
+            static const QPixmap frames(QStringLiteral(":/farm-ui/tree-fall.png"));
+            const int frame=qMin(12,int(visual.elapsed.elapsed()/80));
+            if(visual.fallRight) painter.scale(-1,1);
+            painter.drawPixmap(QRect(-32,-48,64,48),frames,QRect(frame*64,0,64,48));
+            painter.restore();continue;
+        }
+        if(visual.falling) {
+            painter.rotate((visual.fallRight?85:-85)*progress*progress);
+            painter.setOpacity(1.0-qMax(0.0,(progress-0.75)*4));
+        } else painter.translate(qSin(visual.elapsed.elapsed()*0.06)*1.5,0);
+        painter.drawPixmap(QPoint(-visual.texture.width()/2,-visual.texture.height()),visual.texture);
+        painter.restore();
+    }
     const auto drawInteractionArea =
         [this, &painter](const QRect &tileArea, const QColor &tint,
                          const QString &text, bool labelBelow = false) {
@@ -182,6 +215,10 @@ void MapWidget::mousePressEvent(QMouseEvent *event) {
     if (m_playerController && m_playerController->currentTool().type == ToolType::Fertilizer) {
         emit mapClicked(point);
         return;
+    }
+
+    if(m_playerController && m_playerController->currentTool().type==ToolType::Axe) {
+        emit mapClicked(point); return;
     }
 
     // For other tools a mature crop owns the click, even when the backpack is full.
@@ -346,4 +383,37 @@ DayAdvanceResult MapWidget::advanceThroughDay(int completedDay) {
     const auto result = m_worldState.advanceThroughDay(completedDay);
     update();
     return result;
+}
+
+bool MapWidget::chopTree(const QPoint &tile) {
+    if(m_inputBlocked || !m_playerController || m_playerController->currentTool().type!=ToolType::Axe ||
+       !m_playerController->canReachTile(tile)) return false;
+    const auto preview=m_worldState.previewTreeChop(tile);
+    if(!preview.success) {emit farmingFeedback(QStringLiteral("靠近树干，用斧头点击树干底部"));return false;}
+    for(const auto &visual:m_treeVisuals) if(visual.anchor==preview.anchor && visual.falling) return false;
+    const int crownGid=m_worldState.treeGidAt(preview.bounds.topLeft());
+    QPixmap texture(preview.bounds.width()*16,preview.bounds.height()*16);texture.fill(Qt::transparent);
+    {QPainter p(&texture);
+        for(const auto &set:m_displayTilesets) if(set.sourcePath.endsWith(QStringLiteral("Trees, stumps and bushes.tsx")))
+            for(int y=preview.bounds.top();y<=preview.bounds.bottom();++y)
+                for(int x=preview.bounds.left();x<=preview.bounds.right();++x) {
+                    int id=m_worldState.treeGidAt({x,y})-set.firstGid;
+                    if(id>=0) p.drawPixmap(QRect((x-preview.bounds.x())*16,(y-preview.bounds.y())*16,16,16),set.texture,
+                        QRect(id%12*16,id/12*16,16,16));
+                }
+    }
+    const auto action=[this,preview]{return m_worldState.commitTreeChop(preview);};
+    if(!m_woodHandler || !m_woodHandler(preview.wood,action)) {
+        emit farmingFeedback(QStringLiteral("背包没有空格容纳木材，请先整理或存箱"));return false;
+    }
+    {
+        TreeVisual visual;visual.anchor=preview.anchor;visual.bounds=preview.bounds;
+        visual.texture=texture;visual.elapsed.start();visual.falling=preview.felled;
+        visual.fallRight=m_playerController->playerTilePosition().x()<=preview.anchor.x();
+        visual.useFallSheet=preview.felled && texture.size()==QSize(32,32) &&
+            crownGid==336 && SeasonCalendar::dateForMinutes(m_getGameMinutes?m_getGameMinutes():0).season==Season::Spring;
+        m_treeVisuals.append(visual);
+        m_treeVisualTimer.start();
+    }
+    emit treeChopped(preview.felled);emit worldChanged();update();return true;
 }

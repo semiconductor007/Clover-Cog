@@ -29,6 +29,7 @@ public:
     void useToolAt(const QPoint &mapPoint);
     void setTilePositionGetter(std::function<QPoint()> getter) { m_tilePosition = std::move(getter); }
     bool canReachTile(const QPoint &tile) const;
+    QPoint playerTilePosition() const {return m_tilePosition?m_tilePosition():QPoint(-1,-1);}
 
 signals:
     void toolChanged(ToolType type);

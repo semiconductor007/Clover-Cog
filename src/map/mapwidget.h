@@ -76,14 +76,20 @@ public:
         update();
     }
     WorldStateSnapshot worldSnapshot() const { return m_worldState.snapshot(); }
+    bool canRestoreWorld(const WorldStateSnapshot &snapshot) const {
+        auto candidate=m_worldState;return candidate.restore(snapshot);
+    }
     bool restoreWorld(const WorldStateSnapshot &snapshot) {
         const bool restored = m_worldState.restore(snapshot);
-        if (restored) update();
+        if (restored) {m_treeVisuals.clear(); update();}
         return restored;
     }
 
     bool hasTreeAt(const QPoint &tilePos) const;
     bool modifyTreeHealth(const QPoint &tilePos, int damage);
+    bool chopTree(const QPoint &tilePos);
+    void setWoodHandler(std::function<bool(int,const std::function<bool()> &)> handler) {m_woodHandler=std::move(handler);}
+
     int tileAt(int x, int y) const;
     bool cultivateTile(const QPoint &tilePos);
     bool isTileCultivatable(const QPoint &tilePos) const;
@@ -101,6 +107,7 @@ signals:
     void storageChestOpened();
     void storageChestCue(bool opening);
     void mapClicked(QPoint pos);
+    void treeChopped(bool felled);
     void farmingFeedback(QString message);
     void tileWatered();
     void cropHarvested(CropType type, int quantity);
@@ -122,6 +129,11 @@ private:
     int m_chestFrame = 0;
     int m_chestStartFrame = 0;
     bool isInteractionTile(const QPoint &tilePos) const;
+    std::function<bool(int,const std::function<bool()> &)> m_woodHandler;
+    struct TreeVisual { QPoint anchor; QRect bounds; QPixmap texture; QElapsedTimer elapsed; bool falling=false; bool useFallSheet=false; bool fallRight=true; };
+    QVector<TreeVisual> m_treeVisuals;
+    QTimer m_treeVisualTimer;
+
     QPointer<PlayerController> m_playerController;
     std::function<qint64()> m_getGameMinutes;
     std::function<bool(CropType, int)> m_harvestHandler;

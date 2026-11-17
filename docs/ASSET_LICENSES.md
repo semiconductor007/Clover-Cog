@@ -1,5 +1,11 @@
 # 素材来源与许可核对记录
 
+2026-11-18 砍树新增实际使用图集：resources/trees/fall.png与materials.png分别原样取自
+Cup Nooble Sprout Lands Premium包的Objects/Tree animations/tree_fall_animation_sprite_sheet.png、
+Objects/Items/tools-n-meterial-items.png，沿用现有Premium许可。斧头角色动作和树桩来自既有图集。
+axe_hit.wav和tree_fall.wav由本项目tools/generate_tree_sounds.py原创合成，无原作采样。
+用途与听测限制见[砍树](TREE_CHOPPING.md)。
+
 ## 储物箱短音效（2026-11-14）
 
 新增 `resources/audio/chest_open.wav` 和 `chest_close.wav`，由本项目

@@ -54,7 +54,6 @@ QRect ItemBar::slotRect(int index) const {
 }
 
 void ItemBar::selectTool(ToolType tool) {
-    if (tool==ToolType::Axe) return;
     const int item=StackItem::fromTool(tool);
     if (tool!=ToolType::EmptyHand && !item) return;
     int index=-1;

@@ -17,22 +17,24 @@ struct InventoryStack {
 };
 
 namespace StackItem {
-inline constexpr int Hoe = 1001, Water = 1002, Fertilizer = 4001;
+inline constexpr int Hoe = 1001, Water = 1002, Axe = 1003, Fertilizer = 4001, Wood = 4002;
 inline int seed(CropType crop) { return 2000 + static_cast<int>(crop); }
 inline int harvest(CropType crop) { return 3000 + static_cast<int>(crop); }
 inline CropType crop(int item) { return static_cast<CropType>(item % 1000); }
-inline bool isTool(int item) { return item == Hoe || item == Water; }
+inline bool isTool(int item) { return item == Hoe || item == Water || item == Axe; }
 inline bool valid(int item) {
-    return item == 0 || isTool(item) || item == Fertilizer ||
+    return item == 0 || isTool(item) || item == Fertilizer || item == Wood ||
         ((item/1000 == 2 || item/1000 == 3) && CropCatalog::definition(crop(item)).type != CropType::None);
 }
 inline ToolType tool(int item) {
+    if (item == Axe) return ToolType::Axe;
     if (item == Hoe) return ToolType::Hoe;
     if (item == Water) return ToolType::WateringCan;
     if (item == Fertilizer) return ToolType::Fertilizer;
     return item/1000 == 2 ? toolForSeed(crop(item)) : ToolType::EmptyHand;
 }
 inline int fromTool(ToolType type) {
+    if (type == ToolType::Axe) return Axe;
     if (type == ToolType::Hoe) return Hoe;
     if (type == ToolType::WateringCan) return Water;
     if (type == ToolType::Fertilizer) return Fertilizer;
@@ -68,13 +70,14 @@ struct SeedPurchaseResult {
     SeedPurchaseFailure failure = SeedPurchaseFailure::None;
 };
 
-enum class StorageItemKind { Harvest, Seed, Fertilizer };
+enum class StorageItemKind { Harvest, Seed, Fertilizer, Wood };
 enum class StorageDirection { Deposit, Withdraw };
 
 struct StorageStock {
     QHash<int, int> harvestCounts;
     QHash<int, int> seedCounts;
     int fertilizerCount = 0;
+    int woodCount = 0;
 };
 
 struct StorageTransferResult {
@@ -91,6 +94,7 @@ struct EconomyState {
     StorageStock storage;
     QVector<InventoryStack> bagSlots;
     QVector<InventoryStack> chestSlots;
+    int woodCount = 0;
 };
 
 class EconomyService {
@@ -100,6 +104,8 @@ public:
     const QVector<InventoryStack> &chestSlots() const { return m_chestSlots; }
     quint64 revision() const { return m_revision; }
     bool moveStack(const StackMove &move);
+    bool ensureAxe();
+    bool collectWoodWithAction(int quantity, const std::function<bool()> &action);
     void setEquippedSlot(int slot) { m_equippedSlot = slot >= 0 && slot < 7 ? slot : -1; }
     static bool layoutMatches(const EconomyState &state);
     static constexpr int FertilizerPrice = 1;
@@ -138,6 +144,7 @@ private:
     int m_coins = 0;
     QHash<int, int> m_seedCounts;
     int m_fertilizerCount = 0;
+    int m_woodCount = 0;
     StorageStock m_storage;
     bool m_applyingItem = false;
 };

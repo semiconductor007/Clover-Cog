@@ -16,6 +16,7 @@ QHash<int,qint64> totals(const EconomyState &state, bool chest) {
         result[StackItem::harvest(crop)] = chest ? state.storage.harvestCounts.value(id) : state.inventoryCounts.value(id);
     }
     result[StackItem::Fertilizer] = chest ? state.storage.fertilizerCount : state.fertilizerCount;
+    result[StackItem::Wood] = chest ? state.storage.woodCount : state.woodCount;
     return result;
 }
 
@@ -38,6 +39,7 @@ bool distribute(QVector<InventoryStack> &cells, QHash<int,qint64> wanted, bool e
     QVector<int> order;
     for (CropType crop : CropCatalog::cropTypes()) order.append(StackItem::seed(crop));
     order.append(StackItem::Fertilizer);
+    order.append(StackItem::Wood);
     for (CropType crop : CropCatalog::cropTypes()) order.append(StackItem::harvest(crop));
     for (int item : order) {
         if (!wanted.value(item)) continue;
@@ -78,7 +80,7 @@ bool EconomyService::layoutMatches(const EconomyState &state) {
         }
         for (qint64 remaining : wanted) if (remaining) return false;
     }
-    return tools.value(StackItem::Hoe)==1 && tools.value(StackItem::Water)==1;
+    return tools.value(StackItem::Hoe)==1 && tools.value(StackItem::Water)==1 && tools.value(StackItem::Axe)<=1;
 }
 
 bool EconomyService::reconcile(EconomyState &state) {
@@ -127,12 +129,16 @@ bool EconomyService::moveStack(const StackMove &move) {
         if (move.quantity!=from.quantity) return false;
         std::swap(from,to);
     }
-    candidate.inventoryCounts.clear(); candidate.seedCounts.clear(); candidate.fertilizerCount=0;
+    candidate.inventoryCounts.clear(); candidate.seedCounts.clear(); candidate.fertilizerCount=0; candidate.woodCount=0;
     candidate.storage={};
     for (bool chest : {false,true}) for (const auto &stack : chest ? candidate.chestSlots : candidate.bagSlots) {
         if (!stack.item || StackItem::isTool(stack.item)) continue;
         const int id=static_cast<int>(StackItem::crop(stack.item));
-        if (stack.item==StackItem::Fertilizer) {
+        if (stack.item==StackItem::Wood) {
+            int &value=chest ? candidate.storage.woodCount : candidate.woodCount;
+            if (stack.quantity>std::numeric_limits<int>::max()-value) return false;
+            value+=stack.quantity;
+        } else if (stack.item==StackItem::Fertilizer) {
             int &value=chest ? candidate.storage.fertilizerCount : candidate.fertilizerCount;
             if (stack.quantity>std::numeric_limits<int>::max()-value) return false;
             value+=stack.quantity;
@@ -270,7 +276,7 @@ SaleResult EconomyService::sellAll(const QPoint &playerTile,
 
 EconomyState EconomyService::state() const {
     return {m_coins, m_inventory.capacity(), m_inventory.counts(),
-            m_seedCounts, m_fertilizerCount, m_storage, m_bagSlots, m_chestSlots};
+            m_seedCounts, m_fertilizerCount, m_storage, m_bagSlots, m_chestSlots, m_woodCount};
 }
 
 StorageTransferResult EconomyService::transfer(StorageItemKind kind, CropType crop,
@@ -285,7 +291,9 @@ StorageTransferResult EconomyService::transfer(StorageItemKind kind, CropType cr
     int *stored = nullptr;
     QString name;
     const int id = static_cast<int>(crop);
-    if (kind == StorageItemKind::Fertilizer && crop == CropType::None) {
+    if(kind==StorageItemKind::Wood && crop==CropType::None) {
+        carried=&candidate.woodCount; stored=&candidate.storage.woodCount; name=QStringLiteral("木材");
+    } else if (kind == StorageItemKind::Fertilizer && crop == CropType::None) {
         carried = &candidate.fertilizerCount;
         stored = &candidate.storage.fertilizerCount;
         name = QStringLiteral("基础肥料");
@@ -323,7 +331,7 @@ StorageTransferResult EconomyService::transfer(StorageItemKind kind, CropType cr
 }
 
 bool EconomyService::restore(const EconomyState &state) {
-    if (m_applyingItem || state.coins < 0 || state.fertilizerCount < 0 ||
+    if (m_applyingItem || state.coins < 0 || state.woodCount < 0 || state.storage.woodCount < 0 || state.fertilizerCount < 0 ||
         state.storage.fertilizerCount < 0 || !validCropCounts(state.seedCounts) ||
         !validCropCounts(state.storage.harvestCounts) || !validCropCounts(state.storage.seedCounts)) {
         return false;
@@ -337,6 +345,7 @@ bool EconomyService::restore(const EconomyState &state) {
     auto candidate=state;
     if (!reconcile(candidate)) return false;
     m_coins = state.coins;
+    m_woodCount = state.woodCount;
     m_fertilizerCount = state.fertilizerCount;
     m_inventory = restoredInventory;
     m_seedCounts = state.seedCounts;
@@ -347,5 +356,29 @@ bool EconomyService::restore(const EconomyState &state) {
             m_seedCounts.insert(static_cast<int>(type), 0);
         }
     }
+    return true;
+}
+
+bool EconomyService::ensureAxe() {
+    auto candidate=state();
+    for (const auto &cells : {candidate.bagSlots,candidate.chestSlots})
+        for (const auto &cell : cells) if (cell.item==StackItem::Axe) return true;
+    auto *cells=&candidate.bagSlots;
+    auto slot=std::find_if(cells->begin(),cells->end(),[](auto cell){return !cell.item;});
+    if (slot==cells->end()) {
+        cells=&candidate.chestSlots;
+        auto index=std::find_if(cells->begin(),cells->end(),[](auto cell){return !cell.item;});
+        if(index==cells->end()) cells->append({StackItem::Axe,1}); else *index={StackItem::Axe,1};
+    } else *slot={StackItem::Axe,1};
+    return restore(candidate);
+}
+
+bool EconomyService::collectWoodWithAction(int quantity,const std::function<bool()> &action) {
+    if(m_applyingItem || quantity<0 || quantity>std::numeric_limits<int>::max()-m_woodCount) return false;
+    auto candidate=state(); candidate.woodCount+=quantity;
+    if(!reconcile(candidate) || !action) return false;
+    QScopedValueRollback<bool> guard(m_applyingItem,true);
+    if(!action()) return false;
+    m_woodCount+=quantity; changed();
     return true;
 }

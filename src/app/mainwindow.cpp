@@ -171,6 +171,13 @@ MainWindow::MainWindow(QWidget *parent)
         return effect;
     };
     auto *water = sound(QStringLiteral("wateringSound"), QStringLiteral("qrc:/sounds/water.wav"));
+    auto *axeHit=sound(QStringLiteral("axeHitSound"),QStringLiteral("qrc:/sounds/axe_hit.wav"));
+    auto *treeFall=sound(QStringLiteral("treeFallSound"),QStringLiteral("qrc:/sounds/tree_fall.wav"));
+    connect(mapWidget,&MapWidget::treeChopped,this,[axeHit,treeFall](bool felled){
+        auto *effect=felled?treeFall:axeHit;
+        if(effect->status()==QSoundEffect::Ready && !effect->isMuted() && effect->volume()>0 &&
+           !QMediaDevices::defaultAudioOutput().isNull()) effect->play();
+    });
     auto *harvest = sound(QStringLiteral("harvestSound"), QStringLiteral("qrc:/sounds/harvest.wav"));
     auto *wake = sound(QStringLiteral("wakeSound"), QStringLiteral("qrc:/sounds/sleep_success.wav"));
     auto *chestOpen = sound(QStringLiteral("chestOpenSound"), QStringLiteral("qrc:/sounds/chest_open.wav"));
@@ -207,6 +214,11 @@ MainWindow::MainWindow(QWidget *parent)
             character, &ImageMovementWidget::useCurrentToolAt);
 
     connect(character, &ImageMovementWidget::inventoryRequested, this, &MainWindow::openInventory);
+    mapWidget->setWoodHandler([this](int quantity,const std::function<bool()> &action){
+        const bool accepted=m_economy.collectWoodWithAction(quantity,action);
+        if(accepted) updateHud();
+        return accepted;
+    });
     mapWidget->setHarvestHandler([this](CropType type, int quantity) {
         return m_economy.collectHarvest(type, quantity);
     });
@@ -312,6 +324,7 @@ void MainWindow::enterFarm() {
     m_saveEnabled = true;
     m_gameClock.setElapsedGameMinutes(m_committedMinutes);
     loadGame();
+    m_economy.ensureAxe();
     applyClock(ClockEvent::Load);
     updateHud();
     m_pages->setCurrentWidget(m_gameView);
@@ -905,7 +918,7 @@ bool MainWindow::isCompatibleSave(const GameSaveData &data) const {
     const int maxX = mapWidget->mapWidth() * mapWidget->tileWidth() - character->width();
     const int maxY = mapWidget->mapHeight() * mapWidget->tileHeight() - character->height();
     const auto &layer = data.world.cultivatedLayer;
-    return !layer.isEmpty() && layer.size() == mapWidget->mapHeight() &&
+    return mapWidget->canRestoreWorld(data.world) && !layer.isEmpty() && layer.size() == mapWidget->mapHeight() &&
            layer.first().size() == mapWidget->mapWidth() &&
            data.playerPosition.x() >= 0 && data.playerPosition.x() <= maxX &&
            data.playerPosition.y() >= 0 && data.playerPosition.y() <= maxY &&

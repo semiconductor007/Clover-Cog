@@ -4,6 +4,7 @@
 
 #include <QRandomGenerator>
 #include <QtGlobal>
+#include <algorithm>
 
 namespace {
 
@@ -76,6 +77,24 @@ void WorldState::initialize(const MapData &mapData) {
             m_trees.insert(QPoint(x, y), tree);
         }
     }
+    m_originalTreeLayer=m_treeLayer;
+    m_originalCollisionLayer=m_collisionLayer;
+    m_wholeTrees.clear();
+    int first=335;
+    for(const auto &set:mapData.tilesets)
+        if(set.sourcePath.endsWith(QStringLiteral("Trees, stumps and bushes.tsx"))) first=set.firstGid;
+    m_treeFirstGid=first;
+    // Sprout atlas: small 1x2, medium/fruit 2x2, and large 3x3 trees.
+    for(int y=0;y<m_mapHeight;++y) for(int x=0;x<m_mapWidth;++x) {
+        const int id=m_treeLayer[y][x]-first;
+        const int w=id==0?1:(id==45?3:2), h=id==45?3:2;
+        if(id!=0 && id!=1 && id!=3 && id!=5 && id!=7 && id!=9 && id!=45) continue;
+        bool matches=x+w<=m_mapWidth && y+h<=m_mapHeight;
+        for(int dy=0;matches && dy<h;++dy) for(int dx=0;dx<w;++dx)
+            if(m_treeLayer[y+dy][x+dx]!=first+id+dy*12+dx) matches=false;
+        if(matches) m_wholeTrees.append({QRect(x,y,w,h),QPoint(x+w/2,y+h-1),100,0});
+    }
+
 }
 
 bool WorldState::isValidTile(const QPoint &tilePos) const {
@@ -84,10 +103,22 @@ bool WorldState::isValidTile(const QPoint &tilePos) const {
 }
 
 bool WorldState::hasTreeAt(const QPoint &tilePos) const {
+    for(const auto &tree:m_wholeTrees)
+        if((tree.stage==0 && tree.bounds.contains(tilePos)) || (tree.stage==1 && tree.anchor==tilePos)) return true;
     return m_trees.contains(tilePos);
 }
 
 bool WorldState::damageTree(const QPoint &tilePos, int damage) {
+    if(!standingTreeBounds(tilePos).isEmpty()) {
+        if(damage<=0) return false;
+        for(auto &whole:m_wholeTrees) if((whole.stage==0 && whole.bounds.contains(tilePos)) ||
+                                      (whole.stage==1 && whole.anchor==tilePos)) {
+            whole.health=qMax(0,whole.health-damage);
+            if(!whole.health) {++whole.stage;whole.health=whole.stage==1?50:0;}
+            rebuildTreeLayers();return true;
+        }
+        return false;
+    }
     auto tree = m_trees.find(tilePos);
     if (tree == m_trees.end() || damage <= 0) {
         return false;
@@ -310,6 +341,7 @@ int WorldState::treeGidAt(const QPoint &tilePos) const {
 
 WorldStateSnapshot WorldState::snapshot() const {
     WorldStateSnapshot result;
+    for(const auto &tree:m_wholeTrees) result.trees.append({tree.anchor,tree.health,tree.stage});
     result.cultivatedLayer = m_cultivatedLayer;
     result.wateredTiles = m_wateredTiles;
     result.lastCompletedDay = m_lastCompletedDay;
@@ -372,10 +404,67 @@ bool WorldState::restore(const WorldStateSnapshot &snapshot) {
         }
     }
 
+    auto trees=m_wholeTrees;
+    for(auto &tree:trees) {tree.health=100;tree.stage=0;}
+    QSet<QPoint> seen;
+    for(const auto &saved:snapshot.trees) {
+        if(seen.contains(saved.anchor) || saved.stage<0 || saved.stage>2 ||
+            (saved.stage==2 ? saved.health!=0 : (saved.health<=0 || saved.health>(saved.stage==0?100:50)))) return false;
+        seen.insert(saved.anchor);
+        auto found=std::find_if(trees.begin(),trees.end(),[&](const auto &t){return t.anchor==saved.anchor;});
+        if(found==trees.end()) return false;
+        found->health=saved.health;found->stage=saved.stage;
+    }
+    m_wholeTrees=trees; rebuildTreeLayers();
     m_cultivatedLayer = snapshot.cultivatedLayer;
     m_cropLayer = restoredCropLayer;
     m_crops = restoredCrops;
     m_wateredTiles = snapshot.wateredTiles;
     m_lastCompletedDay = snapshot.lastCompletedDay;
     return true;
+}
+
+QRect WorldState::standingTreeBounds(const QPoint &tile) const {
+    for(const auto &tree:m_wholeTrees)
+        if((tree.stage==0 && tree.bounds.contains(tile)) || (tree.stage==1 && tree.anchor==tile)) return tree.bounds;
+    return {};
+}
+
+TreeChopResult WorldState::previewTreeChop(const QPoint &tile) const {
+    for(const auto &tree:m_wholeTrees) {
+        // Only the bottom/trunk row can be hit, not a distant crown.
+        if(tree.stage==2 || tile.y()!=tree.anchor.y() ||
+           (tree.stage==0 ? !tree.bounds.contains(tile) : tree.anchor!=tile)) continue;
+        const bool final=tree.health<=25;
+        return {true,tree.anchor,tree.bounds,final?(tree.stage==0?5:2):0,final && tree.stage==0,tree.health,tree.stage};
+    }
+    return {};
+}
+
+bool WorldState::commitTreeChop(const TreeChopResult &preview) {
+    if(!preview.success) return false;
+    const auto current=previewTreeChop(preview.anchor);
+    if(!current.success || current.wood!=preview.wood || current.felled!=preview.felled || current.health!=preview.health || current.stage!=preview.stage) return false;
+    for(auto &tree:m_wholeTrees) if(tree.anchor==preview.anchor) {
+        tree.health-=25;
+        if(tree.health<=0) { ++tree.stage; tree.health=tree.stage==1?50:0; }
+        rebuildTreeLayers(); return true;
+    }
+    return false;
+}
+
+void WorldState::rebuildTreeLayers() {
+    m_treeLayer=m_originalTreeLayer; m_collisionLayer=m_originalCollisionLayer;
+    for(const auto &tree:m_wholeTrees) {
+        if(tree.stage==0) continue;
+        for(int y=tree.bounds.top();y<=tree.bounds.bottom();++y)
+            for(int x=tree.bounds.left();x<=tree.bounds.right();++x) {
+                m_treeLayer[y][x]=0; m_collisionLayer[y][x]=0; m_trees.remove({x,y});
+            }
+        if(tree.stage==1) {
+            // Existing standalone stump in the Sprout atlas (local id 74).
+            m_treeLayer[tree.anchor.y()][tree.anchor.x()]=m_treeFirstGid+74;
+            m_collisionLayer[tree.anchor.y()][tree.anchor.x()]=1;
+        }
+    }
 }

@@ -100,6 +100,36 @@ private slots:
         QCOMPARE(economy.seedCount(CropType::Wheat),6);
     }
 
+    void axeChopsWholeTreeWithExistingSprites() {
+        EconomyService economy;QVERIFY(economy.ensureAxe());bar->setStock(economy);
+        map->setWoodHandler([&](int quantity,const std::function<bool()> &action){return economy.collectWoodWithAction(quantity,action);});
+        standAt({43,4});bar->selectTool(ToolType::Axe);
+        QCOMPARE(player->getCurrentTool().type,ToolType::Axe);
+        QSignalSpy hits(map,&MapWidget::treeChopped);
+        const auto before=map->worldSnapshot();
+        click(tileCenter({43,2})); // too far and the crown is not the hit target
+        QCOMPARE(hits.count(),0);
+        for(int hit=0;hit<4;++hit) {
+            click(tileCenter({43,3}));
+            QCOMPARE(hits.count(),hit+1);
+            click(tileCenter({43,3})); // the swing may not dispatch twice
+            QCOMPARE(hits.count(),hit+1);
+            if(hit<3) QTest::qWait(950);
+        }
+        QCOMPARE(economy.state().woodCount,5);
+        QTest::qWait(250);QDir().mkpath("captures");
+        QVERIFY(map->grab().save("captures/tree-falling.png"));
+        QTest::qWait(1000);
+        QVERIFY(map->grab().save("captures/tree-stump.png"));
+        click(tileCenter({44,3}));QTest::qWait(950);click(tileCenter({44,3}));
+        QCOMPARE(economy.state().woodCount,7);QCOMPARE(hits.count(),6);
+        QTest::qWait(950);click(tileCenter({44,3}));QCOMPARE(hits.count(),6);
+        QVERIFY(map->grab().save("captures/tree-cleared.png"));
+        // The neighboring tree is untouched even though its crown touches this one.
+        QVERIFY(map->hasTreeAt({44,5}));
+        QCOMPARE(before.trees.size(),map->worldSnapshot().trees.size());
+    }
+
     void interactionReach_data() {
         QTest::addColumn<QPoint>("offset");
         QTest::addColumn<int>("action");
@@ -665,7 +695,7 @@ private slots:
         QTest::keyRelease(&view, Qt::Key_A);
     }
 
-    void treesRemainScenery() {
+    void crownsRemainProtectedFromAxe() {
         const QPoint tree(46, 21);
         const QPoint standing = tree - QPoint(0, 1);
         player->setInitialPosition(standing * 16 + QPoint(8, 8) -
@@ -674,11 +704,11 @@ private slots:
         QVERIFY(map->hasTreeAt(tree));
         const int collision = map->collisionLayer().at(tree.y()).at(tree.x());
         QVERIFY(collision != 0);
-        // Even a stale selection from a previous UI cannot equip the retired axe.
+        // A crown is not the trunk hit target, even when the axe is equipped.
         bar->selectTool(ToolType::Axe);
         player->setCurrentTool(static_cast<int>(ToolType::Axe));
         QCOMPARE(bar->selectedTool(), ToolType::EmptyHand);
-        QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+        QCOMPARE(player->getCurrentTool().type, ToolType::Axe);
         for (int i = 0; i < 5; ++i) {
             click(player->geometry().center());
             click(tileCenter(tree));

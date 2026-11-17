@@ -1,5 +1,11 @@
 # 当前接口约定
 
+TREE-001：WorldState::previewTreeChop/commitTreeChop按整树生命/阶段复核；
+MapWidget::chopTree只接受范围内斧头输入，EconomyService::collectWoodWithAction先验证
+木材格位再提交，动画不发物品。SavedTreeState与woodCount/woodInChest为v4可选扩展，
+旧档默认完整树/零木材。稳定物品ID斧头1003、木材4002，不改现有ID或七列UI。
+跨域文件、兼容限制和验证见[砍树](TREE_CHOPPING.md)。
+
 ## 2026-11-15 主线整合
 
 睡眠保留自由熬夜。`canSleep()` / `sleepToNextMorning()` 只允许 20:00–05:59，白天拒绝。床边按 F 直接睡到最近的 06:00，不打开确认框。02:00 不强制昏迷，也不因载入凌晨存档自动跳时。午夜正常结算，每个日期只处理一次。凌晨睡眠到当天 06:00 不再次成长。E / Tab 打开背包，F 用于站点，Esc 暂停或关闭面板。UI 短暂显示同一次操作的结果，不参与业务结算。下方带日期的旧交接状态按历史保留，当前玩法见 [README](../README.md)。

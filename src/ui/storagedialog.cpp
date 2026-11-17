@@ -53,6 +53,7 @@ StorageDialog::StorageDialog(QWidget *parent)
         addRow(StorageItemKind::Seed, crop, item.localizedName + QStringLiteral("种子"), FarmIcons::crop(item.seedIcon));
     }
     addRow(StorageItemKind::Fertilizer, CropType::None, QStringLiteral("基础肥料"), FarmIcons::fertilizer());
+    addRow(StorageItemKind::Wood,CropType::None,QStringLiteral("木材"),FarmIcons::stackIcon(StackItem::Wood));
     m_table->hide();
 
     auto *actions = new QHBoxLayout;
@@ -66,7 +67,7 @@ StorageDialog::StorageDialog(QWidget *parent)
     const auto choose=[this](const InventoryStack &stack) {
         for (int i=0;i<m_rows.size();++i) {
             const auto &row=m_rows[i];
-            const int item=row.kind==StorageItemKind::Fertilizer ? StackItem::Fertilizer :
+            const int item=row.kind==StorageItemKind::Wood ? StackItem::Wood : row.kind==StorageItemKind::Fertilizer ? StackItem::Fertilizer :
                 row.kind==StorageItemKind::Seed ? StackItem::seed(row.crop) : StackItem::harvest(row.crop);
             if (item==stack.item) {m_table->setCurrentCell(i,0);updateButtons();break;}
         }
@@ -115,6 +116,8 @@ void StorageDialog::setState(const EconomyService &economy) {
             carried = economy.seedCount(row.crop);
             stored = storage.seedCounts.value(static_cast<int>(row.crop));
             break;
+        case StorageItemKind::Wood:
+            carried=economy.state().woodCount; stored=storage.woodCount; break;
         case StorageItemKind::Fertilizer:
             carried = economy.fertilizerCount();
             stored = storage.fertilizerCount;

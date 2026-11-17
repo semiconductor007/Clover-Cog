@@ -22,6 +22,8 @@ class CoreTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void wholeTreesChopPersistAndGiveWood();
+    void woodFullBagAndInvalidActionsAreAtomic();
     void gameClockConvertsElapsedTime();
     void seasonCalendarUsesTheClockDate();
     void cropCatalogHasIndependentStagesAndIcons();
@@ -45,6 +47,76 @@ private slots:
     void seedsAreConsumedAndPurchasedAtomically();
     void saveManagerRoundTripsGameStateAndKeepsBackup();
 };
+
+void CoreTests::wholeTreesChopPersistAndGiveWood() {
+    MapData map; QString error;
+    map.mapWidth=72;map.mapHeight=40;
+    map.treeLayer=QVector<QVector<int>>(40,QVector<int>(72));
+    map.collisionLayer=map.treeLayer;
+    for(int y=0;y<2;++y) for(int x=0;x<2;++x) {
+        map.treeLayer[2+y][43+x]=338+y*12+x;
+        map.collisionLayer[2+y][43+x]=1;
+    }
+    WorldState world;world.initialize(map);
+    EconomyService economy; QVERIFY(economy.ensureAxe());
+    const auto axes=economy.bagSlots(); QVERIFY(economy.ensureAxe()); QCOMPARE(economy.bagSlots(),axes);
+    const QPoint trunk(44,3);
+    QVERIFY(!world.previewTreeChop(QPoint(43,2)).success); // canopy is not a trunk
+    for(int i=0;i<4;++i) {
+        const auto preview=world.previewTreeChop(trunk);QVERIFY(preview.success);
+        QCOMPARE(preview.wood,i==3?5:0);
+        QVERIFY(economy.collectWoodWithAction(preview.wood,[&]{return world.commitTreeChop(preview);}));
+        QVERIFY(!world.commitTreeChop(preview)); // stale replay cannot damage it twice
+    }
+    QCOMPARE(world.treeGidAt({43,2}),0);
+    QCOMPARE(world.treeGidAt(trunk),409);
+    QCOMPARE(world.collisionLayer()[3][44],1);
+    QCOMPARE(world.collisionLayer()[2][43],0);
+    QCOMPARE(economy.state().woodCount,5);
+    GameSaveData save;save.gameMinutes=360;save.world=world.snapshot();save.economy=economy.state();
+    save.playerPosition={400,192};QTemporaryDir dir;QVERIFY(dir.isValid());
+    const QString path=dir.filePath("tree.json");QVERIFY(SaveManager::save(path,save,&error));
+    GameSaveData loaded;QVERIFY2(SaveManager::load(path,&loaded,&error),qPrintable(error));
+    WorldState restored;restored.initialize(map);QVERIFY(restored.restore(loaded.world));
+    QCOMPARE(restored.treeGidAt(trunk),409);
+    EconomyService assets;QVERIFY(assets.restore(loaded.economy));QCOMPARE(assets.state().woodCount,5);
+    for(int i=0;i<2;++i) {
+        const auto preview=restored.previewTreeChop(trunk);
+        QVERIFY(assets.collectWoodWithAction(preview.wood,[&]{return restored.commitTreeChop(preview);}));
+    }
+    QCOMPARE(restored.treeGidAt(trunk),0);QCOMPARE(restored.collisionLayer()[3][44],0);
+    QCOMPARE(assets.state().woodCount,7);QVERIFY(!restored.previewTreeChop(trunk).success);
+    QVERIFY(assets.transfer(StorageItemKind::Wood,CropType::None,StorageDirection::Deposit,3).success);
+    QCOMPARE(assets.state().woodCount,4);QCOMPARE(assets.storage().woodCount,3);
+    save.world=restored.snapshot();save.economy=assets.state();
+    QVERIFY(SaveManager::save(path,save,&error));
+    QVERIFY(SaveManager::load(path,&loaded,&error));
+    WorldState cleared;cleared.initialize(map);QVERIFY(cleared.restore(loaded.world));
+    QCOMPARE(cleared.treeGidAt(trunk),0);QCOMPARE(loaded.economy.storage.woodCount,3);
+    const QByteArray validFile=[&]{QFile f(path);f.open(QIODevice::ReadOnly);return f.readAll();}();
+    save.world.trees[0].anchor={1000,1000};QVERIFY(!SaveManager::save(path,save,&error));
+    {QFile f(path);QVERIFY(f.open(QIODevice::ReadOnly));QCOMPARE(f.readAll(),validFile);}
+    const auto current=world.snapshot();
+    auto bad=current;bad.trees[0].health=-1;QVERIFY(!world.restore(bad));
+    QCOMPARE(world.treeGidAt(trunk),409);
+}
+
+void CoreTests::woodFullBagAndInvalidActionsAreAtomic() {
+    EconomyService economy;auto state=economy.state();state.seedCounts[1]=100;QVERIFY(economy.restore(state));
+    for(int i=0;i<21;++i) if(!economy.bagSlots()[i].item) {
+        StackMove move;move.source=2;move.target=i;move.quantity=1;
+        move.expected=economy.bagSlots()[2];move.revision=economy.revision();QVERIFY(economy.moveStack(move));
+    }
+    bool called=false;const auto before=economy.state();
+    QVERIFY(!economy.collectWoodWithAction(5,[&]{called=true;return true;}));
+    QVERIFY(!called);QCOMPARE(economy.bagSlots(),before.bagSlots);QCOMPARE(economy.state().woodCount,0);
+    QVERIFY(!economy.collectWoodWithAction(-1,[]{return true;}));
+    EconomyService free;
+    QVERIFY(!free.collectWoodWithAction(5,[]{return false;}));QCOMPARE(free.state().woodCount,0);
+    bool reentered=true;
+    QVERIFY(free.collectWoodWithAction(5,[&]{reentered=free.collectWoodWithAction(1,[]{return true;});return true;}));
+    QVERIFY(!reentered);QCOMPARE(free.state().woodCount,5);QVERIFY(EconomyService::layoutMatches(free.state()));
+}
 
 void CoreTests::gameClockConvertsElapsedTime() {
     constexpr int speed = 1000;
