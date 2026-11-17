@@ -7,6 +7,7 @@ SeedShopDialog::SeedShopDialog(QWidget *parent)
     auto *goods = new QGridLayout;
     goods->setColumnStretch(1, 1);
     goods->setHorizontalSpacing(10);
+    goods->setVerticalSpacing(14);
     tableHeading(goods, 0, QStringLiteral("商品"), 2);
     tableHeading(goods, 2, QStringLiteral("单价"));
     tableHeading(goods, 3, QStringLiteral("持有"));
@@ -15,7 +16,9 @@ SeedShopDialog::SeedShopDialog(QWidget *parent)
     int row = 1;
     auto addGoods = [&](const QString &id, const QString &name, const QPixmap &icon,
                         int price, auto requestPurchase) {
-        productCell(goods, row, name, icon);
+        const int item = id == QStringLiteral("fertilizer") ? StackItem::Fertilizer
+            : StackItem::seed(CropCatalog::fromId(id));
+        productCell(goods, row, name, icon, FarmIcons::itemTooltip(item));
         goods->addWidget(new QLabel(QStringLiteral("%1 金币").arg(price), this), row, 2);
         auto *count = new QLabel(this);
         count->setObjectName(QStringLiteral("owned_%1").arg(id));
@@ -44,6 +47,7 @@ SeedShopDialog::SeedShopDialog(QWidget *parent)
                                  [this](int n) { emit fertilizerPurchaseRequested(n); });
     body->addLayout(goods);
     addFooter(QStringLiteral("购入的种子和肥料可在背包中选用。"));
+    useTradeStyle();
 }
 
 void SeedShopDialog::setState(const EconomyService &economy) {

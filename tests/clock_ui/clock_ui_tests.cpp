@@ -66,6 +66,7 @@ private slots:
     void onlySuccessfulActionsPlaySounds();
     void firstShowFitsViewport_data();
     void firstShowFitsViewport();
+    void fullscreenFillsViewportAndRestores();
     void visibleFeedbackAllowsMapInputAndExpires();
     void loadCatchesUpMissedMidnights();
     void sleepRefused_data();
@@ -861,6 +862,7 @@ void ClockUiTests::firstShowFitsViewport_data() {
 void ClockUiTests::firstShowFitsViewport() {
     QFETCH(QSize, size);
     QVERIFY(openGame(size));
+    QVERIFY(m_window->windowFlags().testFlag(Qt::FramelessWindowHint));
     auto *view = m_window->findChild<QGraphicsView *>();
     auto *bar = m_canvas->findChild<ItemBar *>();
     auto *header = m_canvas->findChild<QWidget *>("farmHeader");
@@ -888,6 +890,24 @@ void ClockUiTests::firstShowFitsViewport() {
     QDir().mkpath(QStringLiteral("captures"));
     bar->selectTool(ToolType::Hoe);
     QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-bottom-toolbar.png")));
+}
+
+void ClockUiTests::fullscreenFillsViewportAndRestores() {
+    QVERIFY(openGame(QSize(1040,640)));
+    m_window->showFullScreen();
+    QCoreApplication::processEvents(); m_window->updateGameScale();
+    QVERIFY(m_window->isFullScreen());
+    QVERIFY(m_window->windowFlags().testFlag(Qt::FramelessWindowHint));
+    auto *view=m_window->findChild<QGraphicsView *>(); QVERIFY(view);
+    const QRect scene=view->mapFromScene(view->sceneRect()).boundingRect();
+    QVERIFY(qAbs(scene.width()-view->viewport()->width()) <= 2);
+    QVERIFY(qAbs(scene.height()-view->viewport()->height()) <= 2);
+    auto *bar=m_canvas->findChild<ItemBar *>(); QVERIFY(bar);
+    QVERIFY(qAbs(bar->geometry().center().x()-m_canvas->rect().center().x())<=1);
+    QCOMPARE(view->transform().m11(),view->transform().m22());
+    m_window->showNormal(); QCoreApplication::processEvents(); m_window->updateGameScale();
+    QVERIFY(!m_window->isFullScreen());
+    QCOMPARE(m_canvas->size(),QSize(576,442));
 }
 
 void ClockUiTests::loadCatchesUpMissedMidnights() {

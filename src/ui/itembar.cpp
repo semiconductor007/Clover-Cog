@@ -95,6 +95,21 @@ bool ItemBar::eventFilter(QObject *watched, QEvent *event) {
     return QWidget::eventFilter(watched, event);
 }
 
+bool ItemBar::event(QEvent *event) {
+    if (event->type() == QEvent::ToolTip) {
+        auto *help = static_cast<QHelpEvent *>(event);
+        for (int i=0; !m_dragging && i<ToolbarSlotCount && i<m_cells.size(); ++i) {
+            if (slotRect(i).contains(help->pos()) && m_cells[i].item) {
+                QToolTip::showText(help->globalPos(), FarmIcons::itemTooltip(m_cells[i].item),this,slotRect(i));
+                return true;
+            }
+        }
+        QToolTip::hideText();
+        return true;
+    }
+    return QWidget::event(event);
+}
+
 void ItemBar::wheelEvent(QWheelEvent *event) {
     event->accept();
     if (!acceptsPlayerInput()) {

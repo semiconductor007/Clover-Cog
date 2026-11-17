@@ -39,6 +39,8 @@
 
 ## 打开、构建与运行
 
+本地增量默认以无标题栏全屏启动，F11切换窗口模式；全屏按屏幕比例扩展地图视区，详见[全屏模式](docs/FULLSCREEN.md)。本增量按用户要求交付到 `main`。
+
 在 Qt Creator 打开 `CHECK.pro`，选择 Qt 6 Desktop Kit 和仓库外的构建目录，构建后运行。Mac 集成版使用 Qt 6.10.3、C++17 编译器、Widgets、Multimedia，测试另用 Qt Test。Windows 队友可以继续用原 Qt 6 Kit。Qt Creator 的 Kit、个人项目设置和构建缓存保存在本机。
 
 在已配置好 qmake 和编译器的终端，从仓库根目录运行九组自动化测试。每组各用一个独立构建目录。
@@ -56,6 +58,10 @@ py -3 tests/run_all.py ../build-farm-tests
 若 Apple Clang 21 搭配 Qt 6.10.3 提示缺少 ARM intrinsic 声明，在本机 Kit 的 qmake 参数加上 `QMAKE_CXXFLAGS+=-include arm_acle.h`。测试命令可追加 `--qmake-arg 'QMAKE_CXXFLAGS+=-include arm_acle.h'`。
 
 ## 开发资料
+
+- 物品悬停介绍包含种子周期、适季、浇水要求和物品用途，见[物品介绍](docs/ITEM_HOVER.md)。本增量按用户要求交付到 `main`。
+
+- 本地商店/收购像素风及无标题栏调整见[交易UI](docs/TRADE_UI_STYLE.md)。F11切换全屏，Esc沿用暂停菜单；本增量按用户要求交付到 `main`。
 
 - 背包和物品栏见[交互与素材记录](docs/INVENTORY_INTERACTION.md)、[拖动操作](docs/INVENTORY_DRAG.md)和[底部物品栏](docs/BOTTOM_TOOLBAR.md)。支持拖动、交换、合并和拆分，没有整理或丢弃。
 - 地图表现见[箱子开合](docs/CHEST_ANIMATION.md)和[耕地自动拼接](docs/SOIL_AUTOTILING.md)。作物阶段与图标见[作物映射](docs/CROP_CATALOG.md)，四季配色和装饰见[季节资源](docs/SEASON_ASSETS.md)。

@@ -32,7 +32,43 @@ private slots:
     void marketQuoteAndSale();
     void storageTransfersAndFailureFeedback();
     void chestDragAndCancel();
+    void itemHoverDescriptions();
 };
+
+void PanelTests::itemHoverDescriptions() {
+    EconomyService economy;
+    SlotGrid grid; grid.setState(economy.bagSlots(),economy.revision());
+    grid.show(); QVERIFY(QTest::qWaitForWindowExposed(&grid));
+    const auto before = economy.state();
+    const int seed = StackItem::seed(CropType::Wheat);
+    int index=-1;
+    for(int i=0;i<economy.bagSlots().size();++i) if(economy.bagSlots()[i].item==seed) index=i;
+    QVERIFY(index>=0);
+    const QPoint pos=grid.cellRect(index).center();
+    QHelpEvent help(QEvent::ToolTip,pos,grid.mapToGlobal(pos));
+    QApplication::sendEvent(&grid,&help);
+    QVERIFY(QToolTip::text().contains(QStringLiteral("小麦种子")));
+    QVERIFY(QToolTip::text().contains(QStringLiteral("生长周期：3")));
+    QVERIFY(QToolTip::text().contains(QStringLiteral("冬季")));
+    QDir().mkpath("captures");
+    for(auto *widget : QApplication::topLevelWidgets())
+        if(widget->isVisible() && widget->inherits("QTipLabel"))
+            QVERIFY(widget->grab().save("captures/item-tooltip.png"));
+    const QPoint empty=grid.cellRect(20).center();
+    QHelpEvent leave(QEvent::ToolTip,empty,grid.mapToGlobal(empty));
+    QApplication::sendEvent(&grid,&leave);
+    QTRY_VERIFY(!QToolTip::isVisible());
+    SeedShopDialog shop; shop.setState(economy);
+    bool found=false;
+    for(auto *label:shop.findChildren<QLabel *>())
+        found |= label->toolTip().contains(QStringLiteral("生长周期：5"));
+    QVERIFY(found);
+    QVERIFY(FarmIcons::itemDescription(StackItem::Hoe).contains(QStringLiteral("可耕草地")));
+    QVERIFY(FarmIcons::itemDescription(StackItem::Fertilizer).contains(QStringLiteral("限用一次")));
+    QVERIFY(FarmIcons::itemDescription(StackItem::harvest(CropType::Potato)).contains(QStringLiteral("出售单价：3")));
+    QCOMPARE(economy.state().bagSlots,before.bagSlots);
+    QCOMPARE(economy.coins(),before.coins);
+}
 
 void PanelTests::bagToolsAndQuantitiesStayUnchanged() {
     EconomyService economy;
@@ -126,6 +162,11 @@ void PanelTests::shopOrders() {
     });
     shop.show();
     QVERIFY(QTest::qWaitForWindowExposed(&shop));
+    QVERIFY(shop.windowFlags().testFlag(Qt::FramelessWindowHint));
+    auto *shopClose = shop.findChild<QPushButton *>("closePanel");
+    QVERIFY(shopClose && shopClose->y() < 70);
+    QDir().mkpath("captures");
+    QVERIFY(shop.grab().save("captures/shop-pixel.png"));
     auto *firstButton = shop.findChild<QPushButton *>("buy_wheat_1");
     QVERIFY(firstButton);
     firstButton->setFocus();
@@ -180,6 +221,8 @@ void PanelTests::marketQuoteAndSale() {
     });
     market.show();
     QVERIFY(QTest::qWaitForWindowExposed(&market));
+    QVERIFY(market.windowFlags().testFlag(Qt::FramelessWindowHint));
+    QVERIFY(market.grab().save("captures/market-pixel.png"));
     QTest::mouseClick(sell, Qt::LeftButton);
     QTest::mouseClick(sell, Qt::LeftButton);
     QCOMPARE(sold.count(), 1);

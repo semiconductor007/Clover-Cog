@@ -9,6 +9,7 @@ MarketDialog::MarketDialog(QWidget *parent)
     auto *goods = new QGridLayout;
     goods->setColumnStretch(1, 1);
     goods->setHorizontalSpacing(16);
+    goods->setVerticalSpacing(14);
     tableHeading(goods, 0, QStringLiteral("农产品"), 2);
     tableHeading(goods, 2, QStringLiteral("单价"));
     tableHeading(goods, 3, QStringLiteral("持有"));
@@ -17,7 +18,8 @@ MarketDialog::MarketDialog(QWidget *parent)
     int row = 1;
     for (CropType crop : CropCatalog::cropTypes()) {
         const auto &def = CropCatalog::definition(crop);
-        productCell(goods, row, def.localizedName, FarmIcons::crop(def.harvestIcon));
+        productCell(goods, row, def.localizedName, FarmIcons::crop(def.harvestIcon),
+                    FarmIcons::itemTooltip(StackItem::harvest(crop)));
         goods->addWidget(new QLabel(QStringLiteral("%1 金币").arg(def.sellPrice), this), row, 2);
         auto *quantity = new QSpinBox(this);
         quantity->setObjectName(QStringLiteral("sellQuantity_%1").arg(def.id));
@@ -48,6 +50,7 @@ MarketDialog::MarketDialog(QWidget *parent)
     m_sell = makeButton(QStringLiteral("出售全部农产品"), QStringLiteral("sellAll"));
     connect(m_sell, &QPushButton::clicked, this, &MarketDialog::saleRequested);
     addFooter(QStringLiteral("输入或调整要卖的份数，再点同行的「卖出」。"), m_sell);
+    useTradeStyle();
 }
 
 void MarketDialog::setState(const EconomyService &economy) {

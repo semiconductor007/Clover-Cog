@@ -84,6 +84,22 @@ private slots:
         scene.clear();
     }
 
+    void toolbarHoverUsesPointedItem() {
+        EconomyService economy; bar->setStock(economy); bar->selectSlot(0);
+        const QPoint point(16+2*32,bar->height()-24);
+        QHelpEvent help(QEvent::ToolTip,point,SlotDropSurface::globalPoint(bar,point));
+        QApplication::sendEvent(bar,&help);
+        QVERIFY(QToolTip::text().contains(QStringLiteral("小麦种子")));
+        QVERIFY(QToolTip::text().contains(QStringLiteral("生长周期：3")));
+        QCOMPARE(bar->selectedSlot(),0);
+        const QPoint empty(16+6*32,bar->height()-24);
+        QHelpEvent blank(QEvent::ToolTip,empty,SlotDropSurface::globalPoint(bar,empty));
+        QApplication::sendEvent(bar,&blank);
+        QTRY_VERIFY(!QToolTip::isVisible());
+        QCOMPARE(bar->selectedSlot(),0);
+        QCOMPARE(economy.seedCount(CropType::Wheat),6);
+    }
+
     void interactionReach_data() {
         QTest::addColumn<QPoint>("offset");
         QTest::addColumn<int>("action");

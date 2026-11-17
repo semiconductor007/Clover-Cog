@@ -5,6 +5,7 @@
 #include <QPixmap>
 #include <QPainter>
 #include "economy/economyservice.h"
+#include <QStringList>
 
 namespace FarmIcons {
 inline QRectF hotbarCell(const QRectF &frame, int index) {
@@ -86,6 +87,34 @@ inline QString stackName(const InventoryStack &stack) {
         if (stack.item/1000==2) name+=QStringLiteral("种子");
     }
     return name+QStringLiteral(" × %1").arg(stack.quantity);
+}
+
+inline QString itemDescription(int item) {
+    if (!item || !StackItem::valid(item)) return {};
+    if (item == StackItem::Hoe) return QStringLiteral("锄头\n将可耕草地翻成耕地，再种下种子。");
+    if (item == StackItem::Water) return QStringLiteral("水壶\n给耕地浇水。作物在浇过水的生长日推进成长，缺水则停滞。");
+    if (item == StackItem::Fertilizer)
+        return QStringLiteral("基础肥料\n用于未成熟作物，每株限用一次。\n下一个浇过水的生长日额外成长 1 天；缺水时保留效果。");
+    const auto &crop = CropCatalog::definition(StackItem::crop(item));
+    if (item / 1000 == 2) {
+        QStringList seasons;
+        for (Season season : {Season::Spring, Season::Summer, Season::Autumn, Season::Winter})
+            if (CropCatalog::canPlant(crop.type, season)) seasons.append(SeasonCalendar::seasonName(season));
+        return QStringLiteral("%1种子\n生长周期：%2 个浇水生长日\n适合季节：%3\n每天浇水，缺水当日不成长；已种作物可跨季生长。\n每次收获：%4 份%1\n种子单价：%5 金币")
+            .arg(crop.localizedName).arg(crop.growthDays).arg(seasons.join(QStringLiteral("、")))
+            .arg(crop.harvestYield).arg(crop.seedPrice);
+    }
+    return QStringLiteral("%1\n农产品，可携带到收购点出售，也可存入箱子。\n出售单价：%2 金币")
+        .arg(crop.localizedName).arg(crop.sellPrice);
+}
+
+inline QString itemTooltip(int item) {
+    const auto lines = itemDescription(item).split(QLatin1Char('\n'));
+    if (lines.isEmpty() || lines.first().isEmpty()) return {};
+    QString html = QStringLiteral("<div style='max-width:300px;color:#563b2b'><b>%1</b>")
+        .arg(lines.first().toHtmlEscaped());
+    for (int i=1; i<lines.size(); ++i) html += QStringLiteral("<br>%1").arg(lines[i].toHtmlEscaped());
+    return html + QStringLiteral("</div>");
 }
 } // namespace FarmIcons
 

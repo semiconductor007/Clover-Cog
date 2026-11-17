@@ -112,7 +112,8 @@ protected:
     bool event(QEvent *event) override {
         if (event->type()==QEvent::ToolTip) {
             auto *help=static_cast<QHelpEvent *>(event); const int i=indexAt(help->pos());
-            if (i>=0 && m_cells[i].item) QToolTip::showText(help->globalPos(),FarmIcons::stackName(m_cells[i]),this);
+            if (!m_dragging && i>=0 && m_cells[i].item)
+                QToolTip::showText(help->globalPos(),FarmIcons::itemTooltip(m_cells[i].item),this,cellRect(i));
             else QToolTip::hideText();
             return true;
         }
@@ -133,6 +134,7 @@ protected:
         if (!m_pressed) return;
         if (!m_dragging && (event->position().toPoint()-m_press).manhattanLength()>=QApplication::startDragDistance()) {
             m_dragging=true;
+            QToolTip::hideText();
             QPixmap ghost(48,52); ghost.fill(Qt::transparent); QPainter p(&ghost);
             FarmIcons::centeredIcon(p,FarmIcons::stackIcon(m_command.expected.item),QRect(0,0,48,40),32);
             p.setPen(Qt::white); p.drawText(QRect(0,32,48,20),Qt::AlignCenter,QString::number(m_command.quantity)); p.end();

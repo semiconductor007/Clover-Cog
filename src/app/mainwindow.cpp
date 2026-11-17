@@ -22,6 +22,7 @@
 #include <QMouseEvent>
 #include <QScreen>
 #include <QSoundEffect>
+#include <QShortcut>
 #include <QTimer>
 #include <QUrl>
 #include <QWheelEvent>
@@ -50,7 +51,16 @@ MainWindow::MainWindow(QWidget *parent)
     , clickCursor(QPixmap(":/ui/sprout/Catpaw holding Mouse icon.png"), 8, 8)
 {
     setWindowTitle(QStringLiteral("四季农场"));
+    setWindowFlag(Qt::FramelessWindowHint);
+    auto *fullscreen = new QShortcut(QKeySequence(Qt::Key_F11), this);
+    fullscreen->setAutoRepeat(false);
+    connect(fullscreen, &QShortcut::activated, this, [this] {
+        if (isFullScreen()) showNormal(); else showFullScreen();
+        QTimer::singleShot(0, this, &MainWindow::updateGameScale);
+    });
     setCursor(customCursor);
+    qApp->setStyleSheet(qApp->styleSheet() + QStringLiteral(
+        "QToolTip { background-color: #f3dfb8; color: #563b2b; border: 2px solid #a37754; padding: 9px; font-size: 13px; }"));
 
 
     m_gameCanvas->setFixedSize(CanvasWidth, CanvasHeight);
@@ -494,11 +504,29 @@ void MainWindow::updateGameScale() {
         return;
     }
 
+    // Expand the visible world to the screen aspect, rather than stretching the
+    // original 4:3 scene or leaving large side bars on widescreen displays.
+    const int logicalWidth = isFullScreen()
+        ? qMax(320, qRound(qreal(CanvasHeight) * viewportSize.width() / viewportSize.height()))
+        : CanvasWidth;
+    if (m_gameCanvas->width() != logicalWidth) {
+        m_gameCanvas->setFixedSize(logicalWidth, CanvasHeight);
+        m_gameScene->setSceneRect(m_gameCanvas->rect());
+        mapWidget->setGeometry(0, HeaderHeight, logicalWidth, MapHeight);
+        if (auto *header = m_gameCanvas->findChild<QWidget *>(QStringLiteral("farmHeader")))
+            header->setGeometry(0, 0, logicalWidth, HeaderHeight);
+        itemBar->move((logicalWidth-itemBar->width())/2,CanvasHeight-itemBar->height()-8);
+        m_statusLabel->setMaximumWidth(logicalWidth-24);
+        m_statusLabel->move((logicalWidth-m_statusLabel->width())/2,HeaderHeight+8);
+        mapWidget->setViewportCenter(character->absolutePosition().x()+character->width()/2,
+                                     character->absolutePosition().y()+character->height()/2);
+    }
+
     const qreal availableScale = qMin(
         static_cast<qreal>(viewportSize.width()) / m_gameCanvas->width(),
         static_cast<qreal>(viewportSize.height()) / m_gameCanvas->height());
     const qreal dpr = m_gameView->viewport()->devicePixelRatioF();
-    const qreal pixelScale = availableScale >= 1.0
+    const qreal pixelScale = !isFullScreen() && availableScale >= 1.0
         ? qFloor(availableScale * dpr) / dpr : availableScale;
 
     m_gameView->resetTransform();
@@ -530,7 +558,7 @@ void MainWindow::showStatus(const QString &message) {
     m_statusLabel->setText(message);
     m_statusLabel->setWordWrap(m_statusLabel->sizeHint().width() > m_statusLabel->maximumWidth());
     m_statusLabel->adjustSize();
-    m_statusLabel->move((CanvasWidth - m_statusLabel->width()) / 2, HeaderHeight + 8);
+    m_statusLabel->move((m_gameCanvas->width() - m_statusLabel->width()) / 2, HeaderHeight + 8);
     m_statusLabel->show();
     m_statusTimer->start();
 }
