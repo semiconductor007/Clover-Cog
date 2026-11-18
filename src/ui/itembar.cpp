@@ -123,9 +123,17 @@ void ItemBar::wheelEvent(QWheelEvent *event) {
     const int steps = m_wheelRemainder / 120;
     m_wheelRemainder %= 120;
     if (steps) {
-        const int current = m_activeSlot<0 ? (steps < 0 ? -1 : 0) : m_activeSlot;
-        const int next = (current - steps % ToolbarSlotCount + ToolbarSlotCount) % ToolbarSlotCount;
-        selectSlot(next);
+        // One high-resolution wheel event selects one occupied slot, even for a large delta.
+        const int direction = steps < 0 ? 1 : -1;
+        int next = m_activeSlot;
+        if (next < 0 && direction < 0) next = 0;
+        for (int visited = 0; visited < ToolbarSlotCount; ++visited) {
+            next = (next + direction + ToolbarSlotCount) % ToolbarSlotCount;
+            if (next < m_cells.size() && m_cells[next].item && m_cells[next].quantity > 0) {
+                selectSlot(next);
+                break;
+            }
+        }
     }
     if (event->phase() == Qt::ScrollEnd)
         m_wheelRemainder = 0;

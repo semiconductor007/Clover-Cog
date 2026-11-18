@@ -1,5 +1,7 @@
 # 素材来源与许可核对记录
 
+右上角面板的金币图标 `resources/ui/hud-coins.png` 来自 Cup Nooble 的 Sprout Lands Premium UI Pack（`UI Sprites/Icons/special icons/coins.png`），边框复用已登记的背包图集。[UI 素材许可](../resources/ui/NOTICE.txt)
+
 2026-11-18 砍树新增实际使用图集：resources/trees/fall.png与materials.png分别原样取自
 Cup Nooble Sprout Lands Premium包的Objects/Tree animations/tree_fall_animation_sprite_sheet.png、
 Objects/Items/tools-n-meterial-items.png，沿用现有Premium许可。斧头角色动作和树桩来自既有图集。

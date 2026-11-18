@@ -1,4 +1,5 @@
 Inventory_Blocks_Spritesheet.png (inventory-slots.png)
+coins.png (hud-coins.png): UI Sprites/Icons/special icons, Premium UI Pack.
 Assets -From : Sprout Lands -By : Cup Nooble
 https://cupnooble.itch.io/sprout-lands-ui-pack
 

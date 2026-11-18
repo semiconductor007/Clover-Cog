@@ -270,10 +270,126 @@ private slots:
     }
 
     void soilAutotileMasks_data() {
+        // All masks are based on cultivated state, never decorative layers.
         QTest::addColumn<int>("mask");
         QTest::addColumn<bool>("wet");
         for (int mask = 0; mask < 16; ++mask) for (bool wet : {false,true})
             QTest::newRow(qPrintable(QStringLiteral("mask%1_%2").arg(mask).arg(wet))) << mask << wet;
+    }
+
+    void wheelSkipsEmptySlots() {
+        EconomyService economy;
+        auto state = economy.state();
+        state.seedCounts.clear(); state.fertilizerCount = 0;
+        state.bagSlots.clear(); state.chestSlots.clear();
+        QVERIFY(economy.restore(state));
+        bar->setStock(economy);
+        bar->selectSlot(1);
+        scroll(tileCenter(plot), -120);
+        QCOMPARE(bar->selectedSlot(), 0);
+        scroll(tileCenter(plot), 120);
+        QCOMPARE(bar->selectedSlot(), 1);
+        auto cells = economy.state();
+        cells.bagSlots[6] = cells.bagSlots[1]; cells.bagSlots[1] = {};
+        QVERIFY(economy.restore(cells)); bar->setStock(economy); bar->selectSlot(0);
+        scroll(tileCenter(plot), -120); QCOMPARE(bar->selectedSlot(), 6);
+        scroll(tileCenter(plot), -120); QCOMPARE(bar->selectedSlot(), 0);
+        scroll(tileCenter(plot), 360); QCOMPARE(bar->selectedSlot(), 6);
+        bar->selectTool(ToolType::EmptyHand);
+        scroll(tileCenter(plot), -120); QCOMPARE(bar->selectedSlot(), 0);
+        bar->selectTool(ToolType::EmptyHand);
+        scroll(tileCenter(plot), 120); QCOMPARE(bar->selectedSlot(), 6);
+        cells = economy.state();
+        cells.chestSlots[0] = cells.bagSlots[6]; cells.bagSlots[6] = {};
+        QVERIFY(economy.restore(cells)); bar->setStock(economy); bar->selectSlot(0);
+        scroll(tileCenter(plot), -120); QCOMPARE(bar->selectedSlot(), 0);
+        cells = economy.state(); cells.chestSlots[1] = cells.bagSlots[0]; cells.bagSlots[0] = {};
+        QVERIFY(economy.restore(cells)); bar->setStock(economy);
+        scroll(tileCenter(plot), -120); QCOMPARE(bar->selectedSlot(), -1);
+        scroll(tileCenter(plot), 120); QCOMPARE(bar->selectedSlot(), -1);
+        QCOMPARE(economy.state().bagSlots, cells.bagSlots);
+    }
+
+    void flowersDoNotJoinOrCoverSoil() {
+        MapData data; QString error;
+        QVERIFY(MapLoader::load(QStringLiteral(":/map/map6.tmj"), &data, &error));
+        WorldState world; world.initialize(data);
+        auto state = world.snapshot();
+        for (auto &row : state.cultivatedLayer) row.fill(0);
+        state.crops.clear(); state.wateredTiles.clear();
+        state.cultivatedLayer[5][5] = 135;
+        QVERIFY(world.restore(state));
+        MapRenderLayer soil; soil.role = MapLayerRole::Cultivated;
+        MapRenderLayer flowers; flowers.role = MapLayerRole::Static;
+        flowers.tiles = QVector<QVector<int>>(data.mapHeight, QVector<int>(data.mapWidth));
+        MapRenderer renderer;
+        const auto render = [&] {
+            QPixmap result(48,48); result.fill(QColor("#b8cf75"));
+            QPainter p(&result);
+            renderer.paint(p,result.rect(),QPoint(4,4)*16,data.mapWidth,data.mapHeight,
+                           16,16,map->originalTilesets(),{soil,flowers},world);
+            return result.toImage();
+        };
+        const QImage isolated = render();
+        for (int gid : {63, 300, 301, 302}) {
+            for (auto &row : flowers.tiles) row.fill(0);
+            for (QPoint pos : {QPoint(5,4),QPoint(6,5),QPoint(5,6),QPoint(4,5)})
+                flowers.tiles[pos.y()][pos.x()] = gid;
+            QCOMPARE(render().copy(16,16,16,16), isolated.copy(16,16,16,16));
+            // Foliage originally placed on this tile must not cover the newly tilled soil.
+            flowers.tiles[5][5] = gid;
+            QCOMPARE(render().copy(16,16,16,16), isolated.copy(16,16,16,16));
+        }
+        const QImage besideFlowers = render();
+        state.wateredTiles.insert(QPoint(5,5)); QVERIFY(world.restore(state));
+        const QImage wet = render();
+        QCOMPARE(wet.copy(32,16,16,16), besideFlowers.copy(32,16,16,16));
+        QVERIFY(wet.copy(16,16,16,16) != besideFlowers.copy(16,16,16,16));
+        state.wateredTiles.clear(); state.cultivatedLayer[5][5] = 0;
+        QVERIFY(world.restore(state));
+        const QImage recovered = render();
+        QVERIFY(recovered.copy(16,16,16,16) != isolated.copy(16,16,16,16));
+        state.cultivatedLayer[5][5] = 135; QVERIFY(world.restore(state));
+        flowers.tiles[5][5] = 438; // Structural decoration must not be hidden as foliage.
+        QVERIFY(render().copy(16,16,16,16) != isolated.copy(16,16,16,16));
+        QPixmap preview(576,288); preview.fill(Qt::transparent);
+        QPainter painter(&preview);
+        painter.drawImage(QRect(0,0,288,288),besideFlowers);
+        painter.drawImage(QRect(288,0,288,288),wet);
+        painter.end(); QDir().mkpath("captures");
+        QVERIFY(preview.save("captures/soil-near-flowers.png"));
+    }
+
+    void wheelCyclesFirstAndThirdWithLargeDeltas() {
+        EconomyService economy;
+        auto state = economy.state();
+        state.seedCounts.clear(); state.fertilizerCount = 0;
+        state.bagSlots.clear(); state.chestSlots.clear();
+        QVERIFY(economy.restore(state));
+        state = economy.state();
+        state.chestSlots[0] = state.bagSlots[0];
+        state.chestSlots[1] = state.bagSlots[1];
+        state.bagSlots[0] = {StackItem::Axe, 1};
+        state.bagSlots[1] = {};
+        state.bagSlots[2] = {StackItem::Wood, 3};
+        state.woodCount = 3;
+        QVERIFY(economy.restore(state));
+        bar->setStock(economy);
+        for (int delta : {-120, -240, -360, -1200}) {
+            bar->selectSlot(0);
+            QCOMPARE(player->getCurrentTool().type, ToolType::Axe);
+            scroll(tileCenter(plot), delta); QCOMPARE(bar->selectedSlot(), 2);
+            QCOMPARE(player->getCurrentTool().type, ToolType::EmptyHand);
+            scroll(tileCenter(plot), delta); QCOMPARE(bar->selectedSlot(), 0);
+            scroll(tileCenter(plot), -delta); QCOMPARE(bar->selectedSlot(), 2);
+            scroll(tileCenter(plot), -delta); QCOMPARE(bar->selectedSlot(), 0);
+        }
+        bar->selectSlot(0);
+        scroll(tileCenter(plot), 0, -15); QCOMPARE(bar->selectedSlot(), 0);
+        scroll(tileCenter(plot), 0, -15); QCOMPARE(bar->selectedSlot(), 2);
+        scroll(tileCenter(plot), 0, -90); QCOMPARE(bar->selectedSlot(), 0);
+        QCOMPARE(economy.state().bagSlots, state.bagSlots);
+        QCOMPARE(economy.state().woodCount, 3);
     }
 
     void soilAutotileMasks() {

@@ -7,7 +7,7 @@ Summer evenings stay light longer than winter evenings. A short chime marks a su
 | Action | Input |
 | --- | --- |
 | Move | W / A / S / D |
-| Select a tool or item | Scroll or click a toolbar slot |
+| Select a tool or item | Scroll through occupied toolbar slots or click a slot |
 | Till, plant, fertilize, water or harvest | Left-click a tile with the appropriate item |
 | Open the backpack or equip seeds and fertilizer | Press E or Tab, then select a tool or item |
 | Use the bed, shop or market | Press F at the corresponding location. Sleep is available from 20:00 to 05:59 |

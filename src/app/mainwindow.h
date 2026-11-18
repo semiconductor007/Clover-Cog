@@ -18,6 +18,7 @@
 
 class DayNightOverlay;
 class FarmPanel;
+class FarmHud;
 class QDialog;
 class FarmMenus;
 class QStackedWidget;
@@ -66,6 +67,7 @@ private:
     void updateGameScale();
     void updateHud();
     void showStatus(const QString &message);
+    void positionStatus();
     void openInventory();
     void openSeedShop();
     void openMarket();
@@ -119,13 +121,10 @@ private:
     SeasonAppearance m_seasons;
     DayNightOverlay *m_daylight;
     SceneTransition *m_transition;
-    QLabel *m_coinsLabel;
-    QLabel *m_inventoryLabel;
+    FarmHud *m_hud;
     QLabel *m_suppliesLabel;
     QLabel *m_statusLabel;
     QTimer *m_statusTimer;
-    QLabel *timeLabel;
-    QLabel *dayLabel;
     QCursor customCursor;
     QCursor clickCursor;
 };
