@@ -17,37 +17,33 @@ class FarmHud final : public QWidget {
 public:
     explicit FarmHud(QWidget *canvas) : QWidget(canvas),
         m_date(new QLabel(this)), m_time(new QLabel(this)),
-        m_money(new QLabel(this)), m_capacity(new QLabel(this)), m_water(new QLabel(this)),
+        m_money(new QLabel(this)), m_water(new QLabel(this)),
         m_frame(QPixmap(QStringLiteral(":/farm-ui/slots.png")).copy(2, 98, 44, 44)),
         m_coin(QPixmap(QStringLiteral(":/farm-ui/coins.png")).copy(0, 16, 32, 32)) {
         setObjectName(QStringLiteral("farmHud"));
-        setAccessibleName(QStringLiteral("日期、时间、金币、背包容量与水壶水量"));
+        setAccessibleName(QStringLiteral("日期、时间、金币与水壶水量"));
         setFocusPolicy(Qt::NoFocus);
         setAttribute(Qt::WA_NoMousePropagation);
-        setFixedSize(168, 142);
+        setFixedSize(168, 134);
         // Leave the map clickable in the gap between the two visible panels.
-        setMask(QRegion(clockFrame()) + QRegion(suppliesFrame()));
+        setMask(QRegion(clockFrame()) + QRegion(moneyFrame()) + QRegion(waterFrame()));
         setStyleSheet(QStringLiteral("QLabel { color: #563b2b; background: transparent; }"));
         m_date->setObjectName(QStringLiteral("gameDate"));
         m_time->setObjectName(QStringLiteral("gameTime"));
         m_money->setObjectName(QStringLiteral("gameMoney"));
-        m_capacity->setObjectName(QStringLiteral("gameCapacity"));
         m_water->setObjectName(QStringLiteral("gameWater"));
         m_date->setGeometry(9, 8, 150, 18);
         m_time->setGeometry(38, 33, 116, 28);
-        m_money->setGeometry(54, 82, 104, 18);
-        m_capacity->setGeometry(31, 101, 127, 17);
-        m_water->setGeometry(31, 118, 127, 17);
+        m_money->setGeometry(54, 83, 104, 18);
+        m_water->setGeometry(31, 114, 127, 16);
         m_date->setAlignment(Qt::AlignCenter);
         m_time->setAlignment(Qt::AlignCenter);
         m_money->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_capacity->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_water->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_time->setAccessibleName(QStringLiteral("时间"));
         m_money->setAccessibleName(QStringLiteral("金币"));
-        m_capacity->setAccessibleName(QStringLiteral("农产品背包容量"));
         m_water->setAccessibleName(QStringLiteral("水壶剩余水量"));
-        for (auto *label : {m_date, m_time, m_money, m_capacity, m_water}) {
+        for (auto *label : {m_date, m_time, m_money, m_water}) {
             label->setAttribute(Qt::WA_TransparentForMouseEvents);
             QFont font = label->font();
             font.setBold(label == m_time || label == m_money);
@@ -73,10 +69,6 @@ public:
         m_money->setText(QLocale(QLocale::English).toString(coins));
         fit(m_money, 13);
     }
-    void setCapacity(int used, int total) {
-        m_capacity->setText(QStringLiteral("背包 %1 / %2").arg(used).arg(total));
-        fit(m_capacity, 12);
-    }
     void setWater(int remaining, int total) {
         m_water->setText(QStringLiteral("水壶 %1 / %2").arg(remaining).arg(total));
         fit(m_water, 12);
@@ -91,8 +83,9 @@ protected:
         QPainter painter(this);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         drawFrame(painter, clockFrame());
-        drawFrame(painter, suppliesFrame());
-        painter.drawPixmap(QRect(31, 81, 20, 20), m_coin);
+        drawFrame(painter, moneyFrame());
+        drawFrame(painter, waterFrame());
+        painter.drawPixmap(QRect(31, 82, 20, 20), m_coin);
         painter.setPen(QPen(QColor("#b48a60"), 1));
         painter.drawLine(12, 29, 155, 29);
         const QPointF centre(23, 47);
@@ -115,7 +108,8 @@ protected:
 
 private:
     static QRect clockFrame() { return QRect(0, 0, 168, 74); }
-    static QRect suppliesFrame() { return QRect(24, 78, 144, 64); }
+    static QRect moneyFrame() { return QRect(24, 78, 144, 28); }
+    static QRect waterFrame() { return QRect(24, 110, 144, 24); }
     void anchor() { move(qMax(0, parentWidget()->width() - width() - 8), 8); }
     static void fit(QLabel *label, int largest) {
         QFont font = label->font();
@@ -140,7 +134,6 @@ private:
     QLabel *m_date;
     QLabel *m_time;
     QLabel *m_money;
-    QLabel *m_capacity;
     QLabel *m_water;
     QPixmap m_frame;
     QPixmap m_coin;

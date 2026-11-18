@@ -1,6 +1,6 @@
 # Clover-Cog
 
-A pixel-art farming game built with C++17, Qt 6 Widgets, Qt Multimedia and qmake. Explore the 72×40 farm, grow wheat, potatoes, carrots and beets, sell the harvest at the market and buy seeds and fertilizer. Each season lasts seven days. Stay up as late as you like, including past 02:00. At the bed, press F between 20:00 and 05:59 to sleep directly to the nearest 06:00, without confirmation. Evening sleep reaches the next morning. Sleep after midnight reaches the same morning. Daytime sleep is refused. Midnight settles each completed day once, and sleeping after midnight does not settle it again. Sleep and season changes share a short fade to black.
+A pixel-art farming game built with C++17, Qt 6 Widgets, Qt Multimedia and qmake. Explore the 72×40 farm, grow wheat, potatoes, carrots and beets, sell the harvest at the market and buy seeds and fertilizer. Each season lasts seven days. Press F within one tile of the bed and confirm to rest until the next 06:00. If you are still awake at 02:00, you pass out and wake beside your bed. Loading a save between 02:00 and 05:59 triggers the same recovery. Midnight settles each completed day once. Waking shows a Chinese summary with the morning date, farm results, and save status.
 
 Summer evenings stay light longer than winter evenings. A short chime marks a successful wake-up save. If saving fails, the game pauses at the settled morning. You can retry the save or continue playing with the farm as it is.
 
@@ -11,7 +11,7 @@ Summer evenings stay light longer than winter evenings. A short chime marks a su
 | Till, plant, fertilize, water or harvest | Left-click a tile with the appropriate item |
 | Refill the watering can | Press F beside the well east of the front door or the well in the eastern field, with any tool selected |
 | Open the backpack or equip seeds and fertilizer | Press E or Tab, then select a tool or item |
-| Use the bed, shop or market | Press F at the corresponding location. Sleep is available from 20:00 to 05:59 |
+| Use the bed, shop or market | Press F within one tile. Confirm when resting at the bed |
 | Store or retrieve items | Stand directly south of the plaza chest and press F |
 | Pause the farm | Press Esc in the farm to resume, read the guide or save and return to the title screen |
 | Close a panel | Esc, or E / Tab in the backpack |

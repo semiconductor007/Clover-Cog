@@ -62,6 +62,12 @@ QDialog *panel(const QString &name) {
     return nullptr;
 }
 
+void finishMorning(MainWindow &game) {
+    auto *button = game.findChild<QPushButton *>("continueMorning");
+    QTRY_VERIFY_WITH_TIMEOUT((button = game.findChild<QPushButton *>("continueMorning")) && button->isVisible(), 3000);
+    QTest::mouseClick(button, Qt::LeftButton);
+}
+
 MapWidget *gameMap(MainWindow &game) {
     auto *view = game.findChild<QGraphicsView *>();
     if (!view) {
@@ -120,6 +126,8 @@ private slots:
     void canRefillsAtTheWell();
     void purchasedToolsSurviveReopening();
     void sellAtMarket();
+    void stationInteractionReach_data();
+    void stationInteractionReach();
     void continueVersionThreeNextToNewFence();
     void fullBackpackAtStorage();
     void newFarmFinancesItsNextCrop();
@@ -199,9 +207,12 @@ void GameplayPanelTests::inventoryHotkeyEverywhere() {
     QTest::keyClick(player, Qt::Key_E);
     QTRY_VERIFY(panel("inventoryDialog"));
     QVERIFY(!panel("shopDialog"));
-    QVERIFY(!game.findChild<QMessageBox *>("sleepConfirmation"));
+    QVERIFY(!game.findChild<QWidget *>("sleepConfirmation")->isVisible());
     QVERIFY(map->isInputBlocked());
     auto *bag = panel("inventoryDialog");
+    QVERIFY(bag->windowFlags().testFlag(Qt::FramelessWindowHint));
+    auto *close = bag->findChild<QPushButton *>("closePanel");
+    QVERIFY(close && close->isVisible() && close->text() == QStringLiteral("×"));
     QKeyEvent repeat(QEvent::KeyPress, Qt::Key_E, Qt::NoModifier, {}, true);
     QApplication::sendEvent(QApplication::focusWidget(), &repeat);
     QVERIFY(bag->isVisible());
@@ -406,6 +417,7 @@ void GameplayPanelTests::wakeSoundWithoutOutput() {
     for (int i = 0; i < 20; ++i) game.wakeSaved();
     QVERIFY(QMetaObject::invokeMethod(&game, "sleepUntilMorning", Qt::DirectConnection));
     QTRY_COMPARE_WITH_TIMEOUT(game.currentGameDay(), 1, 4000);
+    finishMorning(game);
     QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
     QCOMPARE(game.currentGameHour(), 6);
     QCOMPARE(changes.count(), 0);
@@ -901,6 +913,53 @@ void GameplayPanelTests::continueVersionThreeNextToNewFence() {
     QCOMPARE(readBytes(SaveManager::previousSavePath()), bytes);
 }
 
+void GameplayPanelTests::stationInteractionReach_data() {
+    QTest::addColumn<QPoint>("outside");
+    QTest::addColumn<QPoint>("adjacent");
+    QTest::addColumn<QString>("panelName");
+    QTest::newRow("bed") << QPoint(26, 9) << QPoint(25, 9) << QString();
+    QTest::newRow("market") << QPoint(28, 19) << QPoint(27, 18) << QStringLiteral("marketDialog");
+    QTest::newRow("shop") << QPoint(34, 19) << QPoint(34, 18) << QStringLiteral("shopDialog");
+    QTest::newRow("storage") << QPoint(31, 18) << QPoint(32, 20) << QStringLiteral("storageDialog");
+}
+
+void GameplayPanelTests::stationInteractionReach() {
+    QFETCH(QPoint, outside);
+    QFETCH(QPoint, adjacent);
+    QFETCH(QString, panelName);
+    auto fixture = m_fixture;
+    fixture.gameMinutes = 22 * 60;
+    fixture.playerPosition = stationPosition(outside);
+    QVERIFY(SaveManager::save(path(), fixture));
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    auto *player = map->findChild<ImageMovementWidget *>();
+    QVERIFY(player);
+    QCOMPARE(player->currentTilePosition(), outside);
+    QTest::keyClick(player, Qt::Key_F);
+    QVERIFY(!map->isInputBlocked());
+    QCOMPARE(game.currentGameHour(), 22);
+
+    QVERIFY(player->restorePosition(stationPosition(adjacent)));
+    QCOMPARE(player->currentTilePosition(), adjacent);
+    QTest::keyClick(player, Qt::Key_F);
+    QVERIFY(map->isInputBlocked());
+    if (panelName.isEmpty()) {
+        auto *confirm = game.findChild<QPushButton *>("confirmSleep");
+        QVERIFY(confirm && confirm->isVisible());
+        QTest::mouseClick(confirm, Qt::LeftButton);
+        finishMorning(game);
+        QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
+        QCOMPARE(game.currentGameHour(), 6);
+    } else {
+        QTRY_VERIFY(panel(panelName));
+        panel(panelName)->close();
+    }
+    QVERIFY(game.close());
+}
+
 void GameplayPanelTests::fullBackpackAtStorage() {
     const int wheat = static_cast<int>(CropType::Wheat);
     GameSaveData before = m_fixture;
@@ -1151,9 +1210,13 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
     QVERIFY(walkTo(Qt::Key_S, 18));
     QVERIFY(walkTo(Qt::Key_D, 26));
     QVERIFY(walkTo(Qt::Key_W, 8));
+    QVERIFY(walkTo(Qt::Key_A, 25));
     QVERIFY(pressGameKey(Qt::Key_F));
-    QVERIFY(!game->findChild<QMessageBox *>("sleepConfirmation"));
+    auto *confirm = game->findChild<QPushButton *>("confirmSleep");
+    QVERIFY(confirm && confirm->isVisible());
+    QTest::mouseClick(confirm, Qt::LeftButton);
     QTRY_COMPARE_WITH_TIMEOUT(game->currentGameDay(), 4, 3000);
+    finishMorning(*game);
     QTRY_VERIFY_WITH_TIMEOUT(!map->isInputBlocked(), 3000);
     QCOMPARE(game->currentGameHour(), 6);
     QVERIFY(game->close());

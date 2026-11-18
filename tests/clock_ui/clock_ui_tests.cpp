@@ -61,9 +61,10 @@ private slots:
     void closingAfterFailedWake();
     void readOnlyWakePreservesProtectedSave();
     void wakeFromRecoveredBackup();
-    void twoAmRemainsPlayableAndSleepsWithinSameDay();
-    void directSleepUsesNearestMorning_data();
-    void directSleepUsesNearestMorning();
+    void twoAmPassesOutAndWakesWithinSameDay();
+    void blockedBedRecoveryPreservesCheckpoint();
+    void confirmedSleepUsesNearestMorning_data();
+    void confirmedSleepUsesNearestMorning();
     void seasonChangesWithBackpackOpen();
     void onlySuccessfulActionsPlaySounds();
     void firstShowFitsViewport_data();
@@ -74,14 +75,14 @@ private slots:
     void loadCatchesUpMissedMidnights();
     void sleepRefused_data();
     void sleepRefused();
-    void twoAmKeepsPanelAndAssets();
-    void twoAmKeepsPanelAndAssets_data();
-    void dawnLoadPreservesPositionAndAssets();
+    void twoAmClosesPanelAndKeepsAssets();
+    void twoAmClosesPanelAndKeepsAssets_data();
+    void dawnLoadRecoversToBedAndPreservesAssets();
     void storageAnimationAndAudio_data();
     void storageAnimationAndAudio();
     void storageOpeningCancellation_data();
     void storageOpeningCancellation();
-    void storageOpeningContinuesThroughTwoAm();
+    void storageOpeningCancelsAtTwoAm();
 
 private:
     bool writeFarm(int day, int minuteOfDay, QPoint position = BesideBed);
@@ -90,6 +91,8 @@ private:
     QColor grassColour() const;
     void verifySaved(int day, int hour, int growth, bool watered);
     void pressInteract();
+    void confirmRest();
+    void dismissMorning();
     void clickCanvas(QWidget *widget, const QPoint &point);
     void clickTile(const QPoint &tile);
     void verifyCornerLayout();
@@ -226,6 +229,19 @@ void ClockUiTests::pressInteract() {
     QTest::keyClick(m_character, Qt::Key_F);
 }
 
+void ClockUiTests::confirmRest() {
+    QVERIFY(m_window->m_sleepConfirmation->isVisible());
+    auto *button = m_window->m_sleepConfirmation->findChild<QPushButton *>("confirmSleep");
+    QVERIFY(button && button->isVisible());
+    QTest::mouseClick(button, Qt::LeftButton);
+}
+
+void ClockUiTests::dismissMorning() {
+    auto *button = m_window->findChild<QPushButton *>("continueMorning");
+    QTRY_VERIFY_WITH_TIMEOUT((button = m_window->findChild<QPushButton *>("continueMorning")) && button->isVisible(), 2500);
+    QTest::mouseClick(button, Qt::LeftButton);
+}
+
 void ClockUiTests::clickCanvas(QWidget *widget, const QPoint &point) {
     auto *view = m_window->findChild<QGraphicsView *>();
     const auto scenePoint = m_canvas->graphicsProxyWidget()->mapToScene(widget->mapTo(m_canvas, point));
@@ -275,6 +291,7 @@ void ClockUiTests::eveningSleepUsesOneTransition() {
     QSignalSpy clicks(m_map, &MapWidget::mapClicked);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     pressInteract();
+    confirmRest();
     QVERIFY(m_fade->isActive());
     QCOMPARE(m_window->currentGameDay(), day + 1);
     verifySaved(day + 1, 6, 2, false);
@@ -314,6 +331,7 @@ void ClockUiTests::eveningSleepUsesOneTransition() {
     QCOMPARE(black.count(), 1);
     QCOMPARE(wakes.count(), 1);
     QVERIFY(!wakePrompt());
+    dismissMorning();
     clickTile(m_character->currentTilePosition());
     QCOMPARE(clicks.count(), 1);
     scrollOverFarm();
@@ -335,6 +353,7 @@ void ClockUiTests::ordinaryMidnightThenDawnSleep() {
     // consume this water and mature the wheat prematurely.
     QVERIFY(m_map->waterTile(FarmTile));
     pressInteract();
+    confirmRest();
     QVERIFY(m_fade->isActive());
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
     QCOMPARE(black.count(), 1);
@@ -399,6 +418,7 @@ void ClockUiTests::closingDuringFadeRestoresCommittedMorning() {
     QVERIFY(openGame());
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     pressInteract();
+    confirmRest();
     QVERIFY(m_fade->isActive());
     QVERIFY(m_window->close());
     QTest::qWait(1000);
@@ -475,6 +495,7 @@ void ClockUiTests::failedWakeRetriesOnlySettledMorning() {
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     pressInteract();
+    confirmRest();
     QVERIFY(m_fade->isActive());
     QVERIFY(!wakePrompt());
     QCOMPARE(m_window->currentGameDay(), 7);
@@ -525,7 +546,8 @@ void ClockUiTests::failedWakeRetriesOnlySettledMorning() {
                  before.economy.seedCounts.value(static_cast<int>(crop)));
     QCOMPARE(after.economy.fertilizerCount, before.economy.fertilizerCount);
     QTest::keyClick(m_character, Qt::Key_F);
-    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
+    QVERIFY(m_window->m_sleepConfirmation->isVisible());
+    QTest::keyClick(m_window->m_sleepConfirmation, Qt::Key_Escape);
     QCOMPARE(wakes.count(), 1);
     QVERIFY(!m_fade->isActive());
 
@@ -553,6 +575,7 @@ void ClockUiTests::failedWakeContinue() {
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     pressInteract();
+    confirmRest();
     QTRY_VERIFY_WITH_TIMEOUT(wakePrompt(), 2000);
     QVERIFY(QDir().rmdir(SaveManager::defaultSavePath() + QStringLiteral(".bak")));
     if (cancel) QTest::keyClick(wakePrompt(), Qt::Key_Escape);
@@ -592,6 +615,7 @@ void ClockUiTests::closingAfterFailedWake() {
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     pressInteract();
+    confirmRest();
     if (!duringFade) QTRY_VERIFY_WITH_TIMEOUT(wakePrompt(), 2000);
     QVERIFY(!m_window->close());
     auto *question = m_window->findChild<QMessageBox *>("closeSaveFailure");
@@ -652,8 +676,10 @@ void ClockUiTests::readOnlyWakePreservesProtectedSave() {
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     pressInteract();
+    confirmRest();
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
     QVERIFY(!wakePrompt());
+    dismissMorning();
     QVERIFY(!m_map->isInputBlocked());
     QCOMPARE(wakes.count(), 0);
     QCOMPARE(savedBytes(), corrupt);
@@ -665,25 +691,19 @@ void ClockUiTests::readOnlyWakePreservesProtectedSave() {
     QCOMPARE(backup.readAll(), corrupt);
 }
 
-void ClockUiTests::twoAmRemainsPlayableAndSleepsWithinSameDay() {
+void ClockUiTests::twoAmPassesOutAndWakesWithinSameDay() {
     QVERIFY(writeFarm(2, 119, OutsideHouse));
     QVERIFY(openGame());
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
-    QTRY_VERIFY_WITH_TIMEOUT(m_window->currentGameHour() == 2 && m_window->currentGameMinute() >= 1, 3500);
-    QCOMPARE(finished.count(), 0);
-    QVERIFY(!m_fade->isActive());
-    QVERIFY(!m_map->isInputBlocked());
-    const QPoint before = m_character->absolutePosition();
-    QTest::keyPress(m_character, Qt::Key_D);
-    QTest::qWait(150);
-    QTest::keyRelease(m_character, Qt::Key_D);
-    QVERIFY(m_character->absolutePosition() != before);
-    m_character->setInitialPosition(BesideBed);
-    pressInteract();
-    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 3500);
+    QCOMPARE(m_character->absolutePosition(), BesideBed);
     QCOMPARE(wakes.count(), 1);
+    auto *summary = m_window->findChild<WakeSummaryPage *>("wakeSummary");
+    QVERIFY(summary && summary->accessibleDescription().contains(QStringLiteral("昏倒")));
     verifySaved(2, 6, 0, true);
+    dismissMorning();
+    QVERIFY(!m_map->isInputBlocked());
 }
 
 void ClockUiTests::wakeFromRecoveredBackup() {
@@ -699,6 +719,7 @@ void ClockUiTests::wakeFromRecoveredBackup() {
     QCOMPARE(m_window->currentGameHour(), 22);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     pressInteract();
+    confirmRest();
     QCOMPARE(wakes.count(), 0);
     QTRY_COMPARE_WITH_TIMEOUT(wakes.count(), 1, 2000);
     QVERIFY(!wakePrompt());
@@ -867,11 +888,9 @@ void ClockUiTests::verifyCornerLayout() {
     QCOMPARE(hud->y(), 8);
     QVERIFY(!hud->geometry().intersects(bar->geometry()));
 
-    auto *capacity = hud->findChild<QLabel *>("gameCapacity");
-    QVERIFY(capacity && capacity->isVisible());
-    const auto &bag = m_window->m_economy.inventory();
-    const QString counts = QStringLiteral("%1/%2").arg(bag.usedCapacity()).arg(bag.capacity());
-    QVERIFY(capacity->text().simplified().remove(' ').contains(counts));
+    QVERIFY(!hud->findChild<QLabel *>("gameCapacity"));
+    auto *money = hud->findChild<QLabel *>("gameMoney");
+    QVERIFY(money && money->isVisible() && hud->mask().contains(money->geometry()));
 
     // Long feedback must still fit after a change in logical canvas width.
     auto *notice = m_window->m_statusLabel;
@@ -1024,10 +1043,7 @@ void ClockUiTests::sleepRefused_data() {
     QTest::addColumn<QPoint>("position");
     QTest::addColumn<int>("minuteOfDay");
     QTest::newRow("night-away-from-bed") << OutsideHouse << 21 * 60;
-    QTest::newRow("dawn-away-from-bed") << OutsideHouse << 5 * 60;
-    QTest::newRow("wake-hour-at-bed") << BesideBed << 6 * 60;
-    QTest::newRow("daytime-at-bed") << BesideBed << 12 * 60;
-    QTest::newRow("before-night-at-bed") << BesideBed << 19 * 60 + 59;
+    QTest::newRow("before-cutoff-away-from-bed") << OutsideHouse << 60;
 }
 
 void ClockUiTests::sleepRefused() {
@@ -1038,13 +1054,40 @@ void ClockUiTests::sleepRefused() {
     m_window->m_gameClock.pause();
     pressInteract();
     QVERIFY(!m_fade->isActive());
-    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
+    QVERIFY(!m_window->m_sleepConfirmation->isVisible());
     QCOMPARE(m_window->currentGameHour(), minuteOfDay / 60);
     QVERIFY(m_window->close());
     verifySaved(2, minuteOfDay / 60, 0, true);
 }
 
-void ClockUiTests::twoAmKeepsPanelAndAssets_data() {
+void ClockUiTests::blockedBedRecoveryPreservesCheckpoint() {
+    QVERIFY(writeFarm(2, 119, OutsideHouse));
+    QVERIFY(openGame());
+    const auto checkpoint = savedBytes();
+    auto &collision = const_cast<QVector<QVector<int>> &>(m_map->collisionLayer());
+    const auto original = collision;
+    for (auto &row : collision) row.fill(1);
+
+    // A delayed clock sample must still recover to the first missed morning.
+    m_window->m_gameClock.setElapsedGameMinutes(5 * MinutesPerDay + 500);
+    m_window->updateTime();
+    auto *warning = m_window->m_bedRecoveryPrompt.data();
+    QVERIFY(warning && m_map->isInputBlocked());
+    QVERIFY(m_window->m_gameClock.isPaused());
+    QCOMPARE(m_character->absolutePosition(), OutsideHouse);
+    QVERIFY(!m_window->saveGame());
+    QCOMPARE(savedBytes(), checkpoint);
+
+    collision = original;
+    auto *retry = warning->findChild<QPushButton *>("retryBedRecovery");
+    QVERIFY(retry);
+    QTest::mouseClick(retry, Qt::LeftButton);
+    dismissMorning();
+    QCOMPARE(m_character->absolutePosition(), BesideBed);
+    verifySaved(2, 6, 0, true);
+}
+
+void ClockUiTests::twoAmClosesPanelAndKeepsAssets_data() {
     QTest::addColumn<int>("panel");
     QTest::newRow("storage") << 0;
     QTest::newRow("inventory") << 1;
@@ -1052,7 +1095,7 @@ void ClockUiTests::twoAmKeepsPanelAndAssets_data() {
     QTest::newRow("market") << 3;
 }
 
-void ClockUiTests::twoAmKeepsPanelAndAssets() {
+void ClockUiTests::twoAmClosesPanelAndKeepsAssets() {
     QFETCH(int, panel);
     QVERIFY(writeFarm(2, 119, OutsideHouse));
     GameSaveData assets;
@@ -1062,6 +1105,7 @@ void ClockUiTests::twoAmKeepsPanelAndAssets() {
     assets.economy.storage.harvestCounts[static_cast<int>(CropType::Potato)] = 3;
     QVERIFY(SaveManager::save(SaveManager::defaultSavePath(), assets));
     QVERIFY(openGame());
+    m_window->m_gameClock.pause();
     const EconomyState before = m_window->m_economy.state();
     switch (panel) {
     case 0:
@@ -1074,21 +1118,15 @@ void ClockUiTests::twoAmKeepsPanelAndAssets() {
     }
     QTRY_VERIFY(m_window->m_panelOpen);
     QPointer<QDialog> dialog = m_window->m_panelOpen;
-    const QPoint position = m_character->absolutePosition();
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
-    QSignalSpy finished(m_fade, &SceneTransition::finished);
     m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 121);
     m_window->updateTime();
-    QTest::qWait(150);
-    QVERIFY(dialog && dialog->isVisible() && dialog->isEnabled());
-    QCOMPARE(m_window->m_panelOpen.data(), dialog.data());
-    QCOMPARE(finished.count(), 0);
-    QCOMPARE(wakes.count(), 0);
-    QVERIFY(!m_fade->isActive());
-    QVERIFY(m_map->isInputBlocked()); // The panel retains its normal input lock.
-    QCOMPARE(m_character->absolutePosition(), position);
+    QVERIFY(!dialog || !dialog->isVisible());
+    QVERIFY(m_fade->isActive());
+    QVERIFY(m_map->isInputBlocked());
+    QCOMPARE(m_character->absolutePosition(), BesideBed);
     QCOMPARE(m_window->currentGameDay(), 2);
-    QCOMPARE(m_window->currentGameHour(), 2);
+    QCOMPARE(m_window->currentGameHour(), 6);
     const auto after = m_window->m_economy.state();
     QCOMPARE(after.coins, before.coins);
     QCOMPARE(after.inventoryCounts, before.inventoryCounts);
@@ -1097,18 +1135,13 @@ void ClockUiTests::twoAmKeepsPanelAndAssets() {
     QCOMPARE(after.storage.harvestCounts, before.storage.harvestCounts);
     QCOMPARE(after.bagSlots, before.bagSlots);
     QCOMPARE(after.chestSlots, before.chestSlots);
-    QTest::keyClick(dialog, Qt::Key_Escape);
-    QTRY_VERIFY(!m_window->m_panelOpen);
-    QTRY_VERIFY(!m_map->isInputBlocked());
-    QVERIFY(m_window->saveGame());
-    GameSaveData saved;
-    QVERIFY(SaveManager::load(SaveManager::defaultSavePath(), &saved));
-    QCOMPARE(saved.playerPosition, position);
-    QCOMPARE(saved.economy.bagSlots, before.bagSlots);
-    QCOMPARE(saved.economy.chestSlots, before.chestSlots);
+    dismissMorning();
+    QCOMPARE(wakes.count(), 1);
+    QVERIFY(!m_map->isInputBlocked());
+    verifySaved(2, 6, 0, true);
 }
 
-void ClockUiTests::dawnLoadPreservesPositionAndAssets() {
+void ClockUiTests::dawnLoadRecoversToBedAndPreservesAssets() {
     QVERIFY(writeFarm(2, 3 * 60, OutsideHouse));
     GameSaveData fixture;
     QVERIFY(SaveManager::load(SaveManager::defaultSavePath(), &fixture));
@@ -1117,61 +1150,95 @@ void ClockUiTests::dawnLoadPreservesPositionAndAssets() {
     fixture.economy.storage.harvestCounts[static_cast<int>(CropType::Potato)] = 3;
     QVERIFY(SaveManager::save(SaveManager::defaultSavePath(), fixture));
     QVERIFY(openGame());
-    QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     QCOMPARE(m_window->currentGameDay(), 2);
-    QCOMPARE(m_window->currentGameHour(), 3);
-    QVERIFY(!m_fade->isActive());
-    QVERIFY(!m_map->isInputBlocked());
-    QCOMPARE(m_character->absolutePosition(), OutsideHouse);
+    QCOMPARE(m_window->currentGameHour(), 6);
+    QCOMPARE(m_character->absolutePosition(), BesideBed);
     const EconomyState before = m_window->m_economy.state();
     QCOMPARE(before.coins, fixture.economy.coins);
     QCOMPARE(before.inventoryCounts, fixture.economy.inventoryCounts);
     QCOMPARE(before.storage.harvestCounts, fixture.economy.storage.harvestCounts);
-    QVERIFY(m_window->saveGame());
+    dismissMorning();
     m_window.reset();
     QVERIFY(openGame());
-    QCOMPARE(m_window->currentGameHour(), 3);
-    QCOMPARE(m_character->absolutePosition(), OutsideHouse);
-    QCOMPARE(m_window->m_economy.state().coins, before.coins);
+    QCOMPARE(m_window->currentGameHour(), 6);
+    QCOMPARE(m_character->absolutePosition(), BesideBed);
     QCOMPARE(m_window->m_economy.state().bagSlots, before.bagSlots);
     QCOMPARE(m_window->m_economy.state().chestSlots, before.chestSlots);
     QVERIFY(!m_fade->isActive());
-    QCOMPARE(wakes.count(), 0);
-    verifySaved(2, 3, 0, true);
+    verifySaved(2, 6, 0, true);
 }
 
-void ClockUiTests::directSleepUsesNearestMorning_data() {
+void ClockUiTests::confirmedSleepUsesNearestMorning_data() {
     QTest::addColumn<int>("minuteOfDay");
-    for (const int minute : {0, 119, 120, 359, 1200, 1439})
+    for (const int minute : {0, 119, 360, 720, 1200, 1439})
         QTest::newRow(qPrintable(QString::number(minute))) << minute;
 }
 
-void ClockUiTests::directSleepUsesNearestMorning() {
+void ClockUiTests::confirmedSleepUsesNearestMorning() {
     QFETCH(int, minuteOfDay);
     QVERIFY(writeFarm(2, minuteOfDay));
-    QVERIFY(openGame());
+    QVERIFY(openGame(QSize(1040, 640)));
     m_window->m_gameClock.pause();
     QSignalSpy black(m_fade, &SceneTransition::blackReached);
     QSignalSpy finished(m_fade, &SceneTransition::finished);
     QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
-    // Auto-repeat must not initiate sleep before the actual F press.
     QKeyEvent repeat(QEvent::KeyPress, Qt::Key_F, Qt::NoModifier, {}, true);
     QApplication::sendEvent(m_character, &repeat);
+    QVERIFY(!m_window->m_sleepConfirmation->isVisible());
+    pressInteract();
+    auto *confirmation = m_window->m_sleepConfirmation;
+    QVERIFY(confirmation->isVisible() && !confirmation->isWindow());
+    QCOMPARE(confirmation->geometry(), confirmation->parentWidget()->rect());
+    QVERIFY(confirmation->accessibleDescription().contains(QStringLiteral("06:00")));
+    QVERIFY(m_window->m_gameClock.isPaused() && m_map->isInputBlocked());
+    if (minuteOfDay == 720) {
+        QDir().mkpath("captures");
+        QVERIFY(m_window->grab().save("captures/sleep-confirmation-zh.png"));
+    }
+    const auto checkpoint = savedBytes();
+    QKeyEvent repeatedEnter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, {}, true);
+    auto *rest = confirmation->findChild<QPushButton *>("confirmSleep");
+    QVERIFY(rest && rest->isVisible());
+    QApplication::sendEvent(rest, &repeatedEnter);
+    QVERIFY(confirmation->isVisible());
+    QTest::keyClick(rest, Qt::Key_Escape);
+    QVERIFY(!confirmation->isVisible() && !m_map->isInputBlocked());
     QVERIFY(!m_fade->isActive());
+    QCOMPARE(savedBytes(), checkpoint);
+    QCOMPARE(m_window->currentGameMinute(), minuteOfDay % 60);
     pressInteract();
+    QTest::keyClick(rest, Qt::Key_Return);
     QVERIFY(m_fade->isActive());
-    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
-    pressInteract();
-    QApplication::sendEvent(m_character, &repeat);
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
     QCOMPARE(black.count(), 1);
     QCOMPARE(wakes.count(), 1);
-    const bool crossesMidnight = minuteOfDay >= 20 * 60;
+    const bool crossesMidnight = minuteOfDay >= 360;
     verifySaved(crossesMidnight ? 3 : 2, 6, crossesMidnight ? 2 : 0, !crossesMidnight);
-    pressInteract(); // 06:00 cannot immediately advance another day.
-    QVERIFY(!m_fade->isActive());
-    QVERIFY(!m_window->findChild<QMessageBox *>("sleepConfirmation"));
-    QCOMPARE(wakes.count(), 1);
+    auto *summary = m_window->findChild<WakeSummaryPage *>("wakeSummary");
+    QVERIFY(summary && summary->isVisible() && !summary->isWindow());
+    QCOMPARE(summary->size(), m_window->centralWidget()->size());
+    QVERIFY(summary->accessibleDescription().contains(QStringLiteral("新的一天")));
+    QVERIFY(summary->accessibleDescription().contains(QStringLiteral("成长作物")));
+    if (!crossesMidnight)
+        QVERIFY(summary->accessibleDescription().contains(QStringLiteral("同日休息至早晨")));
+    QVERIFY(summary->accessibleDescription().contains(QStringLiteral("进度已保存")));
+    QVERIFY(m_window->m_gameClock.isPaused());
+    if (minuteOfDay == 720) {
+        QDir().mkpath("captures");
+        const QImage image = summary->grab().toImage();
+        QCOMPARE(image.pixelColor(0, 0), QColor("#101b37"));
+        QCOMPARE(image.pixelColor(image.width() / 2, image.height() / 2), QColor("#e8c98f"));
+        QVERIFY(image.save("captures/wake-summary-zh.png"));
+        auto *button = summary->findChild<QPushButton *>("continueMorning");
+        QVERIFY(button && button->isVisible());
+        QApplication::sendEvent(button, &repeatedEnter);
+        QVERIFY(summary->isVisible());
+        QTest::keyClick(button, Qt::Key_Return);
+    } else {
+        dismissMorning();
+    }
+    QVERIFY(!summary->isVisible());
+    QVERIFY(!m_map->isInputBlocked());
 }
 
 void ClockUiTests::storageAnimationAndAudio_data() {
@@ -1277,36 +1344,26 @@ void ClockUiTests::storageOpeningCancellation() {
     QVERIFY(m_window->m_page == MainWindow::Page::Farm);
 }
 
-void ClockUiTests::storageOpeningContinuesThroughTwoAm() {
+void ClockUiTests::storageOpeningCancelsAtTwoAm() {
     QVERIFY(writeFarm(2, 119, QPoint(31 * 16 + 8 - 24, 21 * 16 + 8 - 24)));
     QVERIFY(openGame());
+    m_window->m_gameClock.pause();
     const auto before = m_window->m_economy.state();
-    const QPoint position = m_character->absolutePosition();
-    QSignalSpy opened(m_map, &MapWidget::storageChestOpened);
-    QSignalSpy finished(m_fade, &SceneTransition::finished);
-    QSignalSpy wakes(m_window.get(), &MainWindow::wakeSaved);
     pressInteract();
     QVERIFY(m_window->m_storageOpening);
     m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 120);
     m_window->updateTime();
-    QVERIFY(m_window->m_storageOpening);
-    QTRY_VERIFY_WITH_TIMEOUT(m_window->m_panelOpen, 1500);
     QVERIFY(!m_window->m_storageOpening);
-    QCOMPARE(m_window->m_panelOpen->objectName(), QStringLiteral("storageDialog"));
-    QCOMPARE(opened.count(), 1);
-    QCOMPARE(finished.count(), 0);
-    QCOMPARE(wakes.count(), 0);
-    QCOMPARE(m_map->storageChestFrame(), 4);
-    QCOMPARE(m_window->currentGameHour(), 2);
-    QCOMPARE(m_character->absolutePosition(), position);
+    QVERIFY(m_fade->isActive());
+    dismissMorning();
+    QVERIFY(!m_window->m_panelOpen);
+    QTRY_COMPARE_WITH_TIMEOUT(m_map->storageChestFrame(), 0, 1500);
+    QCOMPARE(m_character->absolutePosition(), BesideBed);
+    QCOMPARE(m_window->currentGameHour(), 6);
     const auto after = m_window->m_economy.state();
     QCOMPARE(after.coins, before.coins);
     QCOMPARE(after.bagSlots, before.bagSlots);
     QCOMPARE(after.chestSlots, before.chestSlots);
-    QVERIFY(m_map->isInputBlocked());
-    QTest::keyClick(m_window->m_panelOpen, Qt::Key_Escape);
-    QTRY_VERIFY(!m_window->m_panelOpen);
-    QTRY_COMPARE_WITH_TIMEOUT(m_map->storageChestFrame(), 0, 1500);
     QVERIFY(!m_map->isInputBlocked());
 }
 

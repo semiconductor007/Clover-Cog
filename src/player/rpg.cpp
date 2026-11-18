@@ -22,12 +22,18 @@ void ImageMovementWidget::setInitialPosition(const QPoint &pos) {
     }
 }
 
+bool ImageMovementWidget::canStandAt(const QPoint &position) const {
+    return m_mapWidget && m_collisionDetector && position == boundedPosition(position) &&
+           m_mapWidget->mapWidth() > 0 && m_mapWidget->mapHeight() > 0 &&
+           !m_collisionDetector->isColliding(m_collisionArea.translated(position));
+}
+
 bool ImageMovementWidget::restorePosition(const QPoint &saved) {
     if (!m_mapWidget || !m_collisionDetector || saved != boundedPosition(saved) ||
         m_mapWidget->mapWidth() <= 0 || m_mapWidget->mapHeight() <= 0)
         return false;
 
-    if (!m_collisionDetector->isColliding(m_collisionArea.translated(saved))) {
+    if (canStandAt(saved)) {
         setInitialPosition(saved);
         return true;
     }

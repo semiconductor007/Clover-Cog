@@ -5,6 +5,7 @@
 InventoryDialog::InventoryDialog(QWidget *parent)
     : FarmPanel(QStringLiteral("背包"),parent),m_grid(new SlotGrid(false,this)),m_date(new QLabel(this)) {
     setObjectName(QStringLiteral("inventoryDialog"));
+    setWindowFlag(Qt::FramelessWindowHint);
     m_date->setObjectName(QStringLiteral("bagDate")); m_date->hide();
     m_grid->setObjectName(QStringLiteral("bagSlots"));
     m_grid->setAccessibleName(QStringLiteral("背包格位；首排为物品栏"));

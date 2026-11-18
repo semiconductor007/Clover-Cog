@@ -26,6 +26,8 @@ class QMediaPlayer;
 class QMessageBox;
 class QTimer;
 class SceneTransition;
+class SleepConfirmationOverlay;
+class WakeSummaryPage;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -50,7 +52,7 @@ protected:
 
 private:
     friend class ClockUiTests;
-    enum class ClockEvent { Tick, WakeUp, Load, Save };
+    enum class ClockEvent { Tick, WakeUp, PassOut, Load, Save };
     enum class WakeSaveState { None, Saved, Failed };
 
     enum class Page { Home, Farm, Pause };
@@ -60,6 +62,10 @@ private:
     void showHome();
     bool readFarmSave(const QString &source, GameSaveData *data, QString *loadedPath) const;
     bool applyClock(ClockEvent event);
+    void requestSleep();
+    void finishSleepConfirmation(bool confirmed);
+    bool recoverToMorning(qint64 from, bool passedOut);
+    std::optional<QPoint> bedWakePosition() const;
     bool acceptPanelCommand(QDialog *panel);
     void moveInventoryStack(QDialog *panel, const StackMove &move);
     DayAdvanceResult processDayTransitions();
@@ -78,6 +84,7 @@ private:
     void refreshOpenPanel();
     void refreshGameplayInput();
     void finishWakeSave();
+    void leaveMorningPage();
     void showWakeSaveFailure();
     void resolveWakeSaveFailure(bool saved);
     void finishTrade(FarmPanel *dialog, const QString &receipt);
@@ -104,14 +111,19 @@ private:
     bool m_storageOpening = false;
     QPointer<QMessageBox> m_closePrompt;
     QPointer<QMessageBox> m_wakeSavePrompt;
+    SleepConfirmationOverlay *m_sleepConfirmation;
+    bool m_sleepConfirmWasPaused = false;
+    QPointer<QMessageBox> m_bedRecoveryPrompt;
+    struct MorningSummary {
+        DayAdvanceResult result;
+        bool passedOut;
+        int previousDay;
+    };
+    std::optional<MorningSummary> m_morning;
     WakeSaveState m_wakeSaveState = WakeSaveState::None;
     bool m_discardOnClose = false;
     QPointer<QWidget> m_panelFocusBeforeFade;
     bool m_transitionActive = false;
-    const QRect m_marketArea{28, 18, 2, 2};
-    const QRect m_storageArea{31, 21, 1, 1};
-    const QRect m_shopArea{33, 18, 2, 2};
-    const QRect m_bedArea{25, 8, 2, 2};
     QWidget *m_gameCanvas;
     QGraphicsScene *m_gameScene;
     QGraphicsView *m_gameView;
@@ -121,6 +133,7 @@ private:
     SeasonAppearance m_seasons;
     DayNightOverlay *m_daylight;
     SceneTransition *m_transition;
+    WakeSummaryPage *m_wakeSummary;
     FarmHud *m_hud;
     QLabel *m_suppliesLabel;
     QLabel *m_statusLabel;

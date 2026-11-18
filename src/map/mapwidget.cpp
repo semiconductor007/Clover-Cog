@@ -112,7 +112,7 @@ void MapWidget::paintEvent(QPaintEvent *event) {
     m_renderer.paint(painter, rect(), QPoint(m_offsetX, m_offsetY),
                      m_mapWidth, m_mapHeight, m_tileWidth, m_tileHeight,
                      m_displayTilesets, m_renderLayers, m_worldState,
-                     m_storageArea.isEmpty() ? QPoint(-1, -1) : m_storageArea.topLeft() + QPoint(0, -1),
+                     m_storageArea.isEmpty() ? QPoint(-1, -1) : m_storageArea.topLeft(),
                      m_chestFrame);
     if (m_paintScenery) {
         painter.save();
@@ -146,43 +146,6 @@ void MapWidget::paintEvent(QPaintEvent *event) {
         painter.drawPixmap(QPoint(-visual.texture.width()/2,-visual.texture.height()),visual.texture);
         painter.restore();
     }
-    const auto drawInteractionArea =
-        [this, &painter](const QRect &tileArea, const QColor &tint,
-                         const QString &text, bool labelBelow = false) {
-        if (tileArea.isEmpty() || m_tileWidth <= 0 || m_tileHeight <= 0) {
-            return;
-        }
-        const QRect screenRect(tileArea.x() * m_tileWidth - m_offsetX,
-                               tileArea.y() * m_tileHeight - m_offsetY,
-                               tileArea.width() * m_tileWidth,
-                               tileArea.height() * m_tileHeight);
-        painter.save();
-        painter.fillRect(screenRect, tint);
-        painter.setPen(QColor(92, 55, 32));
-        painter.drawRect(screenRect.adjusted(0, 0, -1, -1));
-
-        // The map supplies the real furniture; markers only identify where to stand.
-        QFont labelFont = painter.font();
-        labelFont.setPixelSize(8);
-        painter.setFont(labelFont);
-        const int labelWidth = painter.fontMetrics().horizontalAdvance(text) + 8;
-        const int labelTop = labelBelow ? screenRect.bottom() + 1 : screenRect.top() - 12;
-        const QRect labelRect(screenRect.center().x() - labelWidth / 2, labelTop, labelWidth, 12);
-        painter.fillRect(labelRect, QColor(76, 48, 30, 220));
-        painter.setPen(Qt::white);
-        painter.drawText(labelRect, Qt::AlignCenter, text);
-        painter.restore();
-    };
-    drawInteractionArea(m_marketArea, QColor(255, 222, 126, 45),
-                        QStringLiteral("收购 [F]"));
-    drawInteractionArea(m_shopArea, QColor(114, 190, 255, 45),
-                        QStringLiteral("商店 [F]"));
-    drawInteractionArea(m_storageArea, QColor(135, 211, 173, 45),
-                        QStringLiteral("储物 [F]"), true);
-    drawInteractionArea(m_bedArea, QColor(180, 130, 220, 45),
-                        QStringLiteral("床铺 [F]"));
-    for (const QRect &well : m_waterWells)
-        drawInteractionArea(well, QColor(114, 190, 255, 20), QStringLiteral("水井 [F]"));
 }
 
 void MapWidget::setViewportCenter(int x, int y) {
