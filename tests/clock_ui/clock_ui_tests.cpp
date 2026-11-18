@@ -1,5 +1,6 @@
 #include "app/mainwindow.h"
 #include "ui/slotgrid.h"
+#include "ui/farmhud.h"
 #include "ui/scenetransition.h"
 
 #include <QAudioDevice>
@@ -25,6 +26,7 @@
 #include <QUuid>
 #include <QWheelEvent>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <QFontDatabase>
 #include <QRawFont>
@@ -67,6 +69,7 @@ private slots:
     void firstShowFitsViewport_data();
     void firstShowFitsViewport();
     void fullscreenFillsViewportAndRestores();
+    void cornerHudUpdatesAndConsumesClicks();
     void visibleFeedbackAllowsMapInputAndExpires();
     void loadCatchesUpMissedMidnights();
     void sleepRefused_data();
@@ -89,6 +92,7 @@ private:
     void pressInteract();
     void clickCanvas(QWidget *widget, const QPoint &point);
     void clickTile(const QPoint &tile);
+    void verifyCornerLayout();
     QMessageBox *wakePrompt() const;
     bool blockSaveWrites();
     QByteArray savedBytes() const;
@@ -852,6 +856,30 @@ void ClockUiTests::visibleFeedbackAllowsMapInputAndExpires() {
     QTRY_VERIFY_WITH_TIMEOUT(!notice->isVisible(), 5000);
 }
 
+void ClockUiTests::verifyCornerLayout() {
+    auto *hud = m_canvas->findChild<QWidget *>("farmHud");
+    auto *bar = m_canvas->findChild<ItemBar *>();
+    QVERIFY(hud && hud->isVisible() && bar && bar->isVisible());
+    QCOMPARE(m_map->geometry(), m_canvas->rect());
+    QVERIFY(m_canvas->rect().contains(hud->geometry()));
+    QCOMPARE(m_canvas->width() - hud->geometry().right() - 1, 8);
+    QCOMPARE(hud->y(), 8);
+    QVERIFY(!hud->geometry().intersects(bar->geometry()));
+
+    auto *capacity = hud->findChild<QLabel *>("gameCapacity");
+    QVERIFY(capacity && capacity->isVisible());
+    const auto &bag = m_window->m_economy.inventory();
+    const QString counts = QStringLiteral("%1/%2").arg(bag.usedCapacity()).arg(bag.capacity());
+    QVERIFY(capacity->text().simplified().remove(' ').contains(counts));
+
+    // Long feedback must still fit after a change in logical canvas width.
+    auto *notice = m_window->m_statusLabel;
+    QVERIFY(notice->isVisible());
+    QVERIFY(m_map->geometry().contains(notice->geometry()));
+    QVERIFY(!notice->geometry().intersects(hud->geometry()));
+    QVERIFY(!notice->geometry().intersects(bar->geometry()));
+}
+
 void ClockUiTests::firstShowFitsViewport_data() {
     QTest::addColumn<QSize>("size");
     QTest::newRow("smaller-than-canvas") << QSize(420, 315);
@@ -865,8 +893,7 @@ void ClockUiTests::firstShowFitsViewport() {
     QVERIFY(m_window->windowFlags().testFlag(Qt::FramelessWindowHint));
     auto *view = m_window->findChild<QGraphicsView *>();
     auto *bar = m_canvas->findChild<ItemBar *>();
-    auto *header = m_canvas->findChild<QWidget *>("farmHeader");
-    QVERIFY(view && bar && header);
+    QVERIFY(view && bar);
     const QSize viewport = view->viewport()->size();
     const qreal available = qMin(qreal(viewport.width()) / m_canvas->width(),
                                  qreal(viewport.height()) / m_canvas->height());
@@ -877,16 +904,12 @@ void ClockUiTests::firstShowFitsViewport() {
     const QRect canvasOnScreen = view->mapFromScene(view->sceneRect()).boundingRect();
     QVERIFY(view->viewport()->rect().adjusted(-1, -1, 1, 1).contains(canvasOnScreen));
     QVERIFY((view->viewport()->rect().center() - canvasOnScreen.center()).manhattanLength() <= 2);
-    QVERIFY(m_canvas->rect().contains(header->geometry()));
     QVERIFY(m_canvas->rect().contains(bar->geometry()));
-    QVERIFY(header->geometry().bottom() < m_map->geometry().top());
     QVERIFY(m_map->geometry().contains(bar->geometry()));
     QCOMPARE(bar->geometry().center().x(), m_canvas->rect().center().x());
     QCOMPARE(m_canvas->height() - bar->geometry().bottom() - 1, 8);
     QVERIFY(!m_window->m_suppliesLabel->isVisible());
-    QVERIFY(m_window->m_statusLabel->isVisible());
-    QVERIFY(m_map->geometry().contains(m_window->m_statusLabel->geometry()));
-    QVERIFY(!m_window->m_statusLabel->geometry().intersects(bar->geometry()));
+    verifyCornerLayout();
     QDir().mkpath(QStringLiteral("captures"));
     bar->selectTool(ToolType::Hoe);
     QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-bottom-toolbar.png")));
@@ -894,9 +917,11 @@ void ClockUiTests::firstShowFitsViewport() {
 
 void ClockUiTests::fullscreenFillsViewportAndRestores() {
     QVERIFY(openGame(QSize(1040,640)));
+    m_window->showStatus(QStringLiteral("保存失败，请检查存档目录的空间和写入权限。").repeated(3));
     m_window->showFullScreen();
     QCoreApplication::processEvents(); m_window->updateGameScale();
     QVERIFY(m_window->isFullScreen());
+    verifyCornerLayout();
     QVERIFY(m_window->windowFlags().testFlag(Qt::FramelessWindowHint));
     auto *view=m_window->findChild<QGraphicsView *>(); QVERIFY(view);
     const QRect scene=view->mapFromScene(view->sceneRect()).boundingRect();
@@ -908,6 +933,49 @@ void ClockUiTests::fullscreenFillsViewportAndRestores() {
     m_window->showNormal(); QCoreApplication::processEvents(); m_window->updateGameScale();
     QVERIFY(!m_window->isFullScreen());
     QCOMPARE(m_canvas->size(),QSize(576,442));
+    verifyCornerLayout();
+}
+
+void ClockUiTests::cornerHudUpdatesAndConsumesClicks() {
+    QVERIFY(writeFarm(2, 13 * 60));
+    QVERIFY(openGame());
+    m_window->m_gameClock.pause();
+    auto *hud = m_canvas->findChild<QWidget *>("farmHud");
+    QVERIFY(hud);
+    auto *money = hud->findChild<QLabel *>("gameMoney");
+    QVERIFY(money && money->isVisible());
+    QCOMPARE(money->text(), QStringLiteral("0"));
+
+    QVERIFY(m_window->m_economy.collectHarvest(CropType::Wheat, 3));
+    auto assets = m_window->m_economy.state();
+    assets.coins = std::numeric_limits<int>::max();
+    QVERIFY(m_window->m_economy.restore(assets));
+    m_window->updateHud();
+    verifyCornerLayout();
+    QCOMPARE(money->text(), QStringLiteral("2,147,483,647"));
+    QVERIFY(money->fontMetrics().horizontalAdvance(money->text()) <= money->width());
+
+    QSignalSpy clicks(m_map, &MapWidget::mapClicked);
+    QSignalSpy attempts(m_map, &MapWidget::farmingFeedback);
+    clickCanvas(hud, hud->rect().center());
+    QCOMPARE(clicks.count(), 0);
+    QCOMPARE(attempts.count(), 0);
+    const QColor dayFrame = hud->grab().toImage().pixelColor(12, 12);
+    m_window->m_gameClock.setElapsedGameMinutes(2 * MinutesPerDay + 22 * 60 + 30);
+    m_window->updateTime();
+    QCOMPARE(m_time->text(), QStringLiteral("22:30"));
+    QCOMPARE(m_date->text(), QStringLiteral("第 1 年 · 春季 3 日"));
+    QCOMPARE(money->text(), QStringLiteral("2,147,483,647"));
+    QCOMPARE(hud->grab().toImage().pixelColor(12, 12), dayFrame);
+    QCOMPARE(m_window->m_economy.state().bagSlots, assets.bagSlots);
+    QCOMPARE(m_window->m_economy.coins(), assets.coins);
+    QVERIFY(QDir().mkpath(QStringLiteral("captures")));
+    QVERIFY(m_canvas->grab().save(QStringLiteral("captures/farm-corner-hud-night.png")));
+
+    const QString longDate = QStringLiteral("第 76695845 年 · 冬季 7 日");
+    static_cast<FarmHud *>(hud)->setDate(longDate);
+    QCOMPARE(m_date->text(), longDate);
+    QVERIFY(m_date->fontMetrics().horizontalAdvance(m_date->text()) <= m_date->width());
 }
 
 void ClockUiTests::loadCatchesUpMissedMidnights() {

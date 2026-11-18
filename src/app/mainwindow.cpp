@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "ui/farmhud.h"
 #include "ui/farmmenus.h"
 #include "core/gameconstants.h"
 #include "ui/inventorydialog.h"
@@ -12,7 +13,6 @@
 #include <QCloseEvent>
 #include <QFrame>
 #include <QGraphicsProxyWidget>
-#include <QHBoxLayout>
 #include <QMediaPlayer>
 #include <QMediaDevices>
 #include <QMessageBox>
@@ -33,9 +33,8 @@
 
 namespace {
 constexpr int CanvasWidth = 576;
-constexpr int HeaderHeight = 34;
-constexpr int MapHeight = 408;
-constexpr int CanvasHeight = HeaderHeight + MapHeight;
+constexpr int CanvasHeight = 442;
+constexpr int OverlayMargin = 8;
 
 }
 
@@ -83,8 +82,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_gameView->installEventFilter(this);
     m_gameView->viewport()->installEventFilter(this);
 
-    // Keep the header separate; the toolbar floats above the bottom of the map.
-    mapWidget->setGeometry(0, HeaderHeight, CanvasWidth, MapHeight);
+    mapWidget->setGeometry(m_gameCanvas->rect());
     if (!mapWidget->loadMap(QStringLiteral(":/map/map6.tmj"))) {
         qCritical() << "Unable to initialize the game map";
     }
@@ -95,27 +93,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_seasons.load(mapWidget->originalTilesets());
     mapWidget->setTimeReference([this] { return m_committedMinutes; });
 
-    auto *header = new QWidget(m_gameCanvas);
-    header->setObjectName(QStringLiteral("farmHeader"));
-    header->setGeometry(0, 0, CanvasWidth, HeaderHeight);
-    header->setStyleSheet(QStringLiteral(
-        "QWidget#farmHeader { background: #35533f; }"
-        "QLabel { color: #fff4d8; font-size: 13px; }"
-        "QLabel#gameTime { color: #ffe19c; font-weight: bold; }"));
-    auto *headerRow = new QHBoxLayout(header);
-    headerRow->setContentsMargins(12, 0, 12, 0);
-    headerRow->setSpacing(14);
-    dayLabel = new QLabel(header);
-    dayLabel->setObjectName(QStringLiteral("gameDate"));
-    timeLabel = new QLabel(header);
-    timeLabel->setObjectName(QStringLiteral("gameTime"));
-    m_coinsLabel = new QLabel(header);
-    m_inventoryLabel = new QLabel(header);
-    headerRow->addWidget(dayLabel);
-    headerRow->addWidget(timeLabel);
-    headerRow->addStretch();
-    headerRow->addWidget(m_coinsLabel);
-    headerRow->addWidget(m_inventoryLabel);
+    m_hud = new FarmHud(m_gameCanvas);
 
     character = new ImageMovementWidget(mapWidget, mapWidget);
     character->setInitialPosition(QPoint(400, 192));
@@ -134,7 +112,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_statusLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_statusLabel->setTextFormat(Qt::PlainText);
     m_statusLabel->setAlignment(Qt::AlignCenter);
-    m_statusLabel->setMaximumWidth(CanvasWidth - 24);
     m_statusLabel->setStyleSheet(QStringLiteral(
         "QLabel { background-color: #304738; color: #fff4d8; border: 1px solid #b3bf94;"
         " border-radius: 4px; padding: 4px 9px; font-size: 13px; }"));
@@ -442,14 +419,13 @@ void MainWindow::presentTime() {
                     m_seasons.paintDecorations(season, painter, offset, world);
                 });
         }
-        dayLabel->setText(QStringLiteral("第 %1 年 · %2 %3 日")
+        m_hud->setDate(QStringLiteral("第 %1 年 · %2 %3 日")
                               .arg(date.year).arg(SeasonCalendar::seasonName(season))
                               .arg(date.dayOfSeason));
         m_visibleDay = day;
         refreshOpenPanel();
     }
-    timeLabel->setText(QStringLiteral("%1:%2").arg(currentGameHour(), 2, 10, QLatin1Char('0'))
-                                              .arg(currentGameMinute(), 2, 10, QLatin1Char('0')));
+    m_hud->setTime(currentGameHour(), currentGameMinute());
     m_daylight->setGameMinutes(m_committedMinutes);
 }
 
@@ -525,12 +501,9 @@ void MainWindow::updateGameScale() {
     if (m_gameCanvas->width() != logicalWidth) {
         m_gameCanvas->setFixedSize(logicalWidth, CanvasHeight);
         m_gameScene->setSceneRect(m_gameCanvas->rect());
-        mapWidget->setGeometry(0, HeaderHeight, logicalWidth, MapHeight);
-        if (auto *header = m_gameCanvas->findChild<QWidget *>(QStringLiteral("farmHeader")))
-            header->setGeometry(0, 0, logicalWidth, HeaderHeight);
+        mapWidget->setGeometry(m_gameCanvas->rect());
         itemBar->move((logicalWidth-itemBar->width())/2,CanvasHeight-itemBar->height()-8);
-        m_statusLabel->setMaximumWidth(logicalWidth-24);
-        m_statusLabel->move((logicalWidth-m_statusLabel->width())/2,HeaderHeight+8);
+        positionStatus();
         mapWidget->setViewportCenter(character->absolutePosition().x()+character->width()/2,
                                      character->absolutePosition().y()+character->height()/2);
     }
@@ -550,9 +523,8 @@ void MainWindow::updateGameScale() {
 void MainWindow::updateHud() {
     itemBar->setStock(m_economy);
     const Inventory &inventory = m_economy.inventory();
-    m_coinsLabel->setText(QStringLiteral("金币 %1").arg(m_economy.coins()));
-    m_inventoryLabel->setText(QStringLiteral("背包 %1 / %2")
-                                  .arg(inventory.usedCapacity()).arg(inventory.capacity()));
+    m_hud->setMoney(m_economy.coins());
+    m_hud->setCapacity(inventory.usedCapacity(), inventory.capacity());
     const CropType crop = seedCropForTool(itemBar->selectedTool());
     if (crop != CropType::None) {
         m_suppliesLabel->setText(QStringLiteral("%1种子 %2 份  ·  肥料 %3 份")
@@ -567,13 +539,20 @@ void MainWindow::updateHud() {
 }
 
 void MainWindow::showStatus(const QString &message) {
-    m_statusLabel->setWordWrap(false);
     m_statusLabel->setText(message);
-    m_statusLabel->setWordWrap(m_statusLabel->sizeHint().width() > m_statusLabel->maximumWidth());
-    m_statusLabel->adjustSize();
-    m_statusLabel->move((m_gameCanvas->width() - m_statusLabel->width()) / 2, HeaderHeight + 8);
+    positionStatus();
     m_statusLabel->show();
     m_statusTimer->start();
+}
+
+void MainWindow::positionStatus() {
+    // Keep notifications in the space to the left of the corner HUD.
+    const int available = m_gameCanvas->width() - m_hud->width() - 3 * OverlayMargin;
+    m_statusLabel->setMaximumWidth(available);
+    m_statusLabel->setWordWrap(false);
+    m_statusLabel->setWordWrap(m_statusLabel->sizeHint().width() > available);
+    m_statusLabel->adjustSize();
+    m_statusLabel->move(OverlayMargin + (available - m_statusLabel->width()) / 2, OverlayMargin);
 }
 
 void MainWindow::openInventory() {

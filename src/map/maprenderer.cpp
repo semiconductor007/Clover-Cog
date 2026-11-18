@@ -4,6 +4,23 @@
 #include <QtGlobal>
 #include <QFileInfo>
 
+namespace {
+bool isGroundFoliage(int gid, const QVector<Tileset> &tilesets) {
+    for (const auto &tileset : tilesets) {
+        const int local = gid - tileset.firstGid;
+        if (local < 0 || tileset.tileWidth <= 0 || tileset.tileHeight <= 0 ||
+            local >= tileset.tilesPerRow * (tileset.texture.height() / tileset.tileHeight)) continue;
+        const QString name = QFileInfo(tileset.sourcePath).fileName();
+        // Grass patches and the three mapped small plants/flowers, not rocks,
+        // fences, bridges, furniture or the underlying cultivatable ground.
+        return name == QStringLiteral("Grass.tsx") ||
+               (name == QStringLiteral("Mushrooms, Flowers, Stones.tsx") &&
+                local >= 25 && local <= 27);
+    }
+    return false;
+}
+}
+
 void MapRenderer::paint(QPainter &painter, const QRect &viewport,
                         const QPoint &offset, int mapWidth, int mapHeight,
                         int tileWidth, int tileHeight,
@@ -28,7 +45,8 @@ void MapRenderer::paint(QPainter &painter, const QRect &viewport,
             drawCultivatedLayer(painter, visibleTiles, offset, tileWidth, tileHeight, tilesets, worldState);
         } else {
             drawLayer(painter, resolveLayer(renderLayer, worldState), visibleTiles,
-                      offset, tileWidth, tileHeight, tilesets, storageChestTile, storageChestFrame);
+                      offset, tileWidth, tileHeight, tilesets, storageChestTile, storageChestFrame,
+                      renderLayer.role == MapLayerRole::Static ? &worldState : nullptr);
         }
     }
 
@@ -136,7 +154,8 @@ void MapRenderer::drawLayer(QPainter &painter,
                             const QRect &visibleTiles, const QPoint &offset,
                             int tileWidth, int tileHeight,
                             const QVector<Tileset> &tilesets,
-                            const QPoint &storageChestTile, int storageChestFrame) {
+                            const QPoint &storageChestTile, int storageChestFrame,
+                            const WorldState *soilState) {
     if (layer.isEmpty() || visibleTiles.isEmpty()) {
         return;
     }
@@ -149,6 +168,10 @@ void MapRenderer::drawLayer(QPainter &painter,
         for (int x = startX; x < endX; ++x) {
             const int gid = layer.at(y).at(x);
             if (gid != 0) {
+                if (soilState && y < soilState->cultivatedLayer().size() &&
+                    x < soilState->cultivatedLayer().at(y).size() &&
+                    soilState->cultivatedLayer().at(y).at(x) != 0 &&
+                    isGroundFoliage(gid, tilesets)) continue;
                 drawTile(painter, gid, QPoint(x, y), offset,
                          tileWidth, tileHeight, tilesets,
                          QPoint(x, y) == storageChestTile ? storageChestFrame : -1);
