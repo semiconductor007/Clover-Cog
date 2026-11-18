@@ -85,7 +85,7 @@ private slots:
 
 private:
     bool writeFarm(int day, int minuteOfDay, QPoint position = BesideBed);
-    bool openGame(QSize initialSize = {});
+    bool openGame(QSize initialSize = {}, bool fullscreen = false);
     QString hudText() const;
     QColor grassColour() const;
     void verifySaved(int day, int hour, int growth, bool watered);
@@ -165,13 +165,14 @@ bool ClockUiTests::writeFarm(int day, int minuteOfDay, QPoint position) {
     return SaveManager::save(SaveManager::defaultSavePath(), data);
 }
 
-bool ClockUiTests::openGame(QSize initialSize) {
+bool ClockUiTests::openGame(QSize initialSize, bool fullscreen) {
     m_window = std::make_unique<MainWindow>();
     if (auto *music = m_window->findChild<QAudioOutput *>())
         music->setMuted(true);
     if (initialSize.isValid())
         m_window->resize(initialSize);
-    m_window->show();
+    if (fullscreen) m_window->showFullScreen();
+    else m_window->show();
     m_window->activateWindow();
     if (!QTest::qWaitForWindowExposed(m_window.get()))
         return false;
@@ -916,10 +917,8 @@ void ClockUiTests::firstShowFitsViewport() {
 }
 
 void ClockUiTests::fullscreenFillsViewportAndRestores() {
-    QVERIFY(openGame(QSize(1040,640)));
+    QVERIFY(openGame(QSize(1040,640), true));
     m_window->showStatus(QStringLiteral("保存失败，请检查存档目录的空间和写入权限。").repeated(3));
-    m_window->showFullScreen();
-    QCoreApplication::processEvents(); m_window->updateGameScale();
     QVERIFY(m_window->isFullScreen());
     verifyCornerLayout();
     QVERIFY(m_window->windowFlags().testFlag(Qt::FramelessWindowHint));
@@ -930,6 +929,35 @@ void ClockUiTests::fullscreenFillsViewportAndRestores() {
     auto *bar=m_canvas->findChild<ItemBar *>(); QVERIFY(bar);
     QVERIFY(qAbs(bar->geometry().center().x()-m_canvas->rect().center().x())<=1);
     QCOMPARE(view->transform().m11(),view->transform().m22());
+    auto *hud = m_canvas->findChild<QWidget *>("farmHud");
+    QVERIFY(hud);
+    QVERIFY(QDir().mkpath("captures"));
+    // Exercise the user's 16:10 desktop aspect explicitly, not only the
+    // offscreen platform's square default monitor.
+    view->viewport()->resize(2560,1600);
+    m_window->updateGameScale();
+    QCOMPARE(m_map->size(),m_canvas->size());
+    QCOMPARE(m_canvas->width(),707);
+    QCOMPARE(hud->geometry().right(),698);
+    const QRect wide=view->mapFromScene(view->sceneRect()).boundingRect();
+    QVERIFY(qAbs(wide.width()-2560)<=2);
+    QVERIFY(qAbs(wide.height()-1600)<=2);
+    auto *proxy = m_canvas->graphicsProxyWidget();
+    QVERIFY(proxy);
+    QCOMPARE(proxy->size(), QSizeF(m_canvas->size()));
+    // Capture the view, where stale proxy bounds can clip an otherwise correct canvas.
+    const QPixmap screenshot = view->viewport()->grab();
+    const auto rendered = screenshot.toImage();
+    const auto pixelAt = [&](QPoint logicalPoint) {
+        const QPoint point = view->mapFromScene(proxy->mapToScene(logicalPoint));
+        return rendered.pixelColor(point * screenshot.devicePixelRatio());
+    };
+    QVERIFY(pixelAt(QPoint(m_canvas->width()-5, 160)) != view->backgroundBrush().color());
+    const QPoint hudSample = hud->pos() + QPoint(hud->width()-12, 18);
+    const QImage canvasImage = m_canvas->grab().toImage();
+    QCOMPARE(pixelAt(hudSample), canvasImage.pixelColor(hudSample * m_canvas->devicePixelRatioF()));
+    QVERIFY(screenshot.save("captures/fullscreen-wide-hud.png"));
+    verifyCornerLayout();
     m_window->showNormal(); QCoreApplication::processEvents(); m_window->updateGameScale();
     QVERIFY(!m_window->isFullScreen());
     QCOMPARE(m_canvas->size(),QSize(576,442));

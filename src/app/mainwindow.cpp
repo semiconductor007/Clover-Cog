@@ -498,15 +498,21 @@ void MainWindow::updateGameScale() {
     const int logicalWidth = isFullScreen()
         ? qMax(320, qRound(qreal(CanvasHeight) * viewportSize.width() / viewportSize.height()))
         : CanvasWidth;
-    if (m_gameCanvas->width() != logicalWidth) {
-        m_gameCanvas->setFixedSize(logicalWidth, CanvasHeight);
-        m_gameScene->setSceneRect(m_gameCanvas->rect());
-        mapWidget->setGeometry(m_gameCanvas->rect());
-        itemBar->move((logicalWidth-itemBar->width())/2,CanvasHeight-itemBar->height()-8);
-        positionStatus();
-        mapWidget->setViewportCenter(character->absolutePosition().x()+character->width()/2,
-                                     character->absolutePosition().y()+character->height()/2);
+    const QSize canvasSize(logicalWidth, CanvasHeight);
+    if (m_gameCanvas->size() != canvasSize)
+        m_gameCanvas->setFixedSize(canvasSize);
+    // Synchronize the proxy clip even if the widget already resized while hidden.
+    if (auto *proxy = m_gameCanvas->graphicsProxyWidget()) {
+        proxy->setMinimumSize(canvasSize);
+        proxy->setMaximumSize(canvasSize);
+        proxy->resize(canvasSize);
     }
+    m_gameScene->setSceneRect(m_gameCanvas->rect());
+    mapWidget->setGeometry(m_gameCanvas->rect());
+    itemBar->move((logicalWidth - itemBar->width()) / 2, CanvasHeight - itemBar->height() - 8);
+    m_hud->move(logicalWidth - m_hud->width() - OverlayMargin, OverlayMargin);
+    positionStatus();
+    character->setInitialPosition(character->absolutePosition());
 
     const qreal availableScale = qMin(
         static_cast<qreal>(viewportSize.width()) / m_gameCanvas->width(),
@@ -518,6 +524,7 @@ void MainWindow::updateGameScale() {
     m_gameView->resetTransform();
     m_gameView->scale(pixelScale, pixelScale);
     m_gameView->centerOn(m_gameScene->sceneRect().center());
+    m_gameView->viewport()->update();
 }
 
 void MainWindow::updateHud() {
