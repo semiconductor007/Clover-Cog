@@ -15,13 +15,9 @@ public:
     void resume();
     bool isPaused() const { return !m_timer.isValid(); }
     static std::optional<qint64> sleepTargetMinute(
-        qint64 minutes, int wakeHour = GameConstants::WakeUpHour,
-        int sleepStartHour = GameConstants::SleepStartHour);
+        qint64 minutes, int wakeHour = GameConstants::WakeUpHour);
+    static std::optional<qint64> passOutDeadline(qint64 from, qint64 to);
     void setElapsedGameMinutes(qint64 gameMinutes);
-    bool canSleep(int sleepStartHour = GameConstants::SleepStartHour,
-                  int wakeHour = GameConstants::WakeUpHour) const;
-    bool sleepToNextMorning(int wakeHour = GameConstants::WakeUpHour,
-                            int sleepStartHour = GameConstants::SleepStartHour);
     qint64 elapsedGameMinutes() const;
     int minute() const;
     int hour() const;

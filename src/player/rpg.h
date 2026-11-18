@@ -36,6 +36,7 @@ public:
     bool restorePosition(const QPoint &saved);
     void handleToolAction();
     void setInputBlocked(bool blocked);
+    bool canStandAt(const QPoint &position) const;
     QPoint currentTilePosition() const;
     QPoint absolutePosition() const { return m_absolutePos; }
     // 新增：获取当前工具属性

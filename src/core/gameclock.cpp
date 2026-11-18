@@ -39,13 +39,10 @@ qint64 GameClock::elapsedGameMinutes() const {
     return m_gameMinuteOffset + rawElapsedGameMinutes();
 }
 
-std::optional<qint64> GameClock::sleepTargetMinute(qint64 minutes, int wakeHour,
-                                                   int sleepStartHour) {
-    if (minutes < 0 || wakeHour < 1 || wakeHour > 23 ||
-        sleepStartHour <= wakeHour || sleepStartHour > 23) return std::nullopt;
+std::optional<qint64> GameClock::sleepTargetMinute(qint64 minutes, int wakeHour) {
+    if (minutes < 0 || wakeHour < 1 || wakeHour > 23) return std::nullopt;
     const int minuteOfDay = int(minutes % 1440);
     const int wakeMinute = wakeHour * 60;
-    if (minuteOfDay >= wakeMinute && minuteOfDay < sleepStartHour * 60) return std::nullopt;
     const int delta = minuteOfDay < wakeMinute ? wakeMinute - minuteOfDay
                                                : 1440 - minuteOfDay + wakeMinute;
     if (minutes > std::numeric_limits<qint64>::max() - delta) return std::nullopt;
@@ -54,18 +51,15 @@ std::optional<qint64> GameClock::sleepTargetMinute(qint64 minutes, int wakeHour,
     return target;
 }
 
-bool GameClock::canSleep(int sleepStartHour, int wakeHour) const {
-    return sleepTargetMinute(elapsedGameMinutes(), wakeHour, sleepStartHour).has_value();
-}
-
-bool GameClock::sleepToNextMorning(int wakeHour, int sleepStartHour) {
-    const qint64 current = elapsedGameMinutes();
-    const auto target = sleepTargetMinute(current, wakeHour, sleepStartHour);
-    if (!target) {
-        return false;
-    }
-    setElapsedGameMinutes(*target);
-    return true;
+std::optional<qint64> GameClock::passOutDeadline(qint64 from, qint64 to) {
+    constexpr int cutoff = GameConstants::PassOutHour * 60;
+    constexpr int dawn = GameConstants::WakeUpHour * 60;
+    if (from < 0 || to < from) return std::nullopt;
+    const int minute = int(from % 1440);
+    if (minute >= cutoff && minute < dawn) return from;
+    const int delta = minute < cutoff ? cutoff - minute : 1440 - minute + cutoff;
+    if (to - from < delta) return std::nullopt;
+    return from + delta;
 }
 
 int GameClock::minute() const {
