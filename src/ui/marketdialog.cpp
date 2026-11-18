@@ -4,17 +4,19 @@
 #include <QSpinBox>
 
 MarketDialog::MarketDialog(QWidget *parent)
-    : FarmPanel(QStringLiteral("农产品收购点"), parent) {
+    : FarmPanel(QStringLiteral("农产品收购点"), parent, false) {
     setObjectName(QStringLiteral("marketDialog"));
     auto *goods = new QGridLayout;
     goods->setColumnStretch(1, 1);
-    goods->setHorizontalSpacing(16);
-    goods->setVerticalSpacing(14);
-    tableHeading(goods, 0, QStringLiteral("农产品"), 2);
+    goods->setHorizontalSpacing(14);
+    goods->setVerticalSpacing(10);
+    tableHeading(goods, 0, QStringLiteral("收购农产品"), 2);
     tableHeading(goods, 2, QStringLiteral("单价"));
     tableHeading(goods, 3, QStringLiteral("持有"));
-    tableHeading(goods, 4, QStringLiteral("卖几份"));
-    tableHeading(goods, 5, QStringLiteral("本次收入"));
+    tableHeading(goods, 4, QStringLiteral("出售份数"));
+    auto *closeLocation = new QHBoxLayout;
+    closeLocation->addStretch();
+    goods->addLayout(closeLocation, 0, 5);
     int row = 1;
     for (CropType crop : CropCatalog::cropTypes()) {
         const auto &def = CropCatalog::definition(crop);
@@ -46,10 +48,15 @@ MarketDialog::MarketDialog(QWidget *parent)
     m_total = new QLabel(this);
     m_total->setObjectName(QStringLiteral("saleTotal"));
     m_total->setAlignment(Qt::AlignRight);
-    body->addWidget(m_total);
     m_sell = makeButton(QStringLiteral("出售全部农产品"), QStringLiteral("sellAll"));
     connect(m_sell, &QPushButton::clicked, this, &MarketDialog::saleRequested);
-    addFooter(QStringLiteral("输入或调整要卖的份数，再点同行的「卖出」。"), m_sell);
+    auto *checkout = new QHBoxLayout;
+    checkout->addWidget(summary);
+    checkout->addStretch();
+    checkout->addWidget(m_total);
+    checkout->addWidget(m_sell);
+    body->addLayout(checkout);
+    addFooter(QStringLiteral("选择份数后，点击对应农产品的「卖出」。"), closeLocation);
     useTradeStyle();
 }
 

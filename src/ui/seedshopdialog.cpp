@@ -46,7 +46,17 @@ SeedShopDialog::SeedShopDialog(QWidget *parent)
                                  FarmIcons::fertilizer(), EconomyService::FertilizerPrice,
                                  [this](int n) { emit fertilizerPurchaseRequested(n); });
     body->addLayout(goods);
-    addFooter(QStringLiteral("购入的种子和肥料可在背包中选用。"));
+    auto *upgrades = new QHBoxLayout;
+    m_upgradeCan = makeButton(QString(), QStringLiteral("upgradeCan"));
+    m_upgradeAxe = makeButton(QString(), QStringLiteral("upgradeAxe"));
+    m_upgradeCan->setToolTip(FarmIcons::itemTooltip(StackItem::Water));
+    m_upgradeAxe->setToolTip(FarmIcons::itemTooltip(StackItem::Axe));
+    connect(m_upgradeCan, &QPushButton::clicked, this, &SeedShopDialog::canUpgradeRequested);
+    connect(m_upgradeAxe, &QPushButton::clicked, this, &SeedShopDialog::axeUpgradeRequested);
+    upgrades->addWidget(m_upgradeCan);
+    upgrades->addWidget(m_upgradeAxe);
+    body->addLayout(upgrades);
+    addFooter(QStringLiteral("购入的种子和肥料可在背包中选用。"), heading);
     useTradeStyle();
 }
 
@@ -55,4 +65,11 @@ void SeedShopDialog::setState(const EconomyService &economy) {
     for (auto it = m_seedCounts.cbegin(); it != m_seedCounts.cend(); ++it)
         it.value()->setText(QString::number(economy.seedCount(it.key())));
     m_fertilizerCount->setText(QString::number(economy.fertilizerCount()));
+    const auto showUpgrade = [&](QPushButton *button, const QString &name, int price, bool owned) {
+        button->setText(owned ? QStringLiteral("%1 · 已升级").arg(name)
+                              : QStringLiteral("%1 · %2 金币").arg(name).arg(price));
+        button->setEnabled(!owned && economy.coins() >= price);
+    };
+    showUpgrade(m_upgradeCan, QStringLiteral("水壶扩容"), EconomyService::CanUpgradePrice, economy.canUpgraded());
+    showUpgrade(m_upgradeAxe, QStringLiteral("强化斧头"), EconomyService::AxeUpgradePrice, economy.axeUpgraded());
 }

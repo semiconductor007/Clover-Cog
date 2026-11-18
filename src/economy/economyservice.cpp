@@ -200,6 +200,35 @@ bool EconomyService::fertilizeWithItem(const std::function<bool()> &fertilizeAct
     return true;
 }
 
+bool EconomyService::refillWater() {
+    if (m_applyingItem || m_waterRemaining == waterCapacity()) return false;
+    m_waterRemaining = waterCapacity();
+    return true;
+}
+
+bool EconomyService::waterWithAction(const std::function<bool()> &action) {
+    if (m_applyingItem || m_waterRemaining == 0 || !action) return false;
+    QScopedValueRollback<bool> applying(m_applyingItem, true);
+    if (!action()) return false;
+    --m_waterRemaining;
+    return true;
+}
+
+bool EconomyService::upgradeAxe() {
+    if (m_applyingItem || m_axeUpgraded || m_coins < AxeUpgradePrice) return false;
+    m_coins -= AxeUpgradePrice;
+    m_axeUpgraded = true;
+    return true;
+}
+
+bool EconomyService::upgradeCan() {
+    if (m_applyingItem || m_canUpgraded || m_coins < CanUpgradePrice) return false;
+    m_coins -= CanUpgradePrice;
+    m_canUpgraded = true;
+    m_waterRemaining = waterCapacity();
+    return true;
+}
+
 SeedPurchaseResult EconomyService::buySeeds(CropType type, int quantity) {
     return buySupply(type, quantity, CropCatalog::definition(type).seedPrice);
 }
@@ -276,7 +305,8 @@ SaleResult EconomyService::sellAll(const QPoint &playerTile,
 
 EconomyState EconomyService::state() const {
     return {m_coins, m_inventory.capacity(), m_inventory.counts(),
-            m_seedCounts, m_fertilizerCount, m_storage, m_bagSlots, m_chestSlots, m_woodCount};
+            m_seedCounts, m_fertilizerCount, m_storage, m_bagSlots, m_chestSlots, m_woodCount,
+            m_waterRemaining, m_canUpgraded, m_axeUpgraded};
 }
 
 StorageTransferResult EconomyService::transfer(StorageItemKind kind, CropType crop,
@@ -331,6 +361,8 @@ StorageTransferResult EconomyService::transfer(StorageItemKind kind, CropType cr
 }
 
 bool EconomyService::restore(const EconomyState &state) {
+    const int capacity = EconomyState::waterCapacity(state.canUpgraded);
+    if (state.waterRemaining < 0 || state.waterRemaining > capacity) return false;
     if (m_applyingItem || state.coins < 0 || state.woodCount < 0 || state.storage.woodCount < 0 || state.fertilizerCount < 0 ||
         state.storage.fertilizerCount < 0 || !validCropCounts(state.seedCounts) ||
         !validCropCounts(state.storage.harvestCounts) || !validCropCounts(state.storage.seedCounts)) {
@@ -346,6 +378,9 @@ bool EconomyService::restore(const EconomyState &state) {
     if (!reconcile(candidate)) return false;
     m_coins = state.coins;
     m_woodCount = state.woodCount;
+    m_waterRemaining = state.waterRemaining;
+    m_canUpgraded = state.canUpgraded;
+    m_axeUpgraded = state.axeUpgraded;
     m_fertilizerCount = state.fertilizerCount;
     m_inventory = restoredInventory;
     m_seedCounts = state.seedCounts;

@@ -43,7 +43,8 @@ C 的 PlayerController 新增 `setTilePositionGetter()` / `canReachTile()`：从
 ## WorldState / MapWidget
 
 - `cultivateTile()`、`plantSeed()`、`waterTile()` 执行土地操作。
-- `advanceDay()` 根据浇水状态推进作物和空耕地恢复。
+- `MapWidget::waterTile()` 通过 `EconomyService::waterWithAction()` 浇水，地块首次成功浇湿才扣一份水。井边按 F 调用 `refillWater()`。商店通过 `upgradeCan()` 和 `upgradeAxe()` 各扣款一次。
+- `advanceDay(completedDay)` 根据刚结束那天的季节与浇水状态推进农田。适季一次浇水日计一个生长日，非适季两次计一个。作物快照的 `offSeasonHalfGrowth` 保留不足一天的进度，旧档缺省为假。
 - `harvest()` 只返回成熟作物的类型和整格产量。
 - MapWidget 负责地图输入和绘制，收获入包由外部 `harvestHandler` 决定。
 
@@ -54,9 +55,9 @@ C 的 PlayerController 新增 `setTilePositionGetter()` / `canReachTile()`：从
 - `CropCatalog::canPlant(type, season)` / `canPlantOnDay(type, day)` 与 WorldState 共同校验新播种；非适季失败不扣种，已有作物跨季继续成长。
 - E 必须按顺序逐日调用 `advanceDay(completedDay)`，同日重复调用无效；该入口不自动补结算遗漏日期。时钟、睡眠、HUD 和环境仍属 E 待开发。
 
-## 施肥（B 地块效果已实现，C/D 接入待做）
+## 施肥
 
-`WorldState::fertilize(tile)` 返回 `FertilizeResult {success, failure}`。未成熟作物每株最多一次，下一次有浇水日结算额外增长 1 天，干旱保留奖励；无效目标/空地/已施肥/成熟均失败不改地块。D 检查库存、同步调用后仅在成功时扣 1，C 负责施用输入；库存事务尚未实现。`isFertilized()`、`hasPendingFertilizerBonus()` 可供展示，日结算统计返回 `fertilizerBonusesUsed`。
+`WorldState::fertilize(tile)` 返回 `FertilizeResult {success, failure}`。每株未成熟作物可施肥一次，下次累计满一个生长日时额外增长一天，期间漏浇仍保留奖励。`EconomyService::fertilizeWithItem()` 仅在施肥成功后扣一份。`isFertilized()` 和 `hasPendingFertilizerBonus()` 供界面查询，日结算通过 `fertilizerBonusesUsed` 返回实际用掉的加速次数。
 
 ## CropCatalog
 

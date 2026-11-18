@@ -108,19 +108,27 @@ bool WorldState::hasTreeAt(const QPoint &tilePos) const {
     return m_trees.contains(tilePos);
 }
 
+void WorldState::damageWholeTree(WholeTree &tree, int damage) {
+    tree.health -= damage;
+    if (tree.health <= 0) {
+        ++tree.stage;
+        tree.health = tree.stage == 1 ? 50 : 0;
+    }
+    rebuildTreeLayers();
+}
+
 bool WorldState::damageTree(const QPoint &tilePos, int damage) {
-    if(!standingTreeBounds(tilePos).isEmpty()) {
-        if(damage<=0) return false;
-        for(auto &whole:m_wholeTrees) if((whole.stage==0 && whole.bounds.contains(tilePos)) ||
-                                      (whole.stage==1 && whole.anchor==tilePos)) {
-            whole.health=qMax(0,whole.health-damage);
-            if(!whole.health) {++whole.stage;whole.health=whole.stage==1?50:0;}
-            rebuildTreeLayers();return true;
-        }
+    if (damage <= 0)
         return false;
+    for (auto &tree : m_wholeTrees) {
+        if ((tree.stage == 0 && tree.bounds.contains(tilePos)) ||
+            (tree.stage == 1 && tree.anchor == tilePos)) {
+            damageWholeTree(tree, damage);
+            return true;
+        }
     }
     auto tree = m_trees.find(tilePos);
-    if (tree == m_trees.end() || damage <= 0) {
+    if (tree == m_trees.end()) {
         return false;
     }
     tree->health -= damage;
@@ -238,6 +246,7 @@ DayAdvanceResult WorldState::advanceDay(int completedDay,
     }
     m_lastCompletedDay = completedDay;
 
+    const Season season = SeasonCalendar::dateForDay(completedDay).season;
     for (auto it = m_crops.begin(); it != m_crops.end(); ++it) {
         const QPoint tilePos = it.key();
         CropState &crop = it.value();
@@ -252,13 +261,22 @@ DayAdvanceResult WorldState::advanceDay(int completedDay,
             continue;
         }
 
+        ++result.cropsAdvanced;
+        if (!CropCatalog::canPlant(crop.type, season)) {
+            // Only watered days count. Keep a remainder even across a dry day or season change.
+            crop.offSeasonHalfGrowth = !crop.offSeasonHalfGrowth;
+            if (crop.offSeasonHalfGrowth)
+                continue;
+        }
+
         const int bonus = crop.fertilizerBonusPending ? 1 : 0;
         crop.growthDays = qMin(crop.growthDays + 1 + bonus, definition.growthDays);
         if (crop.fertilizerBonusPending) {
             crop.fertilizerBonusPending = false;
             ++result.fertilizerBonusesUsed;
         }
-        ++result.cropsAdvanced;
+        if (crop.growthDays == definition.growthDays)
+            crop.offSeasonHalfGrowth = false;
         m_cropLayer[tilePos.y()][tilePos.x()] =
             CropCatalog::stageGid(crop.type, crop.growthDays);
     }
@@ -349,7 +367,7 @@ WorldStateSnapshot WorldState::snapshot() const {
     for (auto it = m_crops.cbegin(); it != m_crops.cend(); ++it) {
         result.crops.append(
             {it.key(), it->type, it->plantedDay, it->growthDays,
-             it->fertilizerApplied, it->fertilizerBonusPending});
+             it->fertilizerApplied, it->fertilizerBonusPending, it->offSeasonHalfGrowth});
     }
     return result;
 }
@@ -382,6 +400,10 @@ bool WorldState::restore(const WorldStateSnapshot &snapshot) {
             savedCrop.growthDays > definition.growthDays ||
             (savedCrop.fertilizerBonusPending &&
              (!savedCrop.fertilizerApplied || savedCrop.growthDays >= definition.growthDays)) ||
+            (savedCrop.offSeasonHalfGrowth &&
+             (savedCrop.growthDays == definition.growthDays ||
+              definition.plantingSeasons == SeasonCalendar::AllSeasons ||
+              savedCrop.plantedDay > snapshot.lastCompletedDay)) ||
             restoredCrops.contains(savedCrop.tilePos) ||
             !isPlantableSoilGid(
                 snapshot.cultivatedLayer.at(savedCrop.tilePos.y())
@@ -393,7 +415,7 @@ bool WorldState::restore(const WorldStateSnapshot &snapshot) {
         restoredCrops.insert(savedCrop.tilePos,
                              CropState{savedCrop.type, savedCrop.plantedDay,
                                        savedCrop.growthDays, savedCrop.fertilizerApplied,
-                                       savedCrop.fertilizerBonusPending});
+                                       savedCrop.fertilizerBonusPending, savedCrop.offSeasonHalfGrowth});
     }
 
     for (const QPoint &tilePos : snapshot.wateredTiles) {
@@ -430,25 +452,34 @@ QRect WorldState::standingTreeBounds(const QPoint &tile) const {
     return {};
 }
 
-TreeChopResult WorldState::previewTreeChop(const QPoint &tile) const {
-    for(const auto &tree:m_wholeTrees) {
+TreeChopResult WorldState::previewTreeChop(const QPoint &tile, int damage) const {
+    if (damage != GameConstants::BaseAxeDamage && damage != GameConstants::UpgradedAxeDamage)
+        return {};
+    for (const auto &tree : m_wholeTrees) {
         // Only the bottom/trunk row can be hit, not a distant crown.
-        if(tree.stage==2 || tile.y()!=tree.anchor.y() ||
-           (tree.stage==0 ? !tree.bounds.contains(tile) : tree.anchor!=tile)) continue;
-        const bool final=tree.health<=25;
-        return {true,tree.anchor,tree.bounds,final?(tree.stage==0?5:2):0,final && tree.stage==0,tree.health,tree.stage};
+        if (tree.stage == 2 || tile.y() != tree.anchor.y() ||
+            (tree.stage == 0 ? !tree.bounds.contains(tile) : tree.anchor != tile))
+            continue;
+        const bool finishingHit = tree.health <= damage;
+        const int wood = finishingHit ? (tree.stage == 0 ? 5 : 2) : 0;
+        return {true, tree.anchor, tree.bounds, wood, finishingHit && tree.stage == 0,
+                tree.health, tree.stage, damage};
     }
     return {};
 }
 
 bool WorldState::commitTreeChop(const TreeChopResult &preview) {
-    if(!preview.success) return false;
-    const auto current=previewTreeChop(preview.anchor);
-    if(!current.success || current.wood!=preview.wood || current.felled!=preview.felled || current.health!=preview.health || current.stage!=preview.stage) return false;
-    for(auto &tree:m_wholeTrees) if(tree.anchor==preview.anchor) {
-        tree.health-=25;
-        if(tree.health<=0) { ++tree.stage; tree.health=tree.stage==1?50:0; }
-        rebuildTreeLayers(); return true;
+    if (!preview.success)
+        return false;
+    const auto current = previewTreeChop(preview.anchor, preview.damage);
+    if (!current.success || current.health != preview.health || current.stage != preview.stage ||
+        current.wood != preview.wood || current.felled != preview.felled)
+        return false;
+    for (auto &tree : m_wholeTrees) {
+        if (tree.anchor == current.anchor) {
+            damageWholeTree(tree, current.damage);
+            return true;
+        }
     }
     return false;
 }

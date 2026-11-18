@@ -9,11 +9,16 @@ Summer evenings stay light longer than winter evenings. A short chime marks a su
 | Move | W / A / S / D |
 | Select a tool or item | Scroll through occupied toolbar slots or click a slot |
 | Till, plant, fertilize, water or harvest | Left-click a tile with the appropriate item |
+| Refill the watering can | Press F beside the well east of the front door or the well in the eastern field, with any tool selected |
 | Open the backpack or equip seeds and fertilizer | Press E or Tab, then select a tool or item |
 | Use the bed, shop or market | Press F at the corresponding location. Sleep is available from 20:00 to 05:59 |
 | Store or retrieve items | Stand directly south of the plaza chest and press F |
 | Pause the farm | Press Esc in the farm to resume, read the guide or save and return to the title screen |
 | Close a panel | Esc, or E / Tab in the backpack |
+
+Plant seeds during their growing season. Crops survive a change of season. In season, each watered day counts as one growth day. Out of season, an established plant needs two watered days for the same progress. Dry days pause growth. Fertilizer adds one extra growth day the next time the crop completes a full growth day. Each plant can be fertilized once. Hover over a seed to see its growing season and time to maturity.
+
+The watering can starts full and holds enough water for 12 tiles. Watering one tile uses one charge. The shop sells two one-time upgrades. For 12 coins the can holds 24 charges and is refilled immediately. For 18 coins the axe fells a tree in two hits and clears the stump in one, down from four and two. Aim at the base of the trunk to collect wood.
 
 Tilling, planting, watering, fertilizing and harvesting work only on the player's tile and its eight immediate neighbors, including diagonals. Remote clicks leave crops and inventory unchanged. Station interactions still require standing in their marked area and pressing F. Brief on-screen feedback reports the result of an action. The pause menu freezes time. Backpack, trading and storage panels allow time to continue.
 

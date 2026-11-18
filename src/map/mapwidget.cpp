@@ -78,6 +78,7 @@ bool MapWidget::loadMap(const QString &tmjPath) {
     m_displayTilesets = m_originalTilesets;
     m_paintScenery = {};
     m_renderLayers = std::move(data.renderLayers);
+    m_waterWells = std::move(data.waterWells);
     m_offsetX = 0;
     m_offsetY = 0;
 
@@ -180,6 +181,8 @@ void MapWidget::paintEvent(QPaintEvent *event) {
                         QStringLiteral("储物 [F]"), true);
     drawInteractionArea(m_bedArea, QColor(180, 130, 220, 45),
                         QStringLiteral("床铺 [F]"));
+    for (const QRect &well : m_waterWells)
+        drawInteractionArea(well, QColor(114, 190, 255, 20), QStringLiteral("水井 [F]"));
 }
 
 void MapWidget::setViewportCenter(int x, int y) {
@@ -261,6 +264,13 @@ int MapWidget::tileAt(int x, int y) const {
         return -1;
     }
     return layer.at(y).at(x);
+}
+
+bool MapWidget::isNearWaterWell(const QPoint &tile) const {
+    for (const QRect &well : m_waterWells) {
+        if (well.adjusted(-1, -1, 1, 1).contains(tile)) return true;
+    }
+    return false;
 }
 
 bool MapWidget::isInteractionTile(const QPoint &tilePos) const {
@@ -361,10 +371,9 @@ bool MapWidget::fertilizeTile(const QPoint &tilePos) {
 }
 
 bool MapWidget::waterTile(const QPoint &tilePos) {
-    if (isInteractionTile(tilePos) || m_worldState.isWatered(tilePos) ||
-        !m_worldState.waterTile(tilePos)) {
-        return false;
-    }
+    if (isInteractionTile(tilePos) || m_worldState.isWatered(tilePos)) return false;
+    const auto water = [this, tilePos] { return m_worldState.waterTile(tilePos); };
+    if (!(m_waterHandler ? m_waterHandler(water) : water())) return false;
     update();
     emit worldChanged();
     emit tileWatered();
@@ -388,7 +397,7 @@ DayAdvanceResult MapWidget::advanceThroughDay(int completedDay) {
 bool MapWidget::chopTree(const QPoint &tile) {
     if(m_inputBlocked || !m_playerController || m_playerController->currentTool().type!=ToolType::Axe ||
        !m_playerController->canReachTile(tile)) return false;
-    const auto preview=m_worldState.previewTreeChop(tile);
+    const auto preview = m_worldState.previewTreeChop(tile, m_playerController->currentTool().damage);
     if(!preview.success) {emit farmingFeedback(QStringLiteral("靠近树干，用斧头点击树干底部"));return false;}
     for(const auto &visual:m_treeVisuals) if(visual.anchor==preview.anchor && visual.falling) return false;
     const int crownGid=m_worldState.treeGidAt(preview.bounds.topLeft());

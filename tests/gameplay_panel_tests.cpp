@@ -77,6 +77,18 @@ MapWidget *gameMap(MainWindow &game) {
     }
     return nullptr;
 }
+
+bool clickMapTile(MainWindow &game, MapWidget *map, const QPoint &tile) {
+    auto *view = game.findChild<QGraphicsView *>();
+    QWidget *canvas = map->window();
+    if (!view || !canvas->graphicsProxyWidget()) return false;
+    const QPoint point(tile.x() * map->tileWidth() + map->tileWidth() / 2 - map->offsetX(),
+                       tile.y() * map->tileHeight() + map->tileHeight() / 2 - map->offsetY());
+    const QPoint screen = view->mapFromScene(canvas->graphicsProxyWidget()->mapToScene(map->mapTo(canvas, point)));
+    if (!view->viewport()->rect().contains(screen)) return false;
+    QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, screen);
+    return true;
+}
 }
 
 class GameplayPanelTests : public QObject {
@@ -104,6 +116,9 @@ private slots:
     void inventoryHotkeyEverywhere_data();
     void inventoryHotkeyEverywhere();
     void dragToToolbarPersistsLayout();
+    void canRefillsAtTheWell_data();
+    void canRefillsAtTheWell();
+    void purchasedToolsSurviveReopening();
     void sellAtMarket();
     void continueVersionThreeNextToNewFence();
     void fullBackpackAtStorage();
@@ -691,6 +706,113 @@ void GameplayPanelTests::buySelectAndUseFertilizer() {
     QVERIFY(applied.world.crops.first().fertilizerBonusPending);
 }
 
+void GameplayPanelTests::canRefillsAtTheWell_data() {
+    QTest::addColumn<QPoint>("byWell");
+    QTest::newRow("home well") << QPoint(31, 14);
+    QTest::newRow("east field well") << QPoint(63, 22);
+}
+
+void GameplayPanelTests::canRefillsAtTheWell() {
+    QFETCH(QPoint, byWell);
+    auto fixture = m_fixture;
+    const QPoint secondField = m_field - QPoint(1, 0);
+    fixture.world.cultivatedLayer[secondField.y()][secondField.x()] = GameConstants::CultivatedTileGid;
+    fixture.economy.waterRemaining = 1;
+    fixture.playerPosition = stationPosition(m_field);
+    QVERIFY(SaveManager::save(path(), fixture));
+
+    MainWindow game;
+    showGame(game);
+    auto *map = gameMap(game);
+    QVERIFY(map);
+    auto *bar = map->window()->findChild<ItemBar *>();
+    auto *player = map->findChild<ImageMovementWidget *>();
+    auto *water = map->window()->findChild<QLabel *>("gameWater");
+    auto *status = map->window()->findChild<QLabel *>("farmStatus");
+    QVERIFY(bar && player && water && status);
+    bar->selectTool(ToolType::WateringCan);
+    QCOMPARE(player->getCurrentTool().type, ToolType::WateringCan);
+    QCOMPARE(water->text(), QStringLiteral("水壶 1 / 12"));
+    QSignalSpy watered(map, &MapWidget::tileWatered);
+    QVERIFY(clickMapTile(game, map, m_field));
+    QCOMPARE(watered.count(), 1);
+    QCOMPARE(water->text(), QStringLiteral("水壶 0 / 12"));
+    QVERIFY(clickMapTile(game, map, secondField));
+    QCOMPARE(watered.count(), 1);
+    QVERIFY(status->isVisible() && status->text().contains(QStringLiteral("水")));
+    QVERIFY(!map->worldSnapshot().wateredTiles.contains(secondField));
+    QTest::keyClick(player, Qt::Key_F);
+    QCOMPARE(water->text(), QStringLiteral("水壶 0 / 12"));
+
+    QVERIFY(player->restorePosition(stationPosition(byWell)));
+    QCOMPARE(player->currentTilePosition(), byWell);
+    QTest::keyClick(player, Qt::Key_F);
+    QCOMPARE(water->text(), QStringLiteral("水壶 12 / 12"));
+    QVERIFY(player->restorePosition(stationPosition(m_field)));
+    QVERIFY(clickMapTile(game, map, m_field));
+    QCOMPARE(watered.count(), 1);
+    QCOMPARE(water->text(), QStringLiteral("水壶 12 / 12"));
+    QVERIFY(clickMapTile(game, map, secondField));
+    QCOMPARE(watered.count(), 2);
+    QCOMPARE(water->text(), QStringLiteral("水壶 11 / 12"));
+    GameSaveData saved;
+    QVERIFY(SaveManager::load(path(), &saved));
+    QCOMPARE(saved.economy.waterRemaining, 11);
+    QVERIFY(saved.world.wateredTiles.contains(secondField));
+    QVERIFY(game.close());
+}
+
+void GameplayPanelTests::purchasedToolsSurviveReopening() {
+    QVERIFY(SaveManager::save(path(), m_fixture));
+    {
+        MainWindow game;
+        showGame(game);
+        auto *map = gameMap(game);
+        QVERIFY(map);
+        auto *player = map->findChild<ImageMovementWidget *>();
+        QVERIFY(player);
+        QTest::keyClick(player, Qt::Key_F);
+        QTRY_VERIFY(panel("shopDialog"));
+        auto *shop = panel("shopDialog");
+        for (const char *id : {"upgradeAxe", "upgradeCan"}) {
+            auto *upgrade = shop->findChild<QPushButton *>(id);
+            QVERIFY(upgrade && upgrade->isEnabled());
+            QTest::mouseClick(upgrade, Qt::LeftButton);
+            QVERIFY(!upgrade->isEnabled());
+        }
+        GameSaveData bought;
+        QVERIFY(SaveManager::load(path(), &bought));
+        QCOMPARE(bought.economy.coins, m_fixture.economy.coins - EconomyService::AxeUpgradePrice - EconomyService::CanUpgradePrice);
+        QVERIFY(bought.economy.axeUpgraded && bought.economy.canUpgraded);
+        QCOMPARE(bought.economy.waterRemaining, 24);
+        shop->close();
+        QVERIFY(game.close());
+    }
+    MainWindow reopened;
+    showGame(reopened);
+    auto *map = gameMap(reopened);
+    QVERIFY(map);
+    auto *water = map->window()->findChild<QLabel *>("gameWater");
+    auto *bar = map->window()->findChild<ItemBar *>();
+    auto *player = map->findChild<ImageMovementWidget *>();
+    QVERIFY(bar && player && water);
+    QCOMPARE(water->text(), QStringLiteral("水壶 24 / 24"));
+    QVERIFY(player->restorePosition(stationPosition({43, 4})));
+    bar->selectTool(ToolType::Axe);
+    QCOMPARE(player->getCurrentTool().type, ToolType::Axe);
+    QCOMPARE(player->getCurrentTool().damage, GameConstants::UpgradedAxeDamage);
+    QSignalSpy hits(map, &MapWidget::treeChopped);
+    QVERIFY(map->chopTree({43, 3}));
+    QVERIFY(map->chopTree({43, 3}));
+    QCOMPARE(hits.count(), 2);
+    QCOMPARE(hits.at(0).at(0).toBool(), false);
+    QCOMPARE(hits.at(1).at(0).toBool(), true);
+    GameSaveData chopped;
+    QVERIFY(SaveManager::load(path(), &chopped));
+    QCOMPARE(chopped.economy.woodCount, 5);
+    QVERIFY(reopened.close());
+}
+
 void GameplayPanelTests::sellAtMarket() {
     GameSaveData fixture = m_fixture;
     fixture.playerPosition = stationPosition(QPoint(28, 18));
@@ -877,15 +999,7 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
         // Place this transaction fixture at its field; movement/collision is
         // covered separately. Farm commands still use the real click path.
         if (!player->restorePosition(stationPosition(tile))) return false;
-        auto *view = game->findChild<QGraphicsView *>();
-        QWidget *canvas = map->window();
-        if (!view || !canvas->graphicsProxyWidget()) return false;
-        const QPoint point(tile.x() * map->tileWidth() + map->tileWidth() / 2 - map->offsetX(),
-                           tile.y() * map->tileHeight() + map->tileHeight() / 2 - map->offsetY());
-        const QPoint screen = view->mapFromScene(canvas->graphicsProxyWidget()->mapToScene(map->mapTo(canvas, point)));
-        if (!view->viewport()->rect().contains(screen)) return false;
-        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, screen);
-        return true;
+        return clickMapTile(*game, map, tile);
     };
     const auto walkTo = [&](Qt::Key key, int tile) {
         const bool horizontal = key == Qt::Key_A || key == Qt::Key_D;
@@ -942,6 +1056,12 @@ void GameplayPanelTests::newFarmFinancesItsNextCrop() {
 
     for (int day = 0; day < 3; ++day) {
         QVERIFY(wheelTo(ToolType::WateringCan));
+        if (day == 2) {
+            QVERIFY(player->restorePosition(stationPosition({31, 14})));
+            QTest::keyClick(player, Qt::Key_F);
+            QVERIFY(SaveManager::load(path(), &state));
+            QCOMPARE(state.economy.waterRemaining, 12);
+        }
         for (const auto &tile : field) QVERIFY(clickField(tile));
         QCOMPARE(map->worldSnapshot().wateredTiles.size(), 6);
         QVERIFY(reopenAt(1439));

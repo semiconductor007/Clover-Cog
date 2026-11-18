@@ -44,13 +44,13 @@
 - 日 0/6 为第一年春季第 1/7 天；7、14、21 分别进入夏、秋、冬；日 28 进入第二年春季。
 - `seasonId()` 返回 spring/summer/autumn/winter，`seasonName()` 返回中文。负数查询夹到开局；实际播种传负日期会失败。
 - `CropCatalog::canPlant()` / `canPlantOnDay()` 供界面预检，`WorldState::plantSeed()` 再做规则校验。非适季失败，种子事务回调返回 false，不扣种。
-- 季节只限制新播种。已种作物换季后继续成长，成熟作物继续保留；恢复存档不因当前季节丢弃作物。
+- 已种作物在换季时保留。每个适季的浇水日计 1 个生长日，非适季每累计 2 个浇水日计 1 个生长日。漏浇、换季和存读档都会保留已累计的半天进度。未采收的成熟作物同样会保留。
 - E 跨日必须依次调用 `advanceDay(completedDay)` 结算每个已结束日期；相同或更早日期重复调用无效。此入口只结算传入的一天，不会替 E 补齐跳过日期。
 - 午夜自然跨日、晚间/凌晨睡眠和季节 HUD/环境仍属 E 待实现；本次没有修改 GameClock，不代表连续昼夜已经可玩。
 
 ## 一种基础肥料
 
-固定效果：每株未成熟作物最多施用一次。`WorldState::fertilize(tile)` 成功时标记已施肥及待生效，不立即长大；在下一次有浇水的日结算中，正常增长 1 天并额外增长 1 天，上限为该品种成熟天数。未浇水时保留待生效奖励；奖励使用后不能对同株再次施肥。收获后新播种的作物可重新施肥。
+每株未成熟作物可施肥一次。`WorldState::fertilize(tile)` 成功后登记待生效奖励。下一次浇水累计满 1 个生长日时，作物额外成长 1 天，最多长到成熟。漏浇或非适季只累计半天时，奖励留待下次。收获后新播种的植株可再次施肥。
 
 返回 `FertilizeResult { success, failure }`；失败原因有 InvalidTile、NoCrop、AlreadyApplied、AlreadyMature，失败不改变地块。`isFertilized()` / `hasPendingFertilizerBonus()` 可供 C/E 显示；`DayAdvanceResult::fertilizerBonusesUsed` 统计本次实际消耗的奖励。
 

@@ -36,13 +36,6 @@ protected:
             "QPushButton#closePanel { font-size: 20px; padding: 0; }"
             "QSpinBox { color: #563b2b; background: #fff0d1; border: 2px solid #a37754; padding: 5px; font-size: 14px; min-width: 70px; }"
             "QSpinBox:disabled { color: #a08c73; background: #dcc8a7; }"));
-        auto *close = findChild<QPushButton *>(QStringLiteral("closePanel"));
-        body->itemAt(body->count()-1)->layout()->removeWidget(close);
-        close->setText(QStringLiteral("×"));
-        close->setFixedSize(30,30);
-        close->setAccessibleName(QStringLiteral("关闭面板"));
-        close->setToolTip(QStringLiteral("关闭（Esc）"));
-        static_cast<QHBoxLayout *>(body->itemAt(0)->layout())->addWidget(close);
         setMinimumWidth(620);
     }
 
@@ -66,21 +59,23 @@ protected:
             painter.drawLine(band.bottomLeft(),band.bottomRight());
         }
     }
-    FarmPanel(const QString &title, QWidget *parent)
+    FarmPanel(const QString &title, QWidget *parent, bool showHeading = true)
         : QDialog(parent), body(new QVBoxLayout(this)), summary(new QLabel(this)) {
         setWindowTitle(title);
         setModal(true);
         body->setContentsMargins(18, 14, 18, 14);
         body->setSpacing(10);
-        auto *heading = new QHBoxLayout;
-        auto *name = new QLabel(title, this);
-        name->setObjectName(QStringLiteral("panelTitle"));
         summary->setObjectName(QStringLiteral("panelSummary"));
         summary->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        heading->addWidget(name);
-        heading->addStretch();
-        heading->addWidget(summary);
-        body->addLayout(heading);
+        if (showHeading) {
+            heading = new QHBoxLayout;
+            auto *name = new QLabel(title, this);
+            name->setObjectName(QStringLiteral("panelTitle"));
+            heading->addWidget(name);
+            heading->addStretch();
+            heading->addWidget(summary);
+            body->addLayout(heading);
+        }
 
         setStyleSheet(QStringLiteral(
             "QDialog { background: #efe2bc; }"
@@ -136,19 +131,24 @@ protected:
         return button;
     }
 
-    void addFooter(const QString &message, QPushButton *action = nullptr) {
+    void addFooter(const QString &message, QHBoxLayout *closeLocation = nullptr) {
         m_message = new QLabel(message, this);
         m_message->setObjectName(QStringLiteral("panelMessage"));
         m_message->setWordWrap(true);
         body->addWidget(m_message);
-        auto *buttons = new QHBoxLayout;
-        buttons->addStretch();
-        if (action)
-            buttons->addWidget(action);
         auto *closeButton = makeButton(QStringLiteral("关闭"), QStringLiteral("closePanel"));
         connect(closeButton, &QPushButton::clicked, this, &QDialog::reject);
-        buttons->addWidget(closeButton);
-        body->addLayout(buttons);
+        if (closeLocation) {
+            closeButton->setText(QStringLiteral("×"));
+            closeButton->setFixedSize(30, 30);
+            closeButton->setAccessibleName(QStringLiteral("关闭%1").arg(windowTitle()));
+            closeButton->setToolTip(QStringLiteral("关闭（Esc）"));
+        } else {
+            closeLocation = new QHBoxLayout;
+            closeLocation->addStretch();
+            body->addLayout(closeLocation);
+        }
+        closeLocation->addWidget(closeButton);
 
         // A held Enter/Space must never buy or sell repeatedly. Observe child
         // key events as well because the focused button normally receives them.
@@ -176,6 +176,7 @@ protected:
     }
 
     QVBoxLayout *body;
+    QHBoxLayout *heading = nullptr;
     QLabel *summary;
 
 private:

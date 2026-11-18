@@ -26,6 +26,7 @@ public:
 
     const ToolProperty &currentTool() const { return m_currentTool; }
     void setCurrentTool(int toolIndex);
+    void setAxeUpgraded(bool upgraded);
     void useToolAt(const QPoint &mapPoint);
     void setTilePositionGetter(std::function<QPoint()> getter) { m_tilePosition = std::move(getter); }
     bool canReachTile(const QPoint &tile) const;
@@ -37,6 +38,7 @@ signals:
 private:
     QPointer<MapWidget> m_mapWidget;
     ToolProperty m_currentTool;
+    bool m_axeUpgraded = false;
     std::function<QPoint()> m_tilePosition;
 };
 

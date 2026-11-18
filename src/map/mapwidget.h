@@ -48,6 +48,10 @@ public:
     void setFertilizeHandler(std::function<bool(const std::function<bool()> &)> handler) {
         m_fertilizeHandler = std::move(handler);
     }
+    void setWaterHandler(std::function<bool(const std::function<bool()> &)> handler) {
+        m_waterHandler = std::move(handler);
+    }
+    bool isNearWaterWell(const QPoint &tile) const;
     void setViewportCenter(int x, int y);
     void setTimeReference(std::function<qint64()> timeGetter) {
         m_getGameMinutes = std::move(timeGetter);
@@ -139,6 +143,8 @@ private:
     std::function<bool(CropType, int)> m_harvestHandler;
     std::function<bool(CropType, const std::function<bool()> &)> m_plantHandler;
     std::function<bool(const std::function<bool()> &)> m_fertilizeHandler;
+    std::function<bool(const std::function<bool()> &)> m_waterHandler;
+    QVector<QRect> m_waterWells;
     std::function<void(QPainter &, const QPoint &, const WorldState &)> m_paintScenery;
     bool m_inputBlocked = false;
     int m_offsetX = 0;

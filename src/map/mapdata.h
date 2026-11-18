@@ -3,6 +3,7 @@
 
 #include <QHash>
 #include <QPixmap>
+#include <QRect>
 #include <QString>
 #include <QVector>
 
@@ -41,6 +42,7 @@ struct MapData {
     int mapWidth = 0;
     int mapHeight = 0;
     QVector<Tileset> tilesets;
+    QVector<QRect> waterWells;
     QVector<MapRenderLayer> renderLayers;
     QVector<QVector<int>> collisionLayer;
     QVector<QVector<int>> pathLayer;

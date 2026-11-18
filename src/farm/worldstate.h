@@ -41,6 +41,7 @@ struct SavedCropState {
     int growthDays = 0;
     bool fertilizerApplied = false;
     bool fertilizerBonusPending = false;
+    bool offSeasonHalfGrowth = false;
 };
 
 struct SavedTreeState {
@@ -57,6 +58,7 @@ struct TreeChopResult {
     bool felled = false;
     int health = 0;
     int stage = 0;
+    int damage = GameConstants::BaseAxeDamage;
 };
 
 struct WorldStateSnapshot {
@@ -80,7 +82,7 @@ public:
 
     bool hasTreeAt(const QPoint &tilePos) const;
     bool damageTree(const QPoint &tilePos, int damage);
-    TreeChopResult previewTreeChop(const QPoint &tilePos) const;
+    TreeChopResult previewTreeChop(const QPoint &tilePos, int damage = GameConstants::BaseAxeDamage) const;
     bool commitTreeChop(const TreeChopResult &preview);
     QRect standingTreeBounds(const QPoint &tilePos) const;
     bool isPathTile(const QPoint &tilePos) const;
@@ -110,6 +112,7 @@ private:
         int health = 100;
         int stage = 0;
     };
+    void damageWholeTree(WholeTree &tree, int damage);
     QVector<WholeTree> m_wholeTrees;
     int m_treeFirstGid=335;
     QVector<QVector<int>> m_originalTreeLayer;
@@ -125,6 +128,7 @@ private:
         int growthDays = 0;
         bool fertilizerApplied = false;
         bool fertilizerBonusPending = false;
+        bool offSeasonHalfGrowth = false;
     };
 
     int m_mapWidth = 0;

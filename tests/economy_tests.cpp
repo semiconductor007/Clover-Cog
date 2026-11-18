@@ -17,6 +17,8 @@ private slots:
     void fullBagStillAcceptsSupplies();
     void onlySuccessfulFertilizationConsumesStock();
     void itemActionsCannotReenter();
+    void spendWaterOnlyOnSuccessfulAction();
+    void purchaseToolUpgradesOnce();
     void invalidAndOverflowingPurchasesPreserveAssets();
     void saleOverflowPreservesWholeBag();
     void selectedQuantityRequiresStockAtMarket();
@@ -199,6 +201,69 @@ void EconomyTests::itemActionsCannotReenter() {
     QVERIFY(!nestedSuccess);
     QCOMPARE(applications, 1);
     QCOMPARE(economy.fertilizerCount(), 0);
+}
+
+void EconomyTests::spendWaterOnlyOnSuccessfulAction() {
+    EconomyService economy;
+    QCOMPARE(economy.waterRemaining(), 12);
+    QCOMPARE(economy.waterCapacity(), 12);
+    QVERIFY(!economy.refillWater());
+    QVERIFY(!economy.waterWithAction({}));
+    QVERIFY(!economy.waterWithAction([] { return false; }));
+    QCOMPARE(economy.waterRemaining(), 12);
+    for (int i = 0; i < 11; ++i) {
+        QVERIFY(economy.waterWithAction([] { return true; }));
+    }
+    int nestedActions = 0;
+    bool nestedRefill = true;
+    bool nestedWater = true;
+    QVERIFY(economy.waterWithAction([&] {
+        nestedRefill = economy.refillWater();
+        nestedWater = economy.waterWithAction([&] { ++nestedActions; return true; });
+        return true;
+    }));
+    QVERIFY(!nestedRefill);
+    QVERIFY(!nestedWater);
+    QVERIFY(!economy.waterWithAction([&] { ++nestedActions; return true; }));
+    QCOMPARE(nestedActions, 0);
+    QCOMPARE(economy.waterRemaining(), 0);
+    QVERIFY(economy.refillWater());
+    QCOMPARE(economy.waterRemaining(), 12);
+    QVERIFY(!economy.refillWater());
+}
+
+void EconomyTests::purchaseToolUpgradesOnce() {
+    EconomyService economy;
+    QVERIFY(!economy.axeUpgraded());
+    QVERIFY(!economy.canUpgraded());
+    QVERIFY(!economy.upgradeAxe());
+    QVERIFY(!economy.upgradeCan());
+
+    auto stock = economy.state();
+    stock.coins = EconomyService::AxeUpgradePrice + EconomyService::CanUpgradePrice;
+    stock.waterRemaining = 1;
+    QVERIFY(economy.restore(stock));
+    QVERIFY(economy.upgradeAxe());
+    QVERIFY(economy.axeUpgraded());
+    QVERIFY(!economy.upgradeAxe());
+    QCOMPARE(economy.coins(), EconomyService::CanUpgradePrice);
+    QCOMPARE(economy.waterRemaining(), 1);
+    QVERIFY(economy.upgradeCan());
+    QVERIFY(economy.canUpgraded());
+    QCOMPARE(economy.waterCapacity(), 24);
+    QCOMPARE(economy.waterRemaining(), 24);
+    QCOMPARE(economy.coins(), 0);
+    QVERIFY(economy.waterWithAction([] { return true; }));
+    stock = economy.state();
+    stock.coins = 30;
+    QVERIFY(economy.restore(stock));
+    QVERIFY(!economy.upgradeCan());
+    QVERIFY(!economy.upgradeAxe());
+    QCOMPARE(economy.coins(), 30);
+    QCOMPARE(economy.waterRemaining(), 23);
+    stock.waterRemaining = 25;
+    QVERIFY(!economy.restore(stock));
+    QCOMPARE(economy.waterRemaining(), 23);
 }
 
 void EconomyTests::invalidAndOverflowingPurchasesPreserveAssets() {

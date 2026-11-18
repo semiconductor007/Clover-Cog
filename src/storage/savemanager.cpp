@@ -190,6 +190,11 @@ QByteArray encodeSave(const GameSaveData &data) {
     economy.insert(QStringLiteral("seeds"),
                    countsToJson(data.economy.seedCounts));
 
+    economy.insert(QStringLiteral("farmTools"), QJsonObject{
+        {QStringLiteral("axeUpgraded"), data.economy.axeUpgraded},
+        {QStringLiteral("canUpgraded"), data.economy.canUpgraded},
+        {QStringLiteral("waterRemaining"), data.economy.waterRemaining}
+    });
     economy.insert(QStringLiteral("woodCount"), data.economy.woodCount);
     economy.insert(QStringLiteral("woodInChest"), data.economy.storage.woodCount);
     economy.insert(QStringLiteral("fertilizerCount"), data.economy.fertilizerCount);
@@ -208,6 +213,8 @@ QByteArray encodeSave(const GameSaveData &data) {
         object.insert(QStringLiteral("growthDays"), crop.growthDays);
         object.insert(QStringLiteral("fertilizerApplied"), crop.fertilizerApplied);
         object.insert(QStringLiteral("fertilizerBonusPending"), crop.fertilizerBonusPending);
+        if (crop.offSeasonHalfGrowth)
+            object.insert(QStringLiteral("offSeasonHalfGrowth"), true);
         crops.append(object);
     }
     QJsonArray wateredTiles;
@@ -288,6 +295,22 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
         return false;
     }
 
+    if (version >= 4 && economy.contains(QStringLiteral("farmTools"))) {
+        const auto farmTools = economy.value(QStringLiteral("farmTools")).toObject();
+        const auto axe = farmTools.value(QStringLiteral("axeUpgraded"));
+        const auto can = farmTools.value(QStringLiteral("canUpgraded"));
+        const auto water = farmTools.value(QStringLiteral("waterRemaining"));
+        const int remaining = water.toInt(-1);
+        if (!axe.isBool() || !can.isBool() || !water.isDouble() || remaining < 0 ||
+            remaining > EconomyState::waterCapacity(can.toBool())) {
+            setError(errorMessage, QStringLiteral("存档中的农具等级或水量无效"));
+            return false;
+        }
+        parsed.economy.axeUpgraded = axe.toBool();
+        parsed.economy.canUpgraded = can.toBool();
+        parsed.economy.waterRemaining = remaining;
+    }
+
     if (version >= 4) {
         const QJsonObject storage = economy.value(QStringLiteral("storage")).toObject();
         auto &stock = parsed.economy.storage;
@@ -361,14 +384,17 @@ bool decodeSave(const QByteArray &contents, GameSaveData *data, QString *errorMe
         crop.growthDays = object.value(QStringLiteral("growthDays")).toInt(-1);
         const QJsonValue applied = object.value(QStringLiteral("fertilizerApplied"));
         const QJsonValue pending = object.value(QStringLiteral("fertilizerBonusPending"));
+        const QJsonValue half = object.value(QStringLiteral("offSeasonHalfGrowth"));
         if (crop.type == CropType::None || crop.plantedDay < 0 ||
             crop.growthDays < 0 || !applied.isBool() || !pending.isBool() ||
+            (!half.isUndefined() && !half.isBool()) ||
             (pending.toBool() && !applied.toBool())) {
             setError(errorMessage, QStringLiteral("作物状态无效"));
             return false;
         }
         crop.fertilizerApplied = applied.toBool();
         crop.fertilizerBonusPending = pending.toBool();
+        crop.offSeasonHalfGrowth = half.toBool();
         parsed.world.crops.append(crop);
     }
     for (const QJsonValue &pointValue :

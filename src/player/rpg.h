@@ -40,6 +40,7 @@ public:
     QPoint absolutePosition() const { return m_absolutePos; }
     // 新增：获取当前工具属性
     const ToolProperty &getCurrentTool() const { return m_controller->currentTool(); }
+    void setAxeUpgraded(bool upgraded) { m_controller->setAxeUpgraded(upgraded); }
 
 
 

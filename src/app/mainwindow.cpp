@@ -205,6 +205,11 @@ MainWindow::MainWindow(QWidget *parent)
     mapWidget->setFertilizeHandler([this](const std::function<bool()> &action) {
         return m_economy.fertilizeWithItem(action);
     });
+    mapWidget->setWaterHandler([this](const std::function<bool()> &action) {
+        if (m_economy.waterRemaining() == 0)
+            showStatus(QStringLiteral("水壶空了，走到水井旁按 F 补满"));
+        return m_economy.waterWithAction(action);
+    });
 
     connect(mapWidget, &MapWidget::farmingFeedback, this, &MainWindow::showStatus);
     connect(mapWidget, &MapWidget::cropHarvested, this, [this](CropType type, int quantity) {
@@ -235,8 +240,16 @@ MainWindow::MainWindow(QWidget *parent)
             openStorage();
         } else if (m_bedArea.contains(playerTile)) {
             sleepUntilMorning();
+        } else if (mapWidget->isNearWaterWell(playerTile)) {
+            if (m_economy.refillWater()) {
+                updateHud();
+                if (saveGame())
+                    showStatus(QStringLiteral("水壶已补满，水量 %1/%1").arg(m_economy.waterCapacity()));
+            } else {
+                showStatus(QStringLiteral("水壶已经满了"));
+            }
         } else {
-            showStatus(QStringLiteral("到商店、收购点、储物箱前或床边按 F"));
+            showStatus(QStringLiteral("走到商店、收购点、储物箱、水井或床边按 F"));
         }
     });
     // MapWidget emits this only after both the world action and the inventory action commit.
@@ -532,6 +545,8 @@ void MainWindow::updateHud() {
     const Inventory &inventory = m_economy.inventory();
     m_hud->setMoney(m_economy.coins());
     m_hud->setCapacity(inventory.usedCapacity(), inventory.capacity());
+    m_hud->setWater(m_economy.waterRemaining(), m_economy.waterCapacity());
+    character->setAxeUpgraded(m_economy.axeUpgraded());
     const CropType crop = seedCropForTool(itemBar->selectedTool());
     if (crop != CropType::None) {
         m_suppliesLabel->setText(QStringLiteral("%1种子 %2 份  ·  肥料 %3 份")
@@ -605,6 +620,26 @@ void MainWindow::openSeedShop() {
     connect(dialog, &SeedShopDialog::fertilizerPurchaseRequested, this, [purchase](int quantity) {
         purchase(ToolType::Fertilizer, quantity);
     });
+    const auto upgrade = [this, dialog](ToolType tool) {
+        if (!acceptPanelCommand(dialog)) return;
+        if (!m_shopArea.contains(character->currentTilePosition())) {
+            dialog->setMessage(QStringLiteral("请到商店升级农具"));
+            return;
+        }
+        const bool can = tool == ToolType::WateringCan;
+        if (can ? m_economy.canUpgraded() : m_economy.axeUpgraded()) {
+            dialog->setMessage(QStringLiteral("这件农具已升到最高级"));
+            return;
+        }
+        if (!(can ? m_economy.upgradeCan() : m_economy.upgradeAxe())) {
+            dialog->setMessage(QStringLiteral("金币不足"));
+            return;
+        }
+        finishTrade(dialog, can ? QStringLiteral("水壶已升级并补满，花费 %1 金币").arg(EconomyService::CanUpgradePrice)
+                                : QStringLiteral("斧头已升级，花费 %1 金币").arg(EconomyService::AxeUpgradePrice));
+    };
+    connect(dialog, &SeedShopDialog::canUpgradeRequested, this, [upgrade] { upgrade(ToolType::WateringCan); });
+    connect(dialog, &SeedShopDialog::axeUpgradeRequested, this, [upgrade] { upgrade(ToolType::Axe); });
     showFarmPanel(dialog);
 }
 

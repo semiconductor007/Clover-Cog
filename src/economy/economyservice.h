@@ -86,6 +86,8 @@ struct StorageTransferResult {
 };
 
 struct EconomyState {
+    static constexpr int BaseWaterCapacity = 12;
+    static constexpr int waterCapacity(bool upgraded) { return upgraded ? 24 : BaseWaterCapacity; }
     int coins = 0;
     int inventoryCapacity = 0;
     QHash<int, int> inventoryCounts;
@@ -95,6 +97,9 @@ struct EconomyState {
     QVector<InventoryStack> bagSlots;
     QVector<InventoryStack> chestSlots;
     int woodCount = 0;
+    int waterRemaining = BaseWaterCapacity;
+    bool canUpgraded = false;
+    bool axeUpgraded = false;
 };
 
 class EconomyService {
@@ -109,6 +114,18 @@ public:
     void setEquippedSlot(int slot) { m_equippedSlot = slot >= 0 && slot < 7 ? slot : -1; }
     static bool layoutMatches(const EconomyState &state);
     static constexpr int FertilizerPrice = 1;
+
+    static constexpr int AxeUpgradePrice = 18;
+    static constexpr int CanUpgradePrice = 12;
+
+    int waterRemaining() const { return m_waterRemaining; }
+    int waterCapacity() const { return EconomyState::waterCapacity(m_canUpgraded); }
+    bool axeUpgraded() const { return m_axeUpgraded; }
+    bool canUpgraded() const { return m_canUpgraded; }
+    bool refillWater();
+    bool waterWithAction(const std::function<bool()> &action);
+    bool upgradeAxe();
+    bool upgradeCan();
 
     explicit EconomyService(int inventoryCapacity = 12);
 
@@ -145,6 +162,9 @@ private:
     QHash<int, int> m_seedCounts;
     int m_fertilizerCount = 0;
     int m_woodCount = 0;
+    int m_waterRemaining = EconomyState::BaseWaterCapacity;
+    bool m_axeUpgraded = false;
+    bool m_canUpgraded = false;
     StorageStock m_storage;
     bool m_applyingItem = false;
 };

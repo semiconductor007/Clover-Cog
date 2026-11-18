@@ -93,6 +93,7 @@ bool MapLoader::load(const QString &tmjPath, MapData *result, QString *errorMess
         return false;
     }
 
+    int wellFirstGid = -1;
     for (const QJsonValue &tilesetValue : map.value("tilesets").toArray()) {
         const QJsonObject source = tilesetValue.toObject();
         Tileset tileset;
@@ -100,6 +101,7 @@ bool MapLoader::load(const QString &tmjPath, MapData *result, QString *errorMess
         tileset.sourcePath = source.value("source").toString();
 
         const QString tsxName = QFileInfo(tileset.sourcePath).fileName();
+        if (tsxName == QStringLiteral("Water_Well.tsx")) wellFirstGid = tileset.firstGid;
         loadTileProperties(QStringLiteral(":/tilesets/tsx/") + tsxName,
                            tileset.firstGid, &loaded.tileProperties);
 
@@ -142,6 +144,10 @@ bool MapLoader::load(const QString &tmjPath, MapData *result, QString *errorMess
         for (int y = 0; y < loaded.mapHeight; ++y) {
             for (int x = 0; x < loaded.mapWidth; ++x) {
                 layerData[y][x] = values.at(y * loaded.mapWidth + x).toInt();
+                // Each 2x2 well starts with the top-left tile from Water_Well.tsx.
+                if (wellFirstGid > 0 && layerData[y][x] == wellFirstGid &&
+                    layerName == QStringLiteral("buildings"))
+                    loaded.waterWells.append(QRect(x, y, 2, 2));
             }
         }
 

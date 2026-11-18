@@ -53,6 +53,10 @@ class SaveTests : public QObject {
 private slots:
     void slotLayoutRoundTripAndCorruption();
     void fertilizerRoundTrip();
+    void offSeasonProgressRoundTrip();
+    void farmToolsRoundTripAndLegacyDefaults();
+    void invalidFarmToolsAreRejected_data();
+    void invalidFarmToolsAreRejected();
     void missingV2StockMigratesWithoutWritingLegacy();
     void migrateV3AndRoundTripStorage();
     void newestGenerationWithEitherCopyTakesPriority();
@@ -101,6 +105,125 @@ void SaveTests::slotLayoutRoundTripAndCorruption() {
     EconomyService restored;QVERIFY(restored.restore(loaded.economy));
     QCOMPARE(restored.seedCount(CropType::Wheat),6);
     QVERIFY(EconomyService::layoutMatches(restored.state()));
+}
+
+void SaveTests::offSeasonProgressRoundTrip() {
+    const QPoint field(0, 0);
+    const int summerStart = SeasonCalendar::DaysPerSeason;
+    WorldState world;
+    world.initialize(testMap());
+    QVERIFY(world.plantSeed(field, CropType::Carrot, summerStart - 1));
+    QVERIFY(world.waterTile(field));
+    world.advanceDay(summerStart - 1);
+    QVERIFY(world.waterTile(field));
+    world.advanceDay(summerStart);
+
+    auto farm = newFarm();
+    farm.gameMinutes = (summerStart + 1) * 1440 + 360;
+    farm.lastProcessedDay = summerStart + 1;
+    farm.world = world.snapshot();
+    QCOMPARE(farm.world.crops.first().growthDays, 1);
+    QVERIFY(farm.world.crops.first().offSeasonHalfGrowth);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("farm.json"));
+    QString error;
+    QVERIFY2(SaveManager::save(path, farm, &error), qPrintable(error));
+    GameSaveData reopened;
+    QVERIFY(SaveManager::load(path, &reopened));
+    WorldState restored;
+    restored.initialize(testMap());
+    QVERIFY(restored.restore(reopened.world));
+    QVERIFY(restored.waterTile(field));
+    restored.advanceDay(summerStart + 1);
+    QCOMPARE(restored.snapshot().crops.first().growthDays, 2);
+    QVERIFY(!restored.snapshot().crops.first().offSeasonHalfGrowth);
+
+    auto root = QJsonDocument::fromJson(readFile(path)).object();
+    auto savedWorld = root.value("world").toObject();
+    auto crops = savedWorld.value("crops").toArray();
+    auto carrot = crops.first().toObject();
+    carrot["offSeasonHalfGrowth"] = 1;
+    crops[0] = carrot;
+    savedWorld["crops"] = crops;
+    root["world"] = savedWorld;
+    QVERIFY(writeFile(path, QJsonDocument(root).toJson()));
+    QVERIFY(!SaveManager::load(path, &reopened));
+    carrot.remove("offSeasonHalfGrowth");
+    crops[0] = carrot;
+    savedWorld["crops"] = crops;
+    root["world"] = savedWorld;
+    QVERIFY(writeFile(path, QJsonDocument(root).toJson()));
+    QVERIFY(SaveManager::load(path, &reopened));
+    QVERIFY(!reopened.world.crops.first().offSeasonHalfGrowth);
+}
+
+void SaveTests::farmToolsRoundTripAndLegacyDefaults() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("farm-v4.json");
+    auto data = newFarm();
+    data.economy.axeUpgraded = true;
+    data.economy.canUpgraded = true;
+    data.economy.waterRemaining = 19;
+    QVERIFY(SaveManager::save(path, data));
+
+    GameSaveData loaded;
+    QVERIFY(SaveManager::load(path, &loaded));
+    QVERIFY(loaded.economy.axeUpgraded);
+    QVERIFY(loaded.economy.canUpgraded);
+    QCOMPARE(loaded.economy.waterRemaining, 19);
+
+    auto root = QJsonDocument::fromJson(readFile(path)).object();
+    auto economy = root["economy"].toObject();
+    economy.remove("farmTools");
+    root["economy"] = economy;
+    QVERIFY(writeFile(path, QJsonDocument(root).toJson()));
+    QVERIFY(SaveManager::load(path, &loaded));
+    QVERIFY(!loaded.economy.axeUpgraded);
+    QVERIFY(!loaded.economy.canUpgraded);
+    QCOMPARE(loaded.economy.waterRemaining, 12);
+}
+
+void SaveTests::invalidFarmToolsAreRejected_data() {
+    QTest::addColumn<QJsonValue>("badTools");
+    QTest::newRow("not-object") << QJsonValue(false);
+    QJsonObject tools{{"axeUpgraded", false}, {"canUpgraded", false}};
+    QTest::newRow("missing-water") << QJsonValue(tools);
+    tools["waterRemaining"] = 13;
+    QTest::newRow("base-overfilled") << QJsonValue(tools);
+    tools["canUpgraded"] = true;
+    tools["waterRemaining"] = 25;
+    QTest::newRow("upgraded-overfilled") << QJsonValue(tools);
+    tools["waterRemaining"] = -1;
+    QTest::newRow("negative-water") << QJsonValue(tools);
+    tools["waterRemaining"] = 0.5;
+    QTest::newRow("fractional-water") << QJsonValue(tools);
+    tools["waterRemaining"] = "5";
+    QTest::newRow("water-as-string") << QJsonValue(tools);
+    tools["waterRemaining"] = 1;
+    tools["axeUpgraded"] = "false";
+    QTest::newRow("bad-axe-level") << QJsonValue(tools);
+    tools["axeUpgraded"] = false;
+    tools["canUpgraded"] = 1;
+    QTest::newRow("bad-can-level") << QJsonValue(tools);
+}
+
+void SaveTests::invalidFarmToolsAreRejected() {
+    QFETCH(QJsonValue, badTools);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("farm-v4.json");
+    QVERIFY(SaveManager::save(path, newFarm()));
+    auto root = QJsonDocument::fromJson(readFile(path)).object();
+    auto economy = root["economy"].toObject();
+    economy["farmTools"] = badTools;
+    root["economy"] = economy;
+    QVERIFY(writeFile(path, QJsonDocument(root).toJson()));
+    auto loaded = newFarm();
+    loaded.economy.waterRemaining = 3;
+    QVERIFY(!SaveManager::load(path, &loaded));
+    QCOMPARE(loaded.economy.waterRemaining, 3);
 }
 
 void SaveTests::fertilizerRoundTrip() {

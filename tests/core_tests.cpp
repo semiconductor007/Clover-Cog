@@ -23,11 +23,13 @@ class CoreTests : public QObject {
 
 private slots:
     void wholeTreesChopPersistAndGiveWood();
+    void upgradedAxeKeepsTreeYields();
     void woodFullBagAndInvalidActionsAreAtomic();
     void gameClockConvertsElapsedTime();
     void seasonCalendarUsesTheClockDate();
     void cropCatalogHasIndependentStagesAndIcons();
     void seasonalPlantingPreservesSeedsAndExistingCrops();
+    void offSeasonProgressSurvivesCatchupAndReturningSeason();
     void allCropTypesCompleteTheEconomicLoop();
     void catchingUpAQuietFarmMatchesDailySettlement();
     void fertilizerWaitsForWaterAndAppliesOnce();
@@ -99,6 +101,41 @@ void CoreTests::wholeTreesChopPersistAndGiveWood() {
     const auto current=world.snapshot();
     auto bad=current;bad.trees[0].health=-1;QVERIFY(!world.restore(bad));
     QCOMPARE(world.treeGidAt(trunk),409);
+}
+
+void CoreTests::upgradedAxeKeepsTreeYields() {
+    MapData map;
+    map.mapWidth = 1;
+    map.mapHeight = 2;
+    map.treeLayer = {{335}, {347}};
+    const QPoint trunk(0, 1);
+    WorldState world;
+    world.initialize(map);
+    const auto fresh = world.snapshot();
+    QVERIFY(!world.previewTreeChop(trunk, 0).success);
+    QVERIFY(!world.previewTreeChop({0, 0}, 50).success);
+    for (int oldHits : {0, 1, 3}) {
+        QVERIFY(world.restore(fresh));
+        for (int hit = 0; hit < oldHits; ++hit) {
+            const auto normal = world.previewTreeChop(trunk);
+            QCOMPARE(normal.wood, 0);
+            QVERIFY(world.commitTreeChop(normal));
+        }
+        QVERIFY(world.restore(world.snapshot())); // A tree from an ordinary axe save.
+        const int standingHits = oldHits == 3 ? 1 : 2;
+        for (int hit = 1; hit <= standingHits; ++hit) {
+            const auto upgraded = world.previewTreeChop(trunk, 50);
+            QCOMPARE(upgraded.wood, hit == standingHits ? 5 : 0);
+            QCOMPARE(upgraded.felled, hit == standingHits);
+            QVERIFY(world.commitTreeChop(upgraded));
+            QVERIFY(!world.commitTreeChop(upgraded));
+        }
+        const auto stump = world.previewTreeChop(trunk, 50);
+        QCOMPARE(stump.wood, 2);
+        QVERIFY(world.commitTreeChop(stump));
+        QVERIFY(!world.commitTreeChop(stump));
+        QVERIFY(!world.previewTreeChop(trunk, 50).success);
+    }
 }
 
 void CoreTests::woodFullBagAndInvalidActionsAreAtomic() {
@@ -604,17 +641,74 @@ void CoreTests::seasonalPlantingPreservesSeedsAndExistingCrops() {
     QVERIFY(!economy.plantWithSeed(CropType::Carrot,[&](){return world.plantSeed({1,0},CropType::Carrot,7);}));
     QCOMPARE(economy.seedCount(CropType::Carrot),1);
     QCOMPARE(world.cropGidAt({1,0}),0);
-    QVERIFY(world.waterTile({0,0}));world.advanceDay(7,[](){return 99;});
-    QVERIFY(world.cropGidAt({0,0})!=springGid);
-    for (int day=8;day<10;++day) { QVERIFY(world.waterTile({0,0}));world.advanceDay(day,[](){return 99;}); }
-    QVERIFY(world.previewHarvest({0,0}).isValid());
-    WorldState restored;restored.initialize(data);QVERIFY(restored.restore(world.snapshot()));
-    QVERIFY(restored.previewHarvest({0,0}).isValid());
-    QVERIFY(!world.plantSeed({1,0},CropType::Wheat,-1));
-    QVERIFY(!world.plantSeed({1,0},static_cast<CropType>(99),10));
-    const auto unchanged=world.snapshot();
-    world.advanceDay(9,[](){return 0;});
-    QCOMPARE(world.snapshot().lastCompletedDay,unchanged.lastCompletedDay);
+    QCOMPARE(world.snapshot().crops.first().growthDays, 1);
+    QVERIFY(world.fertilize({0, 0}).success);
+    QVERIFY(world.waterTile({0, 0}));
+    const auto firstSummerDay = world.advanceDay(7, []() { return 99; });
+    QCOMPARE(firstSummerDay.cropsAdvanced, 1);
+    QCOMPARE(firstSummerDay.cropsStalled, 0);
+    QCOMPARE(firstSummerDay.fertilizerBonusesUsed, 0);
+    QCOMPARE(world.cropGidAt({0, 0}), springGid);
+    const auto halfway = world.snapshot();
+    QVERIFY(halfway.crops.first().offSeasonHalfGrowth);
+    WorldState restored;
+    restored.initialize(data);
+    QVERIFY(restored.restore(halfway));
+    QVERIFY(restored.hasPendingFertilizerBonus({0, 0}));
+    QCOMPARE(restored.advanceDay(8, []() { return 99; }).cropsStalled, 1);
+    QVERIFY(restored.snapshot().crops.first().offSeasonHalfGrowth);
+    QVERIFY(restored.waterTile({0, 0}));
+    QCOMPARE(restored.advanceDay(9, []() { return 99; }).fertilizerBonusesUsed, 1);
+    QCOMPARE(restored.snapshot().crops.first().growthDays, 3);
+    QVERIFY(!restored.snapshot().crops.first().offSeasonHalfGrowth);
+    for (int day : {10, 11}) {
+        QVERIFY(restored.waterTile({0, 0}));
+        QCOMPARE(restored.advanceDay(day, []() { return 99; }).fertilizerBonusesUsed, 0);
+    }
+    QVERIFY(restored.previewHarvest({0, 0}).isValid());
+    auto invalid = restored.snapshot();
+    invalid.crops.first().offSeasonHalfGrowth = true;
+    QVERIFY(!restored.restore(invalid)); // Mature plants cannot have a growth remainder.
+    QVERIFY(restored.previewHarvest({0, 0}).isValid());
+    QVERIFY(!restored.plantSeed({1, 0}, CropType::Wheat, -1));
+    QVERIFY(!restored.plantSeed({1, 0}, static_cast<CropType>(99), 12));
+    restored.advanceDay(11, []() { return 0; });
+    QCOMPARE(restored.snapshot().lastCompletedDay, 11);
+}
+
+void CoreTests::offSeasonProgressSurvivesCatchupAndReturningSeason() {
+    MapData map;
+    map.mapWidth = 1;
+    map.mapHeight = 1;
+    map.cultivatedLayer = {{135}};
+    WorldState world;
+    world.initialize(map);
+    const QPoint field(0, 0);
+    QVERIFY(world.plantSeed(field, CropType::Carrot, 6));
+    world.advanceDay(6);
+    QVERIFY(world.waterTile(field));
+    const auto summer = world.advanceThroughDay(13); // One watered summer day, six dry.
+    QCOMPARE(summer.cropsAdvanced, 1);
+    QCOMPARE(summer.cropsStalled, 6);
+    QCOMPARE(world.snapshot().crops.first().growthDays, 0);
+    QVERIFY(world.snapshot().crops.first().offSeasonHalfGrowth);
+
+    QVERIFY(world.waterTile(field));
+    world.advanceThroughDay(20); // First autumn watering grants a full day.
+    QCOMPARE(world.snapshot().crops.first().growthDays, 1);
+    QVERIFY(world.snapshot().crops.first().offSeasonHalfGrowth);
+    QVERIFY(world.waterTile(field));
+    world.advanceDay(21); // First winter watering completes the saved half day.
+    QCOMPARE(world.snapshot().crops.first().growthDays, 2);
+    QVERIFY(!world.snapshot().crops.first().offSeasonHalfGrowth);
+
+    world.initialize(map);
+    QVERIFY(world.plantSeed(field, CropType::Wheat, 6));
+    for (int day : {6, 7, 8}) {
+        QVERIFY(world.waterTile(field));
+        world.advanceDay(day);
+    }
+    QVERIFY(world.previewHarvest(field).isValid());
 }
 
 void CoreTests::allCropTypesCompleteTheEconomicLoop() {

@@ -29,6 +29,7 @@ private slots:
     void bagMouseAndCloseKeys();
     void bagToolsAndQuantitiesStayUnchanged();
     void shopOrders();
+    void shopUpgrades();
     void marketQuoteAndSale();
     void storageTransfersAndFailureFeedback();
     void chestDragAndCancel();
@@ -63,6 +64,10 @@ void PanelTests::itemHoverDescriptions() {
     for(auto *label:shop.findChildren<QLabel *>())
         found |= label->toolTip().contains(QStringLiteral("生长周期：5"));
     QVERIFY(found);
+    const QString potato = FarmIcons::itemDescription(StackItem::seed(CropType::Potato));
+    QVERIFY(potato.contains(QStringLiteral("非适季每浇水 2 天")));
+    QVERIFY(!FarmIcons::itemDescription(seed).contains(QStringLiteral("非适季")));
+    QVERIFY(FarmIcons::itemDescription(StackItem::Water).contains(QStringLiteral("水井旁按 F")));
     QVERIFY(FarmIcons::itemDescription(StackItem::Hoe).contains(QStringLiteral("可耕草地")));
     QVERIFY(FarmIcons::itemDescription(StackItem::Fertilizer).contains(QStringLiteral("限用一次")));
     QVERIFY(FarmIcons::itemDescription(StackItem::harvest(CropType::Potato)).contains(QStringLiteral("出售单价：3")));
@@ -196,6 +201,51 @@ void PanelTests::shopOrders() {
     QVERIFY(!shop.isVisible());
 }
 
+void PanelTests::shopUpgrades() {
+    EconomyService economy;
+    SeedShopDialog shop;
+    shop.setState(economy);
+    auto *can = shop.findChild<QPushButton *>("upgradeCan");
+    auto *axe = shop.findChild<QPushButton *>("upgradeAxe");
+    QVERIFY(can && axe);
+    QVERIFY(!can->isEnabled() && !axe->isEnabled());
+    QVERIFY(can->toolTip().contains(QStringLiteral("24 格")));
+    QVERIFY(axe->toolTip().contains(QStringLiteral("只需 1 斧")));
+
+    auto stock = economy.state();
+    stock.coins = EconomyService::CanUpgradePrice;
+    QVERIFY(economy.restore(stock));
+    shop.setState(economy);
+    QVERIFY(can->isEnabled() && !axe->isEnabled());
+    stock.coins += EconomyService::AxeUpgradePrice;
+    QVERIFY(economy.restore(stock));
+    shop.setState(economy);
+    QVERIFY(axe->isEnabled());
+    QSignalSpy canOrders(&shop, &SeedShopDialog::canUpgradeRequested);
+    QSignalSpy axeOrders(&shop, &SeedShopDialog::axeUpgradeRequested);
+    connect(&shop, &SeedShopDialog::canUpgradeRequested, &shop, [&] {
+        QVERIFY(economy.upgradeCan());
+        shop.setState(economy);
+    });
+    connect(&shop, &SeedShopDialog::axeUpgradeRequested, &shop, [&] {
+        QVERIFY(economy.upgradeAxe());
+        shop.setState(economy);
+    });
+    shop.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&shop));
+    QTest::keyClick(can, Qt::Key_Return);
+    QVERIFY(!can->isEnabled() && axe->isEnabled());
+    QVERIFY(can->text().contains(QStringLiteral("已升级")));
+    QTest::mouseClick(can, Qt::LeftButton);
+    QCOMPARE(canOrders.count(), 1);
+    QTest::mouseClick(axe, Qt::LeftButton);
+    QVERIFY(!axe->isEnabled());
+    QVERIFY(axe->text().contains(QStringLiteral("已升级")));
+    QTest::mouseClick(axe, Qt::LeftButton);
+    QCOMPARE(axeOrders.count(), 1);
+    QCOMPARE(economy.coins(), 0);
+}
+
 void PanelTests::marketQuoteAndSale() {
     EconomyService economy;
     for (CropType crop : CropCatalog::cropTypes())
@@ -222,13 +272,36 @@ void PanelTests::marketQuoteAndSale() {
     market.show();
     QVERIFY(QTest::qWaitForWindowExposed(&market));
     QVERIFY(market.windowFlags().testFlag(Qt::FramelessWindowHint));
+    QVERIFY(!market.findChild<QLabel *>("panelTitle"));
+    auto *close = market.findChild<QPushButton *>("closePanel");
+    QVERIFY(close && close->isVisible() && !close->accessibleName().isEmpty());
+    QVERIFY(close->geometry().bottom() < sellPotatoes->geometry().top());
+    QDir().mkpath("captures");
     QVERIFY(market.grab().save("captures/market-pixel.png"));
+    QSignalSpy singleSale(&market, &MarketDialog::cropSaleRequested);
+    connect(&market, &MarketDialog::cropSaleRequested, &market, [&](CropType crop, int count) {
+        QVERIFY(economy.sellCrop(crop, count, {1, 1}, {1, 1, 1, 1}).success);
+        market.setState(economy);
+    });
+    quantity->setValue(1);
+    QTest::mouseClick(sellPotatoes, Qt::LeftButton);
+    QCOMPARE(singleSale.count(), 1);
+    QCOMPARE(singleSale.first().at(0).value<CropType>(), CropType::Potato);
+    QCOMPARE(singleSale.first().at(1).toInt(), 1);
+    QCOMPARE(quantity->maximum(), 2);
+    QCOMPARE(economy.coins(), 3);
     QTest::mouseClick(sell, Qt::LeftButton);
     QTest::mouseClick(sell, Qt::LeftButton);
     QCOMPARE(sold.count(), 1);
     QCOMPARE(economy.coins(), 28);
     QVERIFY(!sell->isEnabled());
     QVERIFY(total->text().contains(QStringLiteral("合计 0 金币")));
+    QCOMPARE(market.findChild<QLabel *>("panelMessage")->text(), QStringLiteral("出售成功"));
+    QTest::keyClick(close, Qt::Key_Escape);
+    QVERIFY(!market.isVisible());
+    market.show();
+    QTest::mouseClick(close, Qt::LeftButton);
+    QVERIFY(!market.isVisible());
 }
 
 void PanelTests::storageTransfersAndFailureFeedback() {

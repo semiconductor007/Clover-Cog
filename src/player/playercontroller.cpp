@@ -3,11 +3,13 @@
 #include "map/mapwidget.h"
 
 namespace {
-ToolProperty propertyForTool(ToolType type) {
+ToolProperty propertyForTool(ToolType type, bool axeUpgraded) {
     ToolProperty tool{type, toolName(type), 0, {}};
     switch (type) {
     case ToolType::EmptyHand: break;
-    case ToolType::Axe: tool.damage = 25; break;
+    case ToolType::Axe:
+        tool.damage = axeUpgraded ? GameConstants::UpgradedAxeDamage : GameConstants::BaseAxeDamage;
+        break;
     case ToolType::Hoe: tool.damage = 15; break;
     case ToolType::WateringCan: tool.damage = 5; break;
     default: return tool;
@@ -18,7 +20,7 @@ ToolProperty propertyForTool(ToolType type) {
 }
 
 PlayerController::PlayerController(MapWidget *mapWidget, QObject *parent)
-    : QObject(parent), m_mapWidget(mapWidget), m_currentTool(propertyForTool(ToolType::EmptyHand)) {
+    : QObject(parent), m_mapWidget(mapWidget), m_currentTool(propertyForTool(ToolType::EmptyHand, false)) {
     if (m_mapWidget)
         m_mapWidget->setPlayerController(this);
 }
@@ -27,8 +29,15 @@ void PlayerController::setCurrentTool(int toolIndex) {
     const ToolType tool = static_cast<ToolType>(toolIndex);
     if (tool != ToolType::EmptyHand && tool != ToolType::Axe && toolSlot(tool) < 0)
         return;
-    m_currentTool = propertyForTool(tool);
+    m_currentTool = propertyForTool(tool, m_axeUpgraded);
     emit toolChanged(m_currentTool.type);
+}
+
+void PlayerController::setAxeUpgraded(bool upgraded) {
+    if (m_axeUpgraded == upgraded) return;
+    m_axeUpgraded = upgraded;
+    if (m_currentTool.type == ToolType::Axe)
+        m_currentTool = propertyForTool(ToolType::Axe, upgraded);
 }
 
 void PlayerController::useToolAt(const QPoint &mapPoint) {
